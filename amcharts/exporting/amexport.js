@@ -119,9 +119,6 @@ AmCharts.AmExport = AmCharts.Class({
 				dpi				: 90,
 				onclick			: function(instance, config, event) {
 					event.preventDefault();
-					if(_this.chart.prepareForExport){
-						_this.chart.prepareForExport();
-					}
 					instance.output(config);
 				}
 			},
@@ -313,6 +310,10 @@ AmCharts.AmExport = AmCharts.Class({
 		var _this = this;
 		cfg = AmCharts.extend(AmCharts.extend({}, _this.cfg.menuItemOutput), cfg || {});
 
+		if(_this.chart.prepareForExport){
+			_this.chart.prepareForExport();
+		}
+		
 		/* PRIVATE
 		Callback function which gets called after the drawing process is done
 		@param none
