@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.1.3
+Version: 1.1.8
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -23,10 +23,28 @@ Please note that the above license covers only this plugin. It by all means does
 not apply to any other amCharts products that are covered by different licenses.
 */
 
+/*
+ ** Polyfill translation
+ */
+if ( !AmCharts.translations[ "export" ] ) {
+	AmCharts.translations[ "export" ] = {}
+}
+if ( !AmCharts.translations[ "export" ][ "en" ] ) {
+	AmCharts.translations[ "export" ][ "en" ] = {
+		"fallback.save.text": "CTRL + C to copy the data into the clipboard.",
+		"fallback.save.image": "Rightclick -> Save picture as... to save the image.",
+		"capturing.delayed.menu.label": "{{duration}}",
+		"capturing.delayed.menu.title": "Click to cancel"
+	}
+}
+
+/**
+ * Set init handler
+ */
 AmCharts.addInitHandler( function( chart ) {
 	var _this = {
 		name: "export",
-		version: "1.1.3",
+		version: "1.1.8",
 		libs: {
 			async: true,
 			autoLoad: true,
@@ -46,20 +64,28 @@ AmCharts.addInitHandler( function( chart ) {
 			actions: [ "undo", "redo", "done", "cancel" ],
 			undos: [],
 			undo: function() {
-				var last = _this.drawing.undos.pop();
-
-				if ( last ) {
-					_this.drawing.redos.push( last );
-					last.path.remove();
+				var item = _this.drawing.undos.pop();
+				if ( item ) {
+					_this.drawing.redos.push( item );
+					if ( item.action == "added" ) {
+						item.target.known = true;
+						_this.setup.fabric.remove( item.target );
+					}
+					item.target.setOptions( JSON.parse( item.options ) );
+					_this.setup.fabric.renderAll();
 				}
 			},
 			redos: [],
 			redo: function() {
-				var last = _this.drawing.redos.pop();
-
-				if ( last ) {
-					_this.setup.fabric.add( last.path );
-					_this.drawing.undos.push( last );
+				var item = _this.drawing.redos.pop();
+				if ( item ) {
+					_this.drawing.undos.push( item );
+					if ( item.action == "added" ) {
+						item.target.known = true;
+						_this.setup.fabric.add( item.target );
+					}
+					item.target.setOptions( JSON.parse( item.options ) );
+					_this.setup.fabric.renderAll();
 				}
 			},
 			done: function() {
@@ -135,7 +161,7 @@ AmCharts.addInitHandler( function( chart ) {
 						format: "PDF",
 						content: [ "Saved from:", window.location.href, {
 							image: "reference",
-							fit: [ 523.28, 769.89 ] // fit image to A4
+							fit: [ 523.28, 769.89 ] // FIT IMAGE TO A4
 						} ]
 					} ]
 				}, {
@@ -185,7 +211,7 @@ AmCharts.addInitHandler( function( chart ) {
 								format: "PDF",
 								content: [ "Saved from:", window.location.href, {
 									image: "reference",
-									fit: [ 523.28, 769.89 ] // fit image to A4
+									fit: [ 523.28, 769.89 ] // FIT IMAGE TO A4
 								} ]
 							} ]
 						}, {
@@ -198,13 +224,20 @@ AmCharts.addInitHandler( function( chart ) {
 					label: "Print"
 				} ]
 			} ],
-			timer: 0,
-			fallback: {
-				text: "CTRL + C to copy the data into the clipboard.",
-				image: "Rightclick -> Save picture as... to save the image."
-			}
+			fallback: true
 		},
 
+		/**
+		 * Returns translated message, takes english as default
+		 */
+		i18l: function( key, language ) {
+			var catalog = AmCharts.translations[ "export" ][ language ] || AmCharts.translations[ "export" ][ "en" ];
+			return catalog[ key ] || key;
+		},
+
+		/**
+		 * Generates download file; if unsupported offers fallback to save manually
+		 */
 		download: function( data, type, filename ) {
 			// SAVE
 			if ( window.saveAs && _this.setup.hasBlob ) {
@@ -221,7 +254,7 @@ AmCharts.addInitHandler( function( chart ) {
 				var msg = document.createElement( "div" );
 				var textarea = document.createElement( "textarea" );
 
-				msg.innerHTML = _this.config.fallback.text;
+				msg.innerHTML = _this.i18l( "fallback.save.text", _this.setup.chart.language );
 
 				div.appendChild( msg );
 				div.appendChild( textarea );
@@ -229,13 +262,13 @@ AmCharts.addInitHandler( function( chart ) {
 				div.setAttribute( "class", "amcharts-export-fallback" );
 				_this.setup.chart.containerDiv.appendChild( div );
 
-				// Fulfill textarea and preselect
+				// FULFILL TEXTAREA AND PRESELECT
 				textarea.setAttribute( "readonly", "" );
 				textarea.value = data;
 				textarea.focus();
 				textarea.select();
 
-				// Update menu
+				// UPDATE MENU
 				_this.createMenu( [ {
 					"class": "export-main export-close",
 					label: "Done",
@@ -253,16 +286,16 @@ AmCharts.addInitHandler( function( chart ) {
 					data: data
 				} );
 
-				msg.innerHTML = _this.config.fallback.image;
+				msg.innerHTML = _this.i18l( "fallback.save.image", _this.setup.chart.language );
 
-				// Fulfill textarea and preselect
+				// FULFILL TEXTAREA AND PRESELECT
 				div.appendChild( msg );
 				div.appendChild( img );
 				msg.setAttribute( "class", "amcharts-export-fallback-message" );
 				div.setAttribute( "class", "amcharts-export-fallback" );
 				_this.setup.chart.containerDiv.appendChild( div );
 
-				// Update menu
+				// UPDATE MENU
 				_this.createMenu( [ {
 					"class": "export-main export-close",
 					label: "Done",
@@ -279,6 +312,10 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates script, links tags and places them into the document's head
+		 * In case of reload it replaces the node to force the download
+		 */
 		loadResource: function( src, addons ) {
 			var i1, exist, node, item, check, type;
 			var url = src.indexOf( "//" ) != -1 ? src : [ _this.libs.path, src ].join( "" );
@@ -327,6 +364,9 @@ AmCharts.addInitHandler( function( chart ) {
 
 		},
 
+		/**
+		 * Walker to generate the script,link tags
+		 */
 		loadDependencies: function() {
 			var i1, i2;
 			if ( _this.libs.autoLoad ) {
@@ -342,10 +382,24 @@ AmCharts.addInitHandler( function( chart ) {
 			}
 		},
 
+		/**
+		 * Converts string to number
+		 */
 		pxToNumber: function( attr ) {
 			return Number( String( attr ).replace( "px", "" ) ) || 0;
 		},
 
+		/**
+		 * Converts number to string
+		 */
+		numberToPx: function( attr ) {
+			return String( attr ) + "px";
+		},
+
+		/**
+		 * Recursive method to merge the given objects together
+		 * Overwrite flag replaces the value instead to crawl through
+		 */
 		deepMerge: function( a, b, overwrite ) {
 			var i1, v, type = b instanceof Array ? "array" : "object";
 
@@ -387,26 +441,128 @@ AmCharts.addInitHandler( function( chart ) {
 			return a;
 		},
 
-		// CHECK IF IT'S AN ELEMENT
+		/**
+		 * Checks if given argument is a valid node
+		 */
 		isElement: function( thingy ) {
 			return thingy instanceof Object && thingy && thingy.nodeType === 1;
 		},
 
-		// CHECK IF TAINTED
+		/**
+		 * Checks if given source is within the current origin
+		 */
 		isTainted: function( source ) {
+			var origin = String( window.location.origin || window.location.protocol + "//" + window.location.hostname + ( window.location.port ? ':' + window.location.port : '' ) );
+
+			// CHECK IF TAINTED
 			if (
 				source &&
 				source.indexOf( "//" ) != -1 &&
-				source.indexOf( location.origin ) == -1
+				source.indexOf( origin.replace( /.*:/, "" ) ) == -1
 			) {
 				return true;
 			}
 			return false;
 		},
 
-		// CAPTURE EMOTIONAL MOMENT
+		/**
+		 * Recursive method which crawls upwards to gather the request attribute
+		 */
+		gatherAttribute: function( elm, attr, limit, lvl ) {
+			var value, lvl = lvl ? lvl : 0,
+				limit = limit ? limit : 3;
+			if ( elm ) {
+				value = elm.getAttribute( attr );
+
+				if ( !value && lvl < limit ) {
+					return _this.gatherAttribute( elm.parentNode, attr, limit, lvl + 1 );
+				}
+			}
+			return value
+		},
+
+		/**
+		 * Collects the clip-paths and patterns
+		 */
+		gatherElements: function( group, cfg, images ) {
+			var i1, i2;
+			for ( i1 = 0; i1 < group.children.length; i1++ ) {
+				var childNode = group.children[ i1 ];
+
+				// CLIPPATH
+				if ( childNode.tagName == "clipPath" ) {
+					for ( i2 = 0; i2 < childNode.childNodes.length; i2++ ) {
+						childNode.childNodes[ i2 ].setAttribute( "fill", "transparent" );
+					}
+					group.clippings[ childNode.id ] = childNode;
+
+					// PATTERN
+				} else if ( childNode.tagName == "pattern" ) {
+					var props = {
+						node: childNode,
+						source: childNode.getAttribute( "xlink:href" ),
+						width: Number( childNode.getAttribute( "width" ) ),
+						height: Number( childNode.getAttribute( "height" ) ),
+						repeat: "repeat"
+					}
+
+					// GATHER BACKGROUND COLOR
+					for ( i2 = 0; i2 < childNode.childNodes.length; i2++ ) {
+						if ( childNode.childNodes[ i2 ].tagName == "rect" ) {
+							props.fill = childNode.childNodes[ i2 ].getAttribute( "fill" );
+						}
+					}
+
+					// TAINTED
+					if ( cfg.removeImages && _this.isTainted( props.source ) ) {
+						group.patterns[ childNode.id ] = props.fill ? props.fill : "transparent";
+					} else {
+						images.included++;
+
+						// LOAD IMAGE MANUALLY; TO RERENDER THE CANVAS
+						fabric.Image.fromURL( props.source, ( function( props ) {
+							return function( img ) {
+								images.loaded++;
+
+								var patternSourceCanvas = new fabric.StaticCanvas( undefined, {
+									backgroundColor: props.fill
+								} );
+								patternSourceCanvas.add( img );
+
+								var pattern = new fabric.Pattern( {
+									source: function() {
+										patternSourceCanvas.setDimensions( {
+											width: props.width,
+											height: props.height
+										} );
+										return patternSourceCanvas.getElement();
+									},
+									repeat: 'repeat'
+								} );
+
+								group.patterns[ props.node.id ] = pattern;
+							}
+						} )( props ) );
+					}
+
+					// IMAGES
+				} else if ( childNode.tagName == "image" ) {
+					images.included++;
+
+					// LOAD IMAGE MANUALLY; TO RERENDER THE CANVAS
+					fabric.Image.fromURL( childNode.getAttribute( "xlink:href" ), function( img ) {
+						images.loaded++;
+					} );
+				}
+			}
+			return group;
+		},
+
+		/**
+		 * Method to capture the current state of the chart
+		 */
 		capture: function( options, callback ) {
-			var i1, i2, i3;
+			var i1;
 			var cfg = _this.deepMerge( _this.deepMerge( {}, _this.config.fabric ), options || {} );
 			var groups = [];
 			var offset = {
@@ -415,8 +571,12 @@ AmCharts.addInitHandler( function( chart ) {
 				width: _this.setup.chart.divRealWidth,
 				height: _this.setup.chart.divRealHeight
 			};
+			var images = {
+				loaded: 0,
+				included: 0
+			}
 
-			// GATHER SVGs
+			// GATHER SVGS
 			var svgs = _this.setup.chart.containerDiv.getElementsByTagName( "svg" );
 			for ( i1 = 0; i1 < svgs.length; i1++ ) {
 				var group = {
@@ -431,64 +591,8 @@ AmCharts.addInitHandler( function( chart ) {
 					clippings: {}
 				}
 
-				for ( i2 = 0; i2 < group.children.length; i2++ ) {
-					var childNode = group.children[ i2 ];
-
-					// CLIPPATH
-					if ( childNode.tagName == "clipPath" ) {
-						for ( i3 = 0; i3 < childNode.childNodes.length; i3++ ) {
-							childNode.childNodes[ i3 ].setAttribute( "fill", "transparent" );
-						}
-						group.clippings[ childNode.id ] = childNode;
-
-						// PATTERN
-					} else if ( childNode.tagName == "pattern" ) {
-						for ( i3 = 0; i3 < childNode.childNodes.length; i3++ ) {
-
-							var props = {
-								node: childNode,
-								source: childNode.getAttribute( "xlink:href" ),
-								width: Number( childNode.getAttribute( "width" ) ),
-								height: Number( childNode.getAttribute( "height" ) ),
-								repeat: "repeat"
-							}
-
-							// TAINTED
-							if ( cfg.removeImages && _this.isTainted( props.source ) ) {
-								group.patterns[ childNode.id ] = "transparent";
-
-								// REPLACE SOURCE
-							} else {
-								var rect = childNode.getElementsByTagName( "rect" );
-								if ( rect.length > 0 ) {
-									var IMG = new Image();
-									IMG.src = props.source;
-
-									var PSC = new fabric.StaticCanvas( undefined, {
-										width: props.width,
-										height: props.height,
-										backgroundColor: rect[ 0 ].getAttribute( "fill" )
-									} );
-
-									var RECT = new fabric.Rect( {
-										width: props.width,
-										height: props.height,
-										fill: new fabric.Pattern( {
-											source: IMG,
-											repeat: "repeat"
-										} )
-									} );
-									PSC.add( RECT );
-									props.source = PSC.toDataURL();
-								}
-
-								// BUFFER PATTERN
-								group.patterns[ childNode.id ] = new fabric.Pattern( props );
-							}
-
-						}
-					}
-				}
+				// GATHER ELEMENTS
+				group = _this.gatherElements( group, cfg, images );
 
 				// APPEND GROUP
 				groups.push( group );
@@ -498,7 +602,8 @@ AmCharts.addInitHandler( function( chart ) {
 			if ( _this.config.legend && _this.setup.chart.legend && _this.setup.chart.legend.position == "outside" ) {
 				var group = {
 					svg: _this.setup.chart.legend.container.container,
-					parent: _this.setup.chart.legend.container.div,
+					parent: _this.setup.chart.legend.container.container.parentNode,
+					children: _this.setup.chart.legend.container.container.getElementsByTagName( "*" ),
 					offset: {
 						x: 0,
 						y: 0
@@ -508,10 +613,12 @@ AmCharts.addInitHandler( function( chart ) {
 						position: _this.config.legend.position,
 						width: _this.config.legend.width ? _this.config.legend.width : _this.setup.chart.legend.container.width,
 						height: _this.config.legend.height ? _this.config.legend.height : _this.setup.chart.legend.container.height
-					}
+					},
+					patterns: {},
+					clippings: {}
 				}
 
-				// Adapt canvas dimensions
+				// ADAPT CANVAS DIMENSIONS
 				if ( [ "left", "right" ].indexOf( group.legend.position ) != -1 ) {
 					offset.width += group.legend.width;
 					offset.height = group.legend.height > offset.height ? group.legend.height : offset.height;
@@ -519,26 +626,11 @@ AmCharts.addInitHandler( function( chart ) {
 					offset.height += group.legend.height;
 				}
 
+				// GATHER ELEMENTS
+				group = _this.gatherElements( group, cfg, images );
+
 				// PRE/APPEND SVG
 				groups[ group.legend.type ]( group );
-			}
-
-			// STOCK CHART
-			if ( _this.setup.chart.type == "stock" ) {
-				if ( _this.setup.chart.leftContainer ) {
-					offset.width -= _this.pxToNumber( _this.setup.chart.leftContainer.style.width );
-					_this.setup.wrapper.style.paddingLeft = _this.pxToNumber( _this.setup.chart.leftContainer.style.width ) + _this.setup.chart.panelsSettings.panelSpacing * 2;
-				}
-				if ( _this.setup.chart.rightContainer ) {
-					offset.width -= _this.pxToNumber( _this.setup.chart.rightContainer.style.width );
-					_this.setup.wrapper.style.paddingRight = _this.pxToNumber( _this.setup.chart.rightContainer.style.width ) + _this.setup.chart.panelsSettings.panelSpacing * 2;
-				}
-				if ( _this.setup.chart.periodSelector && [ "top", "bottom" ].indexOf( _this.setup.chart.periodSelector.position ) != -1 ) {
-					offset.height -= _this.setup.chart.periodSelector.offsetHeight + _this.setup.chart.panelsSettings.panelSpacing;
-				}
-				if ( _this.setup.chart.dataSetSelector && [ "top", "bottom" ].indexOf( _this.setup.chart.dataSetSelector.position ) != -1 ) {
-					offset.height -= _this.setup.chart.dataSetSelector.offsetHeight;
-				}
 			}
 
 			// CLEAR IF EXIST
@@ -547,11 +639,43 @@ AmCharts.addInitHandler( function( chart ) {
 			if ( !_this.setup.wrapper ) {
 				_this.setup.wrapper = document.createElement( "div" );
 				_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
-				_this.setup.wrapper.appendChild( _this.setup.canvas );
+				_this.setup.chart.containerDiv.appendChild( _this.setup.wrapper );
 			} else {
 				_this.setup.wrapper.innerHTML = "";
 			}
 
+			// STOCK CHART
+			if ( _this.setup.chart.type == "stock" ) {
+				var padding = {
+					top: 0,
+					right: 0,
+					bottom: 0,
+					left: 0
+				}
+				if ( _this.setup.chart.leftContainer ) {
+					offset.width -= _this.setup.chart.leftContainer.offsetWidth;
+					padding.left = _this.setup.chart.leftContainer.offsetWidth + ( _this.setup.chart.panelsSettings.panelSpacing * 2 );
+				}
+				if ( _this.setup.chart.rightContainer ) {
+					offset.width -= _this.setup.chart.rightContainer.offsetWidth;
+					padding.right = _this.setup.chart.rightContainer.offsetWidth + ( _this.setup.chart.panelsSettings.panelSpacing * 2 );
+				}
+				if ( _this.setup.chart.periodSelector && [ "top", "bottom" ].indexOf( _this.setup.chart.periodSelector.position ) != -1 ) {
+					offset.height -= _this.setup.chart.periodSelector.offsetHeight + _this.setup.chart.panelsSettings.panelSpacing;
+					padding[ _this.setup.chart.periodSelector.position ] += _this.setup.chart.periodSelector.offsetHeight + _this.setup.chart.panelsSettings.panelSpacing;
+				}
+				if ( _this.setup.chart.dataSetSelector && [ "top", "bottom" ].indexOf( _this.setup.chart.dataSetSelector.position ) != -1 ) {
+					offset.height -= _this.setup.chart.dataSetSelector.offsetHeight;
+					padding[ _this.setup.chart.dataSetSelector.position ] += _this.setup.chart.dataSetSelector.offsetHeight;
+				}
+				// APPLY OFFSET ON WRAPPER
+				_this.setup.wrapper.style.paddingTop = _this.numberToPx( padding.top );
+				_this.setup.wrapper.style.paddingRight = _this.numberToPx( padding.right );
+				_this.setup.wrapper.style.paddingBottom = _this.numberToPx( padding.bottom );
+				_this.setup.wrapper.style.paddingLeft = _this.numberToPx( padding.left );
+			}
+
+			// CREATE CANVAS
 			_this.setup.canvas = document.createElement( "canvas" );
 			_this.setup.wrapper.appendChild( _this.setup.canvas );
 			_this.setup.fabric = new fabric.Canvas( _this.setup.canvas, _this.deepMerge( {
@@ -559,11 +683,34 @@ AmCharts.addInitHandler( function( chart ) {
 				height: offset.height
 			}, cfg ) );
 
+			// REAPPLY FOR SOME REASON
 			_this.deepMerge( _this.setup.fabric, cfg );
 
-			// OBSERVE MOUSE
-			_this.setup.fabric.on( "path:created", function( path ) {
-				_this.drawing.undos.push( path );
+			// OBSERVE OBJECT CREATION
+			_this.setup.fabric.on( "object:added", function( e ) {
+				var item = e.target;
+				var state = JSON.stringify( item.originalState );
+				if ( item.selectable && !item.known ) {
+					_this.drawing.undos.push( {
+						action: "added",
+						target: item,
+						options: state
+					} );
+					_this.drawing.redos = [];
+				}
+			} );
+
+			// OBSERVE OBJECT MODIFICATIONS
+			_this.setup.fabric.on( "object:modified", function( e ) {
+				var item = e.target;
+				var state = JSON.stringify( item.saveState().originalState );
+				if ( item.selectable ) {
+					_this.drawing.undos.push( {
+						action: "modified",
+						target: item,
+						options: state
+					} );
+				}
 			} );
 
 			// DRAWING
@@ -585,13 +732,13 @@ AmCharts.addInitHandler( function( chart ) {
 					// EXTERNAL LEGEND
 					if ( group.legend ) {
 						if ( group.legend.position == "left" ) {
-							offset.x += chart.legend.container.width;
+							offset.x += group.legend.width;
 						} else if ( group.legend.position == "right" ) {
 							group.offset.x += offset.width - group.legend.width;
 						} else if ( group.legend.position == "top" ) {
 							offset.y += group.legend.height;
 						} else if ( group.legend.position == "bottom" ) {
-							group.offset.y += offset.height - group.legend.height; // offset.y
+							group.offset.y += offset.height - group.legend.height; // OFFSET.Y
 						}
 
 						// NORMAL
@@ -608,6 +755,9 @@ AmCharts.addInitHandler( function( chart ) {
 					}
 				}
 
+				// BEFORE CAPTURING
+				_this.handleCallback( cfg.beforeCapture, cfg );
+
 				// ADD TO CANVAS
 				fabric.parseSVGDocument( group.svg, ( function( group ) {
 					return function( objects, options ) {
@@ -615,12 +765,13 @@ AmCharts.addInitHandler( function( chart ) {
 						var g = fabric.util.groupSVGElements( objects, options );
 						var tmp = {
 							top: group.offset.y,
-							left: group.offset.x
+							left: group.offset.x,
+							selectable: false
 						};
 
 						for ( i1 = 0; i1 < g.paths.length; i1++ ) {
 
-							// OPACITY; TODO: Distinguish opacity types
+							// OPACITY; TODO: DISTINGUISH OPACITY TYPES
 							if ( g.paths[ i1 ] ) {
 
 								// CHECK ORIGIN; REMOVE TAINTED
@@ -642,16 +793,18 @@ AmCharts.addInitHandler( function( chart ) {
 										opacity: g.paths[ i1 ].fillOpacity
 									} );
 
-									// PATTERN; TODO: Distinguish opacity types
+									// PATTERN; TODO: DISTINGUISH OPACITY TYPES
 								} else if ( String( g.paths[ i1 ].fill ).slice( 0, 3 ) == "url" ) {
 									var PID = g.paths[ i1 ].fill.slice( 5, -1 );
-									if ( group.patterns[ PID ] ) {
+									if ( group.patterns && group.patterns[ PID ] ) {
 										g.paths[ i1 ].set( {
 											fill: group.patterns[ PID ],
 											opacity: g.paths[ i1 ].fillOpacity
 										} );
 									}
 								}
+
+								// CLIPPATH;
 								if ( String( g.paths[ i1 ].clipPath ).slice( 0, 3 ) == "url" ) {
 									var PID = g.paths[ i1 ].clipPath.slice( 5, -1 );
 
@@ -672,6 +825,20 @@ AmCharts.addInitHandler( function( chart ) {
 													ctx.rect( Number( transform[ 0 ] ) * -1 + x, Number( transform[ 1 ] ) * -1 + y, width, height );
 												}
 											} )( mask, transform )
+										} );
+									}
+								}
+
+								// TODO; WAIT FOR TSPAN SUPPORT FROM FABRICJS SIDE
+								if ( g.paths[ i1 ].originalBBox ) {
+									var bb = g.paths[ i1 ].originalBBox;
+									if ( g.paths[ i1 ].textAlign == "left" ) {
+										g.paths[ i1 ].set( {
+											left: bb.left + ( g.paths[ i1 ].width / 2 )
+										} );
+									} else {
+										g.paths[ i1 ].set( {
+											left: bb.left - ( g.paths[ i1 ].width / 2 )
 										} );
 									}
 								}
@@ -696,7 +863,8 @@ AmCharts.addInitHandler( function( chart ) {
 										fontFamily: text.style.fontFamily,
 										fill: text.style.color,
 										top: _this.pxToNumber( parent.style.top ) + group.offset.y,
-										left: _this.pxToNumber( parent.style.left ) + group.offset.x
+										left: _this.pxToNumber( parent.style.left ) + group.offset.x,
+										selectable: false
 									} );
 
 									_this.setup.fabric.add( label );
@@ -716,27 +884,55 @@ AmCharts.addInitHandler( function( chart ) {
 
 						groups.pop();
 
-						// Trigger callback with safety delay
+						// TRIGGER CALLBACK WITH SAFETY DELAY
 						if ( !groups.length ) {
-							setTimeout( function() {
-								_this.setup.fabric.renderAll();
-								_this.handleCallback( callback );
-							}, 1 );
+							var timer = setInterval( function() {
+								if ( images.loaded == images.included ) {
+									clearTimeout( timer );
+									_this.handleCallback( cfg.afterCapture, cfg );
+									_this.setup.fabric.renderAll();
+									_this.handleCallback( callback, cfg );
+								}
+							}, AmCharts.updateRate );
 						}
 					}
 
-					// Identify elements through classnames
+					// IDENTIFY ELEMENTS THROUGH CLASSNAMES
 				} )( group ), function( svg, obj ) {
 					var i1;
-					var className = svg.getAttribute( "class" ) || svg.parentNode.getAttribute( "class" ) || "";
-					var visibility = svg.getAttribute( "visibility" ) || svg.parentNode.getAttribute( "visibility" ) || svg.parentNode.parentNode.getAttribute( "visibility" ) || "";
-					var clipPath = svg.getAttribute( "clip-path" ) || svg.parentNode.getAttribute( "clip-path" ) || "";
+					var className = _this.gatherAttribute( svg, "class" );
+					var visibility = _this.gatherAttribute( svg, "visibility" );
+					var clipPath = _this.gatherAttribute( svg, "clip-path" );
 
 					obj.className = className;
 					obj.clipPath = clipPath;
 					obj.svg = svg;
 
-					// HIDE HIDDEN ELEMENTS; TODO: Find a better way to handle that
+					// TODO; WAIT FOR TSPAN SUPPORT FROM FABRICJS SIDE
+					if ( svg.tagName == "text" && svg.childNodes.length > 1 ) {
+						var lines = [];
+						var textAnchor = svg.getAttribute( "text-anchor" ) || "left";
+						var anchorMap = {
+							"start": "left",
+							"middle": "center",
+							"end": "right"
+						}
+
+						for ( i1 = 0; i1 < svg.childNodes.length; i1++ ) {
+							lines.push( svg.childNodes[ i1 ].textContent );
+						}
+
+						if ( obj.className == _this.setup.chart.classNamePrefix + "-label" ) {
+							obj.originalBBox = obj.getBoundingRect()
+						}
+						obj.set( {
+							top: obj.top + ( ( obj.height / 2 ) * ( lines.length - 1 ) ),
+							text: lines.join( "\n" ),
+							textAlign: anchorMap[ textAnchor ]
+						} );
+					}
+
+					// HIDE HIDDEN ELEMENTS; TODO: FIND A BETTER WAY TO HANDLE THAT
 					if ( visibility == "hidden" ) {
 						obj.opacity = 0;
 
@@ -767,16 +963,17 @@ AmCharts.addInitHandler( function( chart ) {
 					}
 
 					// REVIVER
-					if ( cfg.reviver && cfg.reviver instanceof Function ) {
-						cfg.reviver.apply( _this, [ obj ] );
-					}
+					_this.handleCallback(cfg.reviver, obj, svg);
 				} );
 			}
 		},
 
+		/**
+		 * Returns the current canvas
+		 */
 		toCanvas: function( options, callback ) {
 			var cfg = _this.deepMerge( {
-				// Nuffin
+				// NUFFIN
 			}, options || {} );
 			var data = _this.setup.canvas;
 
@@ -785,6 +982,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Returns an image; by default PNG
+		 */
 		toImage: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				format: "png",
@@ -811,6 +1011,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return img;
 		},
 
+		/**
+		 * Generates a blob instance image; returns base64 datastring
+		 */
 		toBlob: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				data: "empty",
@@ -840,6 +1043,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates JPG image; returns base64 datastring
+		 */
 		toJPG: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				format: "jpeg",
@@ -853,6 +1059,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates PNG image; returns base64 datastring
+		 */
 		toPNG: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				format: "png",
@@ -866,9 +1075,12 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates SVG image; returns base64 datastring
+		 */
 		toSVG: function( options, callback ) {
 			var cfg = _this.deepMerge( {
-				// nothing in here
+				// NOTHING IN HERE
 			}, options || {} );
 			var data = _this.setup.fabric.toSVG( cfg );
 
@@ -881,6 +1093,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates PDF; returns base64 datastring
+		 */
 		toPDF: function( options, callback ) {
 			var cfg = _this.deepMerge( _this.deepMerge( {
 				multiplier: 2
@@ -899,6 +1114,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates an image; hides all elements on page to trigger native print method
+		 */
 		toPRINT: function( options, callback ) {
 			var i1;
 			var cfg = _this.deepMerge( {
@@ -934,6 +1152,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates JSON string
+		 */
 		toJSON: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				data: _this.getChartData()
@@ -945,6 +1166,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates CSV string
+		 */
 		toCSV: function( options, callback ) {
 			var row, col;
 			var cfg = _this.deepMerge( {
@@ -1015,6 +1239,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates excel sheet; returns base64 datastring
+		 */
 		toXLSX: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				data: _this.getChartData(),
@@ -1091,6 +1318,9 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates an array of arrays
+		 */
 		toArray: function( options, callback ) {
 			var row, col;
 			var cfg = _this.deepMerge( {
@@ -1135,9 +1365,12 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Generates byte array with given base64 datastring; returns byte array
+		 */
 		toByteArray: function( options, callback ) {
 			var cfg = _this.deepMerge( {
-				// Nuffin
+				// NUFFIN
 			}, options || {} );
 			var Arr = ( typeof Uint8Array !== 'undefined' ) ? Uint8Array : Array
 			var PLUS = '+'.charCodeAt( 0 )
@@ -1170,18 +1403,18 @@ AmCharts.addInitHandler( function( chart ) {
 					throw new Error( 'Invalid string. Length must be a multiple of 4' )
 				}
 
-				// the number of equal signs (place holders)
-				// if there are two placeholders, than the two characters before it
-				// represent one byte
-				// if there is only one, then the three characters before it represent 2 bytes
-				// this is just a cheap hack to not do indexOf twice
+				// THE NUMBER OF EQUAL SIGNS (PLACE HOLDERS)
+				// IF THERE ARE TWO PLACEHOLDERS, THAN THE TWO CHARACTERS BEFORE IT
+				// REPRESENT ONE BYTE
+				// IF THERE IS ONLY ONE, THEN THE THREE CHARACTERS BEFORE IT REPRESENT 2 BYTES
+				// THIS IS JUST A CHEAP HACK TO NOT DO INDEXOF TWICE
 				var len = b64.length
 				placeHolders = '=' === b64.charAt( len - 2 ) ? 2 : '=' === b64.charAt( len - 1 ) ? 1 : 0
 
-				// base64 is 4/3 + up to two characters of the original data
+				// BASE64 IS 4/3 + UP TO TWO CHARACTERS OF THE ORIGINAL DATA
 				arr = new Arr( b64.length * 3 / 4 - placeHolders )
 
-				// if there are placeholders, only get up to the last complete 4 chars
+				// IF THERE ARE PLACEHOLDERS, ONLY GET UP TO THE LAST COMPLETE 4 CHARS
 				l = placeHolders > 0 ? b64.length - 4 : b64.length
 
 				var L = 0
@@ -1214,23 +1447,35 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
-		// CALLBACK HANDLER
-		handleCallback: function( callback, data ) {
-			if ( callback ) {
-				callback.apply( _this, [ data ] );
+		/**
+		 * Callback handler; injects additional arguments to callback
+		 */
+		handleCallback: function( callback ) {
+			var i1, data = Array();
+			if ( callback && callback instanceof Function ) {
+				for ( i1 = 0; i1 < arguments.length; i1++ ) {
+					if ( i1 > 0 ) {
+						data.push(arguments[i1]);
+					}
+				}
+				callback.apply( _this, data );
 			}
 		},
 
+		/**
+		 * Gathers chart data according to its type
+		 */
 		getChartData: function() {
+			var i1, i2, i3;
 			var data = [];
 
 			if ( _this.setup.chart.type == "stock" ) {
 				data = _this.setup.chart.mainDataSet.dataProvider;
 			} else if ( _this.setup.chart.type == "gantt" ) {
 				var segmentsField = _this.setup.chart.segmentsField;
-				for ( var i1 = 0; i1 < _this.setup.chart.dataProvider.length; i1++ ) {
+				for ( i1 = 0; i1 < _this.setup.chart.dataProvider.length; i1++ ) {
 					if ( _this.setup.chart.dataProvider[ i1 ][ segmentsField ] ) {
-						for ( var i2 = 0; i2 < _this.setup.chart.dataProvider[ i1 ][ segmentsField ].length; i2++ ) {
+						for ( i2 = 0; i2 < _this.setup.chart.dataProvider[ i1 ][ segmentsField ].length; i2++ ) {
 							data.push( _this.setup.chart.dataProvider[ i1 ][ segmentsField ][ i2 ] )
 						}
 					}
@@ -1242,11 +1487,16 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		/**
+		 * Prettifies string
+		 */
 		capitalize: function( string ) {
 			return string.charAt( 0 ).toUpperCase() + string.slice( 1 ).toLowerCase();
 		},
 
-		// MENU BUILDER
+		/**
+		 * Generates export menu; returns UL node
+		 */
 		createMenu: function( list, container ) {
 			var div;
 
@@ -1338,7 +1588,6 @@ AmCharts.addInitHandler( function( chart ) {
 								}
 							} )( item );
 						}
-
 						// DRAWING
 					} else if ( item.action == "draw" ) {
 						item.click = ( function( item ) {
@@ -1352,14 +1601,21 @@ AmCharts.addInitHandler( function( chart ) {
 
 					// ADD LINK ATTR
 					a.setAttribute( "href", "#" );
-					a.addEventListener( "click", ( function( callback ) {
+					a.addEventListener( "click", ( function( callback, item ) {
 						return function( e ) {
-							callback.apply( _this, arguments );
 							e.preventDefault();
+
+							// DELAYED
+							item.delay = item.delay ? item.delay : _this.config.delay;
+							if ( item.delay ) {
+								_this.delay( item, callback );
+								return;
+							}
+							callback.apply( _this, arguments );
 						}
 					} )( item.click || function( e ) {
 						e.preventDefault();
-					} ) );
+					}, item ) );
 					li.appendChild( a );
 
 					// ADD LABEL
@@ -1429,6 +1685,49 @@ AmCharts.addInitHandler( function( chart ) {
 			return _this.setup.menu;
 		},
 
+		/**
+		 * Method to trigger the callback delayed
+		 */
+		delay: function( options, callback ) {
+			var cfg = _this.deepMerge( {
+				delay: 3,
+				precision: 2
+			}, options || {} );
+			var t1, t2, start = Number( new Date() );
+			var menu = _this.createMenu( [ {
+				label: _this.i18l( "capturing.delayed.menu.label" ).replace( "{{duration}}", AmCharts.toFixed( cfg.delay, cfg.precision ) ),
+				title: _this.i18l( "capturing.delayed.menu.title" ),
+				"class": "export-delayed-capturing",
+				click: function() {
+					clearTimeout( t1 );
+					clearTimeout( t2 );
+					_this.createMenu( _this.config.menu );
+				}
+			} ] );
+			var label = menu.getElementsByTagName( "a" )[ 0 ];
+
+			// MENU UPDATE
+			t1 = setInterval( function() {
+				var diff = cfg.delay - ( Number( new Date() ) - start ) / 1000;
+				if ( diff <= 0 ) {
+					clearTimeout( t1 );
+					if ( cfg.action != "draw" ) {
+						_this.createMenu( _this.config.menu );
+					}
+				} else if ( label ) {
+					label.innerHTML = _this.i18l( "capturing.delayed.menu.label" ).replace( "{{duration}}", AmCharts.toFixed( diff, 2 ) );
+				}
+			}, 10 );
+
+			// CALLBACK
+			t2 = setTimeout( function() {
+				callback.apply( _this, arguments );
+			}, cfg.delay * 1000 );
+		},
+
+		/**
+		 * Migration method to support old export setup
+		 */
 		migrateSetup: function( chart ) {
 			if ( chart.amExport || chart.exportConfig ) {
 				var config = _this.deepMerge( {
@@ -1465,19 +1764,18 @@ AmCharts.addInitHandler( function( chart ) {
 			return chart;
 		},
 
-		// INITIATE; DELAYED UNTIL CHART CONTAINER IS READY
+		/**
+		 * Initiate export instance; waits for chart container to place menu
+		 */
 		init: function() {
 			clearTimeout( _this.timer );
 			_this.timer = setInterval( function() {
 				if ( _this.setup.chart.containerDiv ) {
 					clearTimeout( _this.timer );
-					_this.setup.canvas = document.createElement( "canvas" );
-					_this.setup.wrapper = document.createElement( "div" );
-					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
-					_this.setup.wrapper.appendChild( _this.setup.canvas );
-					_this.setup.chart.containerDiv.appendChild( _this.setup.wrapper );
-
 					_this.setup.chart.AmExport = _this;
+
+					// WORK AROUND TO BYPASS FILESAVER CHECK TRYING TO OPEN THE BLOB URL IN SAFARI BROWSER
+					window.safari = window.safari ? window.safari : {};
 
 					_this.createMenu( _this.config.menu );
 				}
@@ -1496,6 +1794,7 @@ AmCharts.addInitHandler( function( chart ) {
 		return;
 	}
 
+	// CHECK BLOB CONSTRUCTOR
 	try {
 		_this.setup.hasBlob = !!new Blob;
 	} catch ( e ) {}
@@ -1513,6 +1812,7 @@ AmCharts.addInitHandler( function( chart ) {
 		}
 	}
 
+	// REPLACE CONFIG WITH INSTANCE; ENABLE ADDCLASSNAMES
 	_this.setup.chart[ "export" ] = _this;
 	_this.setup.chart.addClassNames = true;
 

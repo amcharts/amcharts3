@@ -1175,7 +1175,6 @@ AmCharts.addInitHandler( function( chart ) {
   };
 
   var checkRules = function() {
-    console.log('x');
 
     var width = chart.divRealWidth;
     var height = chart.divRealHeight;

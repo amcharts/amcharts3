@@ -79,7 +79,8 @@ AmCharts.addInitHandler( function( chart ) {
     'reverse': false,
     'reloading': false,
     'complete': false,
-    'error': false
+    'error': false,
+    'chart': chart
   };
 
   /**
@@ -295,7 +296,7 @@ AmCharts.addInitHandler( function( chart ) {
   function postprocess( data, options ) {
     if ( undefined !== options.postProcess && isFunction( options.postProcess ) )
       try {
-        return options.postProcess.call( this, data, options );
+        return options.postProcess.call( l, data, options, chart );
       } catch ( e ) {
         raiseError( AmCharts.__( 'Error loading file', chart.language ) + ': ' + options.url, false, options );
         return data;

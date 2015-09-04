@@ -203,7 +203,7 @@
 .amcharts-export-menu .export-main {
 	margin: 4px;
 }
-.amcharts-export-menu .export-main > a, .amcharts-export-menu .export-drawing > a {
+.amcharts-export-menu .export-main > a, .amcharts-export-menu .export-drawing > a, .amcharts-export-menu .export-delayed-capturing > a {
 	text-indent: -13333337px;
 	width: 36px;
 	height: 36px;
@@ -291,4 +291,15 @@
 	padding: 20px;
 	width: 100%;
 	background-color: #fff;
+}
+
+/*
+** DELAYED CAPTURING
+*/
+.amcharts-export-menu .export-delayed-capturing > a {
+	text-indent: 0px;
+	line-height: 36px;
+	vertical-align: middle;
+	text-align: center;
+	background-image: none;
 }

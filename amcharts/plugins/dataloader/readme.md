@@ -273,6 +273,7 @@ http://www.apache.org/licenses/LICENSE-2.0
 ### 1.0.5
 * Fixed JS error if periodSelector was not defined in chart config
 * Now all callback functions (complete, error, load) receive additional parameter: chart
+* postProcess function will now have "this" context set to Data Loader object as well as receive chart reference as third paramater
 
 ### 1.0.4
 * Added chart.dataLoader.loadData() function which can be used to manually trigger all data reload

@@ -21,13 +21,27 @@
     <script>
     var chart = AmCharts.makeChart("chartdiv", {
      "type": "serial",
-     "dataLoader": {
+      "dataLoader": {
         "url": "data/serial.json",
         "format": "json",
         "showErrors": true,
         "noStyles": true,
-        "async": true
-     },
+        "async": true,
+        "load": function( options, chart ) {
+          // Here the data is already loaded and set to the chart.
+          // We can iterate through it and add proper graphs
+          for ( var key in chart.dataProvider[ 0 ] ) {
+            if ( chart.dataProvider[ 0 ].hasOwnProperty( key ) && key != chart.categoryField ) {
+              var graph = new AmCharts.AmGraph();
+              graph.valueField = key;
+              graph.type = "line";
+              graph.title = key,
+              graph.lineThickness = 2;
+              chart.addGraph( graph );
+            }
+          }
+        }
+      },
      "rotate": false,
      "marginTop": 10,
      "categoryField": "year",
@@ -59,29 +73,7 @@
        "gridAlpha": 0.07,
        "title": "Traffic incidents"
      }],
-     "graphs": [{
-       "id": "g1",
-       "type": "column",
-       "title": "Cars",
-       "valueField": "cars",
-       "bullet": "round",
-       "lineAlpha": 0,
-       "fillAlphas": 0.6
-     }, {
-       "id": "g2",
-       "type": "column",
-       "title": "Motorcycles",
-       "valueField": "motorcycles",
-       "lineAlpha": 0,
-       "fillAlphas": 0.6
-     }, {
-       "id": "g3",
-       "type": "column",
-       "title": "Bicycles",
-       "valueField": "bicycles",
-       "lineAlpha": 0,
-       "fillAlphas": 0.6
-     }],
+     "graphs": [],
      "legend": {
        "position": "bottom",
        "valueText": "[[value]]",
