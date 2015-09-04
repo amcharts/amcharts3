@@ -3,7 +3,7 @@ AmCharts.themes.patterns = {
 	themeName:"patterns",
 
 	AmChart: {
-		color: "#000000"
+		color: "#000000", backgroundColor: "#FFFFFF"
 	},
 
 	AmCoordinateChart: {

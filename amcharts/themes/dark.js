@@ -3,7 +3,7 @@ AmCharts.themes.dark = {
 	themeName: "dark",
 
 	AmChart: {
-		color: "#e7e7e7"
+		color: "#e7e7e7", backgroundColor: "#282828"
 	},
 
 	AmCoordinateChart: {

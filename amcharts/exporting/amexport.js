@@ -659,6 +659,7 @@ AmCharts.AmExport = AmCharts.Class({
 
 		// Style wrapper; Push into chart div
 		div.setAttribute('style', 'width:39px; height:28px; position: absolute;top:' + _this.cfg.menuTop + ';right:' + _this.cfg.menuRight + ';bottom:' + _this.cfg.menuBottom + ';left:' + _this.cfg.menuLeft + ';box-shadow:0px 0px 1px 0px rgba(0,0,0,0);');
+		div.setAttribute('class', 'amExportButton');
 		div.appendChild(createList(_this.cfg.menuItems));
 		//_this.chart.div.style.position = 'relative';
 		_this.chart.containerDiv.appendChild(div);

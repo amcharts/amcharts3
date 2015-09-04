@@ -1,22 +1,16 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
-        <script src="../amcharts/serial.js" type="text/javascript"></script>         
+        <script src="../amcharts/serial.js" type="text/javascript"></script>
         <script type="text/javascript">
             var chart;
 
             var chartData = [
-                {
-                    "year": 2000,
-                    "cars": 1587,
-                    "motorcycles": 650,
-                    "bicycles": 121
-                },
                 {
                     "year": 1995,
                     "cars": 1567,
@@ -212,7 +206,7 @@
                 legend.valueWidth = 100;
                 legend.valueAlign = "left";
                 legend.equalWidths = false;
-                legend.periodValueText = "total: [[value.sum]]"; // this is displayed when mouse is not over the chart.                
+                legend.periodValueText = "total: [[value.sum]]"; // this is displayed when mouse is not over the chart.
                 chart.addLegend(legend);
 
                 // CURSOR
@@ -230,7 +224,7 @@
             });
         </script>
     </head>
-    
+
     <body>
         <div id="chartdiv" style="width:100%; height:400px;"></div>
     </body>

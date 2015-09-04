@@ -6,7 +6,8 @@ AmCharts.themes.chalk = {
 		color: "#e7e7e7",
 		fontFamily: "Covered By Your Grace",
 		fontSize: 18,
-		handDrawn: true
+		handDrawn: true,
+		backgroundColor: "#282828"
 	},
 
 	AmCoordinateChart: {
