@@ -19,7 +19,7 @@ AmCharts.AmExport = AmCharts.Class({
 		//_this.color;
 		_this.buttonRollOverColor = "#EFEFEF";
 		//_this.buttonColor = "#FFFFFF";
-		_this.buttonRollOverAlpha = 0.5;
+		//_this.buttonRollOverAlpha = 0.5;
 		_this.textRollOverColor = "#CC0000";
 		_this.buttonTitle = "Save chart as an image";
 		_this.buttonAlpha = 0.75;
@@ -458,7 +458,7 @@ AmCharts.AmExport = AmCharts.Class({
 			var parent = svgs[i].parentNode;
 
 			// Put some attrs to it; fixed 20/03/14 xmlns is required to produce a valid svg file
-			if (!AmCharts.isIE) {
+			if (AmCharts.IEversion == 0) {
 				svgs[i].setAttribute('xmlns', 'http://www.w3.org/2000/svg');
 				//svgs[i].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
 			}
