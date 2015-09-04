@@ -16,10 +16,10 @@
 
             var chart = AmCharts.makeChart("chartdiv", {
                 type: "serial",
-                
+
                 // setting language to German
                 language: "de",
-                
+
                 pathToImages: "../amcharts/images/",
                 dataProvider: chartData,
                 categoryField: "date",
@@ -44,6 +44,7 @@
                     lineThickness: 2,
                     lineColor: "#b5030d",
                     negativeLineColor: "#0352b5",
+                    hideBulletsCount:30,
                     balloonText: "[[category]]<br><b><span style='font-size:14px;'>value: [[value]]</span></b>"
                 }],
                 chartCursor: {

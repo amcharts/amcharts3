@@ -11,6 +11,6 @@ permission of Antanas Marcelionis, the author of amcharts software.
 
 This software is provided without warranty.
 *********************************************************************************
-A commercial version (without link) is available at amCharts's website: 
-http://shop.amcharts.com/
+A commercial version (without link) is available at amCharts's website:
+http://www.amcharts.com/online-store/
 *********************************************************************************

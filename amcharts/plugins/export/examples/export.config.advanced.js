@@ -8,55 +8,59 @@
 /**
  * PDF-specfic configuration
  */
-AmCharts.exportPDF = [ {
-  label: "Undo",
-  click: function() {
-    this.drawing.undo();
-  }
-}, {
-  label: "Redo",
-  click: function() {
-    this.drawing.redo();
-  }
-}, {
-  label: "Cancel",
-  click: function() {
-    this.drawing.done();
-  }
-}, {
-  label: "Save",
+AmCharts.exportDrawingMenu = [ {
+  class: "export-drawing",
+  label: "Export",
   menu: [ {
-    label: "JPG",
+    label: "Undo",
     click: function() {
-      this.drawing.done();
-      this.toJPG( {}, function( data ) {
-        this.download( data, "image/jpg", "amCharts.jpg" );
-      } );
+      this.drawing.undo();
     }
   }, {
-    label: "PNG",
+    label: "Redo",
     click: function() {
-      this.drawing.done();
-      this.toPNG( {}, function( data ) {
-        this.download( data, "image/png", "amCharts.png" );
-      } );
+      this.drawing.redo();
     }
   }, {
-    label: "PDF",
+    label: "Cancel",
     click: function() {
       this.drawing.done();
-      this.toPDF( {}, function( data ) {
-        this.download( data, "application/pdf", "amCharts.pdf" );
-      } );
     }
   }, {
-    label: "SVG",
-    click: function() {
-      this.drawing.done();
-      this.toSVG( {}, function( data ) {
-        this.download( data, "text/xml", "amCharts.svg" );
-      } );
-    }
+    label: "Save",
+    menu: [ {
+      label: "JPG",
+      click: function() {
+        this.drawing.done();
+        this.toJPG( {}, function( data ) {
+          this.download( data, "image/jpg", "amCharts.jpg" );
+        } );
+      }
+    }, {
+      label: "PNG",
+      click: function() {
+        this.drawing.done();
+        this.toPNG( {}, function( data ) {
+          this.download( data, "image/png", "amCharts.png" );
+        } );
+      }
+    }, {
+      label: "PDF",
+      click: function() {
+        this.drawing.done();
+        this.toPDF( {}, function( data ) {
+          this.download( data, "application/pdf", "amCharts.pdf" );
+        } );
+      }
+    }, {
+      label: "SVG",
+      click: function() {
+        this.drawing.done();
+        this.toSVG( {}, function( data ) {
+          this.download( data, "text/xml", "amCharts.svg" );
+        } );
+      }
+    } ]
   } ]
 } ];
 
@@ -70,7 +74,8 @@ AmCharts.exportCFG = {
     path: "../libs/"
   },
   menu: [ {
-    icon: "export.png",
+    class: "export-main",
+    label: "Export",
     menu: [
       /*
        ** DRAWING
@@ -91,7 +96,7 @@ AmCharts.exportCFG = {
               }
             }
           }, function() {
-            this.createMenu( AmCharts.exportPDF );
+            this.createMenu( AmCharts.exportDrawingMenu );
           } );
         }
       },
@@ -158,9 +163,9 @@ AmCharts.exportCFG = {
             if ( diff <= 0 ) {
               clearTimeout( timer );
               _this.capture( {
-                isDrawingMode: true
+                action: "draw"
               }, function() {
-                _this.createMenu( exportDrawingMenu );
+                _this.createMenu( AmCharts.exportDrawingMenu );
               } );
             }
           }, 10 );
@@ -205,20 +210,19 @@ AmCharts.exportCFG = {
             this.capture( {}, function() {
               var tableData = this.setup.chart.dataProvider;
               var tableBody = this.toArray( {
-                stringify: true,
+                withHeader: true,
                 data: tableData
               } );
-              var tableHeader = [];
+
               var tableWidths = [];
               var content = [ {
-                image: "reference"
+                image: "reference",
+                fit: [ 523.28, 769.89 ]
               } ];
 
-              for ( i in tableData[ 0 ] ) {
-                tableHeader.push( i );
+              for ( i in tableBody[ 0 ] ) {
                 tableWidths.push( "*" );
               }
-              tableBody.unshift( tableHeader );
 
               content.push( {
                 table: {

@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0
+Version: 1.0.2
 
 
 ## Description
@@ -89,8 +89,11 @@ If the "format" is omitted, the plugin will assume JSON.
 Property | Default | Description
 -------- | ------- | -----------
 async | true | If set to false (not recommended) everything will wait until data is fully loaded
+complete | | Callback function to execute when loader is done
 delimiter | , | [CSV only] a delimiter for columns (use \t for tab delimiters)
+error | | Callback function to execute if file load fails
 format | json | Type of data: json, csv
+load | | Callback function to execute when file is successfully loaded (might be invoked multiple times)
 noStyles | false | If set to true no styles will be applied to "Data loading" curtain
 postProcess | | If set to function reference, that function will be called to "post-process" loaded data before passing it on to chart
 showErrors | true | Show loading errors in a chart curtain
@@ -227,6 +230,14 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.2
+* Fixed the issue with modified Array prototypes
+
+### 1.0.1
+* Added "complete", "load" and "error" properties that can be set with function handlers to be invoked on load completion, successful file load or failed load respectively
+* Fixed language container initialization bug
+* Fixed bug that was causing parse errors not be displayed
 
 ### 1.0
 * Added GANTT chart support
