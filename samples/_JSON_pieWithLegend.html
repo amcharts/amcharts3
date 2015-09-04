@@ -11,8 +11,8 @@
         <script type="text/javascript">
 
             AmCharts.makeChart("chartdiv", {
-                type: "pie",
-                dataProvider: [{
+                "type": "pie",
+                "dataProvider": [{
                     "country": "Czech Republic",
                         "litres": 156.9
                 }, {
@@ -34,12 +34,12 @@
                     "country": "Belgium",
                         "litres": 50
                 }],
-                titleField: "country",
-                valueField: "litres",
-                balloonText: "[[title]]<br><span style='font-size:14px'><b>[[value]]</b> ([[percents]]%)</span>",
-                legend: {
-                    align: "center",
-                    markerType: "circle"
+                "titleField": "country",
+                "valueField": "litres",
+                "balloonText": "[[title]]<br><span style='font-size:14px'><b>[[value]]</b> ([[percents]]%)</span>",
+                "legend": {
+                    "align": "center",
+                    "markerType": "circle"
                 }
 
             });

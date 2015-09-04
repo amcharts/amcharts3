@@ -98,6 +98,7 @@
                 type: "serial",
                 dataProvider: chartData,
                 categoryField: "country",
+                pathToImages:"../amcharts/images/",
                 depth3D: 20,
                 angle: 30,
 
@@ -125,34 +126,15 @@
                     categoryBalloonEnabled: false
                 },
 
-                exportConfig: {
-                    menuTop: "21px",
-                    menuBottom: "auto",
-                    menuRight: "21px",
-                    backgroundColor: "#efefef",
-
-                    menuItemStyle	: {
-                    backgroundColor			: '#EFEFEF',
-                    rollOverBackgroundColor	: '#DDDDDD'},
-
-                    menuItems: [{
-                        textAlign: 'center',
-                        icon: '../amcharts/images/export.png',
-                        onclick:function(){},
-                        items: [{
-                            title: 'JPG',
-                            format: 'jpg'
-                        }, {
-                            title: 'PNG',
-                            format: 'png'
-                        }, {
-                            title: 'SVG',
-                            format: 'svg'
-                        }, {
-                            title: 'PDF',
-                            format: 'pdf'
-                        }]
-                    }]
+                amExport: {
+                    top: 21,
+                    right: 21,
+                    buttonColor: '#EFEFEF',
+                    buttonRollOverColor:'#DDDDDD',
+                    exportPNG:true,
+                    exportJPG:true,
+                    exportPDF:true,
+                    exportSVG:true
                 }
             });
         </script>

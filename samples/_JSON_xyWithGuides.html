@@ -12,15 +12,12 @@
             var chart = AmCharts.makeChart("chartdiv", {
               "type": "xy",
               "startDuration": 1.5,
-              "pathToImages": "../amcharts/images/",
-              "chartCursor": {},
-              "chartScrollbar": {},
               "trendLines": [],
               "graphs": [
                 {
                   "balloonText": "x:<b>[[x]]</b> y:<b>[[y]]</b><br>value:<b>[[value]]</b>",
-                  "bullet": "bubble",
-                  "id": "AmGraph-3",
+                  "bullet": "diamond",
+                  "id": "AmGraph-1",
                   "lineAlpha": 0,
                   "lineColor": "#b0de09",
                   "valueField": "value",
@@ -29,8 +26,8 @@
                 },
                 {
                   "balloonText": "x:<b>[[x]]</b> y:<b>[[y]]</b><br>value:<b>[[value]]</b>",
-                  "bullet": "bubble",
-                  "id": "AmGraph-4",
+                  "bullet": "round",
+                  "id": "AmGraph-2",
                   "lineAlpha": 0,
                   "lineColor": "#fcd202",
                   "valueField": "value2",
@@ -38,16 +35,25 @@
                   "yField": "y2"
                 }
               ],
-              "guides": [],
+              "guides": [
+                {
+                  "fillAlpha": 0.3,
+                  "fillColor": "#ff8000",
+                  "id": "Guide-1",
+                  "toValue": -2,
+                  "value": -8,
+                  "valueAxis": "ValueAxis-2"
+                }
+              ],
               "valueAxes": [
                 {
-                  "id": "ValueAxis-2",
+                  "id": "ValueAxis-1",
                   "axisAlpha": 0
                 },
                 {
-                  "id": "ValueAxis-3",
+                  "id": "ValueAxis-2",
                   "axisAlpha": 0,
-                  "position": "left"
+                  "position": "bottom"
                 }
               ],
               "allLabels": [],
