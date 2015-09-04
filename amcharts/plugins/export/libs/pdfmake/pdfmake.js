@@ -56,8 +56,8 @@
 	/* global BlobBuilder */
 	'use strict';
 
-	var PdfPrinter = __webpack_require__(2);
-	var saveAs = __webpack_require__(3);
+	var PdfPrinter = __webpack_require__(6);
+	var saveAs = __webpack_require__(105);
 
 	var defaultClientFonts = {
 		Roboto: {
@@ -140,8 +140,24 @@
 	   }
 
 	   defaultFileName = defaultFileName || 'file.pdf';
-	   this.getBuffer(function(result) {
-	       saveAs(new Blob([result], {type: 'application/pdf'}), defaultFileName);
+	   this.getBuffer(function (result) {
+	       var blob;
+	       try {
+	           blob = new Blob([result], { type: 'application/pdf' });
+	       }
+	       catch (e) {
+	           // Old browser which can't handle it without making it an byte array (ie10) 
+	           if (e.name == "InvalidStateError") {
+	               var byteArray = new Uint8Array(result);
+	               blob = new Blob([byteArray.buffer], { type: 'application/pdf' });
+	           }
+	       }
+	       if (blob) {
+	           saveAs(blob, defaultFileName);
+	       }
+	       else {
+	           throw 'Could not generate blob';
+	       }
 	       if (typeof cb === "function") {
 	           cb();
 	       }
@@ -175,634 +191,10 @@
 		}
 	};
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
 
 /***/ },
 /* 2 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	/* global window */
-	'use strict';
-
-	var _ = __webpack_require__(11);
-	var FontProvider = __webpack_require__(5);
-	var LayoutBuilder = __webpack_require__(6);
-	var PdfKit = __webpack_require__(28);
-	var PDFReference = __webpack_require__(12);
-	var sizes = __webpack_require__(7);
-	var ImageMeasure = __webpack_require__(8);
-	var textDecorator = __webpack_require__(9);
-	var FontProvider = __webpack_require__(5);
-
-	////////////////////////////////////////
-	// PdfPrinter
-
-	/**
-	 * @class Creates an instance of a PdfPrinter which turns document definition into a pdf
-	 *
-	 * @param {Object} fontDescriptors font definition dictionary
-	 *
-	 * @example
-	 * var fontDescriptors = {
-	 *	Roboto: {
-	 *		normal: 'fonts/Roboto-Regular.ttf',
-	 *		bold: 'fonts/Roboto-Medium.ttf',
-	 *		italics: 'fonts/Roboto-Italic.ttf',
-	 *		bolditalics: 'fonts/Roboto-Italic.ttf'
-	 *	}
-	 * };
-	 *
-	 * var printer = new PdfPrinter(fontDescriptors);
-	 */
-	function PdfPrinter(fontDescriptors) {
-		this.fontDescriptors = fontDescriptors;
-	}
-
-	/**
-	 * Executes layout engine for the specified document and renders it into a pdfkit document
-	 * ready to be saved.
-	 *
-	 * @param {Object} docDefinition document definition
-	 * @param {Object} docDefinition.content an array describing the pdf structure (for more information take a look at the examples in the /examples folder)
-	 * @param {Object} [docDefinition.defaultStyle] default (implicit) style definition
-	 * @param {Object} [docDefinition.styles] dictionary defining all styles which can be used in the document
-	 * @param {Object} [docDefinition.pageSize] page size (pdfkit units, A4 dimensions by default)
-	 * @param {Number} docDefinition.pageSize.width width
-	 * @param {Number} docDefinition.pageSize.height height
-	 * @param {Object} [docDefinition.pageMargins] page margins (pdfkit units)
-	 *
-	 * @example
-	 *
-	 * var docDefinition = {
-	 *	content: [
-	 *		'First paragraph',
-	 *		'Second paragraph, this time a little bit longer',
-	 *		{ text: 'Third paragraph, slightly bigger font size', fontSize: 20 },
-	 *		{ text: 'Another paragraph using a named style', style: 'header' },
-	 *		{ text: ['playing with ', 'inlines' ] },
-	 *		{ text: ['and ', { text: 'restyling ', bold: true }, 'them'] },
-	 *	],
-	 *	styles: {
-	 *		header: { fontSize: 30, bold: true }
-	 *	}
-	 * }
-	 *
-	 * var pdfDoc = printer.createPdfKitDocument(docDefinition);
-	 *
-	 * pdfDoc.pipe(fs.createWriteStream('sample.pdf'));
-	 * pdfDoc.end();
-	 *
-	 * @return {Object} a pdfKit document object which can be saved or encode to data-url
-	 */
-	PdfPrinter.prototype.createPdfKitDocument = function(docDefinition, options) {
-		options = options || {};
-
-		var pageSize = pageSize2widthAndHeight(docDefinition.pageSize || 'a4');
-
-	  if(docDefinition.pageOrientation === 'landscape') {
-	    pageSize = { width: pageSize.height, height: pageSize.width};
-	  }
-		pageSize.orientation = docDefinition.pageOrientation === 'landscape' ? docDefinition.pageOrientation : 'portrait';
-
-		this.pdfKitDoc = new PdfKit({ size: [ pageSize.width, pageSize.height ], compress: false});
-		this.pdfKitDoc.info.Producer = 'pdfmake';
-		this.pdfKitDoc.info.Creator = 'pdfmake';
-		this.fontProvider = new FontProvider(this.fontDescriptors, this.pdfKitDoc);
-
-	  docDefinition.images = docDefinition.images || {};
-
-		var builder = new LayoutBuilder(
-			pageSize,
-			fixPageMargins(docDefinition.pageMargins || 40),
-	        new ImageMeasure(this.pdfKitDoc, docDefinition.images));
-
-	  registerDefaultTableLayouts(builder);
-	  if (options.tableLayouts) {
-	    builder.registerTableLayouts(options.tableLayouts);
-	  }
-
-		var pages = builder.layoutDocument(docDefinition.content, this.fontProvider, docDefinition.styles || {}, docDefinition.defaultStyle || { fontSize: 12, font: 'Roboto' }, docDefinition.background, docDefinition.header, docDefinition.footer, docDefinition.images, docDefinition.watermark, docDefinition.pageBreakBefore);
-
-		renderPages(pages, this.fontProvider, this.pdfKitDoc);
-
-		if(options.autoPrint){
-	        var jsRef = this.pdfKitDoc.ref({
-				S: 'JavaScript',
-				JS: new StringObject('this.print\\(true\\);')
-			});
-			var namesRef = this.pdfKitDoc.ref({
-				Names: [new StringObject('EmbeddedJS'), new PDFReference(this.pdfKitDoc, jsRef.id)],
-			});
-
-			jsRef.end();
-			namesRef.end();
-
-			this.pdfKitDoc._root.data.Names = {
-				JavaScript: new PDFReference(this.pdfKitDoc, namesRef.id)
-			};
-		}
-		return this.pdfKitDoc;
-	};
-
-	function fixPageMargins(margin) {
-	    if (!margin) return null;
-
-	    if (typeof margin === 'number' || margin instanceof Number) {
-	        margin = { left: margin, right: margin, top: margin, bottom: margin };
-	    } else if (margin instanceof Array) {
-	        if (margin.length === 2) {
-	            margin = { left: margin[0], top: margin[1], right: margin[0], bottom: margin[1] };
-	        } else if (margin.length === 4) {
-	            margin = { left: margin[0], top: margin[1], right: margin[2], bottom: margin[3] };
-	        } else throw 'Invalid pageMargins definition';
-	    }
-
-	    return margin;
-	}
-
-	function registerDefaultTableLayouts(layoutBuilder) {
-	  layoutBuilder.registerTableLayouts({
-	    noBorders: {
-	      hLineWidth: function(i) { return 0; },
-	      vLineWidth: function(i) { return 0; },
-	      paddingLeft: function(i) { return i && 4 || 0; },
-	      paddingRight: function(i, node) { return (i < node.table.widths.length - 1) ? 4 : 0; },
-	    },
-	    headerLineOnly: {
-	      hLineWidth: function(i, node) {
-	        if (i === 0 || i === node.table.body.length) return 0;
-	        return (i === node.table.headerRows) ? 2 : 0;
-	      },
-	      vLineWidth: function(i) { return 0; },
-	      paddingLeft: function(i) {
-	        return i === 0 ? 0 : 8;
-	      },
-	      paddingRight: function(i, node) {
-	        return (i === node.table.widths.length - 1) ? 0 : 8;
-	      }
-	    },
-	    lightHorizontalLines: {
-	      hLineWidth: function(i, node) {
-	        if (i === 0 || i === node.table.body.length) return 0;
-	        return (i === node.table.headerRows) ? 2 : 1;
-	      },
-	      vLineWidth: function(i) { return 0; },
-	      hLineColor: function(i) { return i === 1 ? 'black' : '#aaa'; },
-	      paddingLeft: function(i) {
-	        return i === 0 ? 0 : 8;
-	      },
-	      paddingRight: function(i, node) {
-	        return (i === node.table.widths.length - 1) ? 0 : 8;
-	      }
-	    }
-	  });
-	}
-
-	var defaultLayout = {
-	  hLineWidth: function(i, node) { return 1; }, //return node.table.headerRows && i === node.table.headerRows && 3 || 0; },
-	  vLineWidth: function(i, node) { return 1; },
-	  hLineColor: function(i, node) { return 'black'; },
-	  vLineColor: function(i, node) { return 'black'; },
-	  paddingLeft: function(i, node) { return 4; }, //i && 4 || 0; },
-	  paddingRight: function(i, node) { return 4; }, //(i < node.table.widths.length - 1) ? 4 : 0; },
-	  paddingTop: function(i, node) { return 2; },
-	  paddingBottom: function(i, node) { return 2; }
-	};
-
-	function pageSize2widthAndHeight(pageSize) {
-	    if (typeof pageSize == 'string' || pageSize instanceof String) {
-	        var size = sizes[pageSize.toUpperCase()];
-	        if (!size) throw ('Page size ' + pageSize + ' not recognized');
-	        return { width: size[0], height: size[1] };
-	    }
-
-	    return pageSize;
-	}
-
-	function StringObject(str){
-		this.isString = true;
-		this.toString = function(){
-			return str;
-		};
-	}
-
-	function updatePageOrientationInOptions(currentPage, pdfKitDoc) {
-		var previousPageOrientation = pdfKitDoc.options.size[0] > pdfKitDoc.options.size[1] ? 'landscape' : 'portrait';
-
-		if(currentPage.pageSize.orientation !== previousPageOrientation) {
-			var width = pdfKitDoc.options.size[0];
-			var height = pdfKitDoc.options.size[1];
-			pdfKitDoc.options.size = [height, width];
-		}
-	}
-
-	function renderPages(pages, fontProvider, pdfKitDoc) {
-	  pdfKitDoc._pdfMakePages = pages;
-		for (var i = 0; i < pages.length; i++) {
-			if (i > 0) {
-				updatePageOrientationInOptions(pages[i], pdfKitDoc);
-				pdfKitDoc.addPage(pdfKitDoc.options);
-			}
-
-			var page = pages[i];
-	    for(var ii = 0, il = page.items.length; ii < il; ii++) {
-	        var item = page.items[ii];
-	        switch(item.type) {
-	          case 'vector':
-	              renderVector(item.item, pdfKitDoc);
-	              break;
-	          case 'line':
-	              renderLine(item.item, item.item.x, item.item.y, pdfKitDoc);
-	              break;
-	          case 'image':
-	              renderImage(item.item, item.item.x, item.item.y, pdfKitDoc);
-	              break;
-					}
-	    }
-	    if(page.watermark){
-	      renderWatermark(page, pdfKitDoc);
-		}
-
-	    fontProvider.setFontRefsToPdfDoc();
-	  }
-	}
-
-	function renderLine(line, x, y, pdfKitDoc) {
-		x = x || 0;
-		y = y || 0;
-
-		var ascenderHeight = line.getAscenderHeight();
-
-		textDecorator.drawBackground(line, x, y, pdfKitDoc);
-
-		//TODO: line.optimizeInlines();
-		for(var i = 0, l = line.inlines.length; i < l; i++) {
-			var inline = line.inlines[i];
-
-			pdfKitDoc.fill(inline.color || 'black');
-
-			pdfKitDoc.save();
-			pdfKitDoc.transform(1, 0, 0, -1, 0, pdfKitDoc.page.height);
-
-
-	    var encoded = inline.font.encode(inline.text);
-			pdfKitDoc.addContent('BT');
-
-			pdfKitDoc.addContent('' + (x + inline.x) + ' ' + (pdfKitDoc.page.height - y - ascenderHeight) + ' Td');
-			pdfKitDoc.addContent('/' + encoded.fontId + ' ' + inline.fontSize + ' Tf');
-
-	        pdfKitDoc.addContent('<' + encoded.encodedText + '> Tj');
-
-			pdfKitDoc.addContent('ET');
-			pdfKitDoc.restore();
-		}
-
-		textDecorator.drawDecorations(line, x, y, pdfKitDoc);
-
-	}
-
-	function renderWatermark(page, pdfKitDoc){
-		var watermark = page.watermark;
-
-		pdfKitDoc.fill('black');
-		pdfKitDoc.opacity(0.6);
-
-		pdfKitDoc.save();
-		pdfKitDoc.transform(1, 0, 0, -1, 0, pdfKitDoc.page.height);
-
-		var angle = Math.atan2(pdfKitDoc.page.height, pdfKitDoc.page.width) * 180/Math.PI;
-		pdfKitDoc.rotate(angle, {origin: [pdfKitDoc.page.width/2, pdfKitDoc.page.height/2]});
-
-	  var encoded = watermark.font.encode(watermark.text);
-		pdfKitDoc.addContent('BT');
-		pdfKitDoc.addContent('' + (pdfKitDoc.page.width/2 - watermark.size.size.width/2) + ' ' + (pdfKitDoc.page.height/2 - watermark.size.size.height/4) + ' Td');
-		pdfKitDoc.addContent('/' + encoded.fontId + ' ' + watermark.size.fontSize + ' Tf');
-		pdfKitDoc.addContent('<' + encoded.encodedText + '> Tj');
-		pdfKitDoc.addContent('ET');
-		pdfKitDoc.restore();
-	}
-
-	function renderVector(vector, pdfDoc) {
-		//TODO: pdf optimization (there's no need to write all properties everytime)
-		pdfDoc.lineWidth(vector.lineWidth || 1);
-		if (vector.dash) {
-			pdfDoc.dash(vector.dash.length, { space: vector.dash.space || vector.dash.length });
-		} else {
-			pdfDoc.undash();
-		}
-		pdfDoc.fillOpacity(vector.fillOpacity || 1);
-		pdfDoc.strokeOpacity(vector.strokeOpacity || 1);
-		pdfDoc.lineJoin(vector.lineJoin || 'miter');
-
-		//TODO: clipping
-
-		switch(vector.type) {
-			case 'ellipse':
-				pdfDoc.ellipse(vector.x, vector.y, vector.r1, vector.r2);
-				break;
-			case 'rect':
-				if (vector.r) {
-					pdfDoc.roundedRect(vector.x, vector.y, vector.w, vector.h, vector.r);
-				} else {
-					pdfDoc.rect(vector.x, vector.y, vector.w, vector.h);
-				}
-				break;
-			case 'line':
-				pdfDoc.moveTo(vector.x1, vector.y1);
-				pdfDoc.lineTo(vector.x2, vector.y2);
-				break;
-			case 'polyline':
-				if (vector.points.length === 0) break;
-
-				pdfDoc.moveTo(vector.points[0].x, vector.points[0].y);
-				for(var i = 1, l = vector.points.length; i < l; i++) {
-					pdfDoc.lineTo(vector.points[i].x, vector.points[i].y);
-				}
-
-				if (vector.points.length > 1) {
-					var p1 = vector.points[0];
-					var pn = vector.points[vector.points.length - 1];
-
-					if (vector.closePath || p1.x === pn.x && p1.y === pn.y) {
-						pdfDoc.closePath();
-					}
-				}
-				break;
-		}
-
-		if (vector.color && vector.lineColor) {
-			pdfDoc.fillAndStroke(vector.color, vector.lineColor);
-		} else if (vector.color) {
-			pdfDoc.fill(vector.color);
-		} else {
-			pdfDoc.stroke(vector.lineColor || 'black');
-		}
-	}
-
-	function renderImage(image, x, y, pdfKitDoc) {
-	    pdfKitDoc.image(image.image, image.x, image.y, { width: image._width, height: image._height });
-	}
-
-	module.exports = PdfPrinter;
-
-
-	/* temporary browser extension */
-	PdfPrinter.prototype.fs = __webpack_require__(10);
-
-
-/***/ },
-/* 3 */
-/***/ function(module, exports, __webpack_require__) {
-
-	var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(module) {/* FileSaver.js
-	 * A saveAs() FileSaver implementation.
-	 * 2014-08-29
-	 *
-	 * By Eli Grey, http://eligrey.com
-	 * License: X11/MIT
-	 *   See https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md
-	 */
-
-	/*global self */
-	/*jslint bitwise: true, indent: 4, laxbreak: true, laxcomma: true, smarttabs: true, plusplus: true */
-
-	/*! @source http://purl.eligrey.com/github/FileSaver.js/blob/master/FileSaver.js */
-
-	var saveAs = saveAs
-	  // IE 10+ (native saveAs)
-	  || (typeof navigator !== "undefined" &&
-	      navigator.msSaveOrOpenBlob && navigator.msSaveOrOpenBlob.bind(navigator))
-	  // Everyone else
-	  || (function(view) {
-		"use strict";
-		// IE <10 is explicitly unsupported
-		if (typeof navigator !== "undefined" &&
-		    /MSIE [1-9]\./.test(navigator.userAgent)) {
-			return;
-		}
-		var
-			  doc = view.document
-			  // only get URL when necessary in case Blob.js hasn't overridden it yet
-			, get_URL = function() {
-				return view.URL || view.webkitURL || view;
-			}
-			, save_link = doc.createElementNS("http://www.w3.org/1999/xhtml", "a")
-			, can_use_save_link = "download" in save_link
-			, click = function(node) {
-				var event = doc.createEvent("MouseEvents");
-				event.initMouseEvent(
-					"click", true, false, view, 0, 0, 0, 0, 0
-					, false, false, false, false, 0, null
-				);
-				node.dispatchEvent(event);
-			}
-			, webkit_req_fs = view.webkitRequestFileSystem
-			, req_fs = view.requestFileSystem || webkit_req_fs || view.mozRequestFileSystem
-			, throw_outside = function(ex) {
-				(view.setImmediate || view.setTimeout)(function() {
-					throw ex;
-				}, 0);
-			}
-			, force_saveable_type = "application/octet-stream"
-			, fs_min_size = 0
-			// See https://code.google.com/p/chromium/issues/detail?id=375297#c7 for
-			// the reasoning behind the timeout and revocation flow
-			, arbitrary_revoke_timeout = 10
-			, revoke = function(file) {
-				var revoker = function() {
-					if (typeof file === "string") { // file is an object URL
-						get_URL().revokeObjectURL(file);
-					} else { // file is a File
-						file.remove();
-					}
-				};
-				if (view.chrome) {
-					revoker();
-				} else {
-					setTimeout(revoker, arbitrary_revoke_timeout);
-				}
-			}
-			, dispatch = function(filesaver, event_types, event) {
-				event_types = [].concat(event_types);
-				var i = event_types.length;
-				while (i--) {
-					var listener = filesaver["on" + event_types[i]];
-					if (typeof listener === "function") {
-						try {
-							listener.call(filesaver, event || filesaver);
-						} catch (ex) {
-							throw_outside(ex);
-						}
-					}
-				}
-			}
-			, FileSaver = function(blob, name) {
-				// First try a.download, then web filesystem, then object URLs
-				var
-					  filesaver = this
-					, type = blob.type
-					, blob_changed = false
-					, object_url
-					, target_view
-					, dispatch_all = function() {
-						dispatch(filesaver, "writestart progress write writeend".split(" "));
-					}
-					// on any filesys errors revert to saving with object URLs
-					, fs_error = function() {
-						// don't create more object URLs than needed
-						if (blob_changed || !object_url) {
-							object_url = get_URL().createObjectURL(blob);
-						}
-						if (target_view) {
-							target_view.location.href = object_url;
-						} else {
-							var new_tab = view.open(object_url, "_blank");
-							if (new_tab == undefined && typeof safari !== "undefined") {
-								//Apple do not allow window.open, see http://bit.ly/1kZffRI
-								view.location.href = object_url
-							}
-						}
-						filesaver.readyState = filesaver.DONE;
-						dispatch_all();
-						revoke(object_url);
-					}
-					, abortable = function(func) {
-						return function() {
-							if (filesaver.readyState !== filesaver.DONE) {
-								return func.apply(this, arguments);
-							}
-						};
-					}
-					, create_if_not_found = {create: true, exclusive: false}
-					, slice
-				;
-				filesaver.readyState = filesaver.INIT;
-				if (!name) {
-					name = "download";
-				}
-				if (can_use_save_link) {
-					object_url = get_URL().createObjectURL(blob);
-					save_link.href = object_url;
-					save_link.download = name;
-					click(save_link);
-					filesaver.readyState = filesaver.DONE;
-					dispatch_all();
-					revoke(object_url);
-					return;
-				}
-				// Object and web filesystem URLs have a problem saving in Google Chrome when
-				// viewed in a tab, so I force save with application/octet-stream
-				// http://code.google.com/p/chromium/issues/detail?id=91158
-				// Update: Google errantly closed 91158, I submitted it again:
-				// https://code.google.com/p/chromium/issues/detail?id=389642
-				if (view.chrome && type && type !== force_saveable_type) {
-					slice = blob.slice || blob.webkitSlice;
-					blob = slice.call(blob, 0, blob.size, force_saveable_type);
-					blob_changed = true;
-				}
-				// Since I can't be sure that the guessed media type will trigger a download
-				// in WebKit, I append .download to the filename.
-				// https://bugs.webkit.org/show_bug.cgi?id=65440
-				if (webkit_req_fs && name !== "download") {
-					name += ".download";
-				}
-				if (type === force_saveable_type || webkit_req_fs) {
-					target_view = view;
-				}
-				if (!req_fs) {
-					fs_error();
-					return;
-				}
-				fs_min_size += blob.size;
-				req_fs(view.TEMPORARY, fs_min_size, abortable(function(fs) {
-					fs.root.getDirectory("saved", create_if_not_found, abortable(function(dir) {
-						var save = function() {
-							dir.getFile(name, create_if_not_found, abortable(function(file) {
-								file.createWriter(abortable(function(writer) {
-									writer.onwriteend = function(event) {
-										target_view.location.href = file.toURL();
-										filesaver.readyState = filesaver.DONE;
-										dispatch(filesaver, "writeend", event);
-										revoke(file);
-									};
-									writer.onerror = function() {
-										var error = writer.error;
-										if (error.code !== error.ABORT_ERR) {
-											fs_error();
-										}
-									};
-									"writestart progress write abort".split(" ").forEach(function(event) {
-										writer["on" + event] = filesaver["on" + event];
-									});
-									writer.write(blob);
-									filesaver.abort = function() {
-										writer.abort();
-										filesaver.readyState = filesaver.DONE;
-									};
-									filesaver.readyState = filesaver.WRITING;
-								}), fs_error);
-							}), fs_error);
-						};
-						dir.getFile(name, {create: false}, abortable(function(file) {
-							// delete file if it already exists
-							file.remove();
-							save();
-						}), abortable(function(ex) {
-							if (ex.code === ex.NOT_FOUND_ERR) {
-								save();
-							} else {
-								fs_error();
-							}
-						}));
-					}), fs_error);
-				}), fs_error);
-			}
-			, FS_proto = FileSaver.prototype
-			, saveAs = function(blob, name) {
-				return new FileSaver(blob, name);
-			}
-		;
-		FS_proto.abort = function() {
-			var filesaver = this;
-			filesaver.readyState = filesaver.DONE;
-			dispatch(filesaver, "abort");
-		};
-		FS_proto.readyState = FS_proto.INIT = 0;
-		FS_proto.WRITING = 1;
-		FS_proto.DONE = 2;
-
-		FS_proto.error =
-		FS_proto.onwritestart =
-		FS_proto.onprogress =
-		FS_proto.onwrite =
-		FS_proto.onabort =
-		FS_proto.onerror =
-		FS_proto.onwriteend =
-			null;
-
-		return saveAs;
-	}(
-		   typeof self !== "undefined" && self
-		|| typeof window !== "undefined" && window
-		|| this.content
-	));
-	// `self` is undefined in Firefox for Android content script context
-	// while `this` is nsIContentFrameMessageManager
-	// with an attribute `content` that corresponds to the window
-
-	if (typeof module !== "undefined" && module !== null) {
-	  module.exports = saveAs;
-	} else if (("function" !== "undefined" && __webpack_require__(13) !== null) && (__webpack_require__(14) != null)) {
-	  !(__WEBPACK_AMD_DEFINE_ARRAY__ = [], __WEBPACK_AMD_DEFINE_RESULT__ = function() {
-	    return saveAs;
-	  }.apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-	}
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(15)(module)))
-
-/***/ },
-/* 4 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(Buffer) {/*!
@@ -812,16 +204,15 @@
 	 * @license  MIT
 	 */
 
-	var base64 = __webpack_require__(31)
-	var ieee754 = __webpack_require__(29)
-	var isArray = __webpack_require__(30)
+	var base64 = __webpack_require__(3)
+	var ieee754 = __webpack_require__(4)
+	var isArray = __webpack_require__(5)
 
 	exports.Buffer = Buffer
 	exports.SlowBuffer = SlowBuffer
 	exports.INSPECT_MAX_BYTES = 50
 	Buffer.poolSize = 8192 // not used by this implementation
 
-	var kMaxLength = 0x3fffffff
 	var rootParent = {}
 
 	/**
@@ -832,32 +223,45 @@
 	 * Browsers that support typed arrays are IE 10+, Firefox 4+, Chrome 7+, Safari 5.1+,
 	 * Opera 11.6+, iOS 4.2+.
 	 *
+	 * Due to various browser bugs, sometimes the Object implementation will be used even
+	 * when the browser supports typed arrays.
+	 *
 	 * Note:
 	 *
-	 * - Implementation must support adding new properties to `Uint8Array` instances.
-	 *   Firefox 4-29 lacked support, fixed in Firefox 30+.
-	 *   See: https://bugzilla.mozilla.org/show_bug.cgi?id=695438.
+	 *   - Firefox 4-29 lacks support for adding new properties to `Uint8Array` instances,
+	 *     See: https://bugzilla.mozilla.org/show_bug.cgi?id=695438.
 	 *
-	 *  - Chrome 9-10 is missing the `TypedArray.prototype.subarray` function.
+	 *   - Safari 5-7 lacks support for changing the `Object.prototype.constructor` property
+	 *     on objects.
 	 *
-	 *  - IE10 has a broken `TypedArray.prototype.subarray` function which returns arrays of
-	 *    incorrect length in some situations.
+	 *   - Chrome 9-10 is missing the `TypedArray.prototype.subarray` function.
 	 *
-	 * We detect these buggy browsers and set `Buffer.TYPED_ARRAY_SUPPORT` to `false` so they will
-	 * get the Object implementation, which is slower but will work correctly.
+	 *   - IE10 has a broken `TypedArray.prototype.subarray` function which returns arrays of
+	 *     incorrect length in some situations.
+
+	 * We detect these buggy browsers and set `Buffer.TYPED_ARRAY_SUPPORT` to `false` so they
+	 * get the Object implementation, which is slower but behaves correctly.
 	 */
 	Buffer.TYPED_ARRAY_SUPPORT = (function () {
+	  function Bar () {}
 	  try {
-	    var buf = new ArrayBuffer(0)
-	    var arr = new Uint8Array(buf)
+	    var arr = new Uint8Array(1)
 	    arr.foo = function () { return 42 }
+	    arr.constructor = Bar
 	    return arr.foo() === 42 && // typed array instances can be augmented
+	        arr.constructor === Bar && // constructor can be set
 	        typeof arr.subarray === 'function' && // chrome 9-10 lack `subarray`
-	        new Uint8Array(1).subarray(1, 1).byteLength === 0 // ie10 has broken `subarray`
+	        arr.subarray(1, 1).byteLength === 0 // ie10 has broken `subarray`
 	  } catch (e) {
 	    return false
 	  }
 	})()
+
+	function kMaxLength () {
+	  return Buffer.TYPED_ARRAY_SUPPORT
+	    ? 0x7fffffff
+	    : 0x3fffffff
+	}
 
 	/**
 	 * Class: Buffer
@@ -925,8 +329,13 @@
 	    throw new TypeError('must start with number, buffer, array or string')
 	  }
 
-	  if (typeof ArrayBuffer !== 'undefined' && object.buffer instanceof ArrayBuffer) {
-	    return fromTypedArray(that, object)
+	  if (typeof ArrayBuffer !== 'undefined') {
+	    if (object.buffer instanceof ArrayBuffer) {
+	      return fromTypedArray(that, object)
+	    }
+	    if (object instanceof ArrayBuffer) {
+	      return fromArrayBuffer(that, object)
+	    }
 	  }
 
 	  if (object.length) return fromArrayLike(that, object)
@@ -959,6 +368,18 @@
 	  // of the old Buffer constructor.
 	  for (var i = 0; i < length; i += 1) {
 	    that[i] = array[i] & 255
+	  }
+	  return that
+	}
+
+	function fromArrayBuffer (that, array) {
+	  if (Buffer.TYPED_ARRAY_SUPPORT) {
+	    // Return an augmented `Uint8Array` instance, for best performance
+	    array.byteLength
+	    that = Buffer._augment(new Uint8Array(array))
+	  } else {
+	    // Fallback: Return an object instance of the Buffer class
+	    that = fromTypedArray(that, new Uint8Array(array))
 	  }
 	  return that
 	}
@@ -1009,9 +430,9 @@
 	function checked (length) {
 	  // Note: cannot use `length < kMaxLength` here because that fails when
 	  // length is NaN (which is otherwise coerced to zero.)
-	  if (length >= kMaxLength) {
+	  if (length >= kMaxLength()) {
 	    throw new RangeError('Attempt to allocate Buffer larger than maximum ' +
-	                         'size: 0x' + kMaxLength.toString(16) + ' bytes')
+	                         'size: 0x' + kMaxLength().toString(16) + ' bytes')
 	  }
 	  return length | 0
 	}
@@ -1080,8 +501,6 @@
 
 	  if (list.length === 0) {
 	    return new Buffer(0)
-	  } else if (list.length === 1) {
-	    return list[0]
 	  }
 
 	  var i
@@ -1103,29 +522,38 @@
 	}
 
 	function byteLength (string, encoding) {
-	  if (typeof string !== 'string') string = String(string)
+	  if (typeof string !== 'string') string = '' + string
 
-	  if (string.length === 0) return 0
+	  var len = string.length
+	  if (len === 0) return 0
 
-	  switch (encoding || 'utf8') {
-	    case 'ascii':
-	    case 'binary':
-	    case 'raw':
-	      return string.length
-	    case 'ucs2':
-	    case 'ucs-2':
-	    case 'utf16le':
-	    case 'utf-16le':
-	      return string.length * 2
-	    case 'hex':
-	      return string.length >>> 1
-	    case 'utf8':
-	    case 'utf-8':
-	      return utf8ToBytes(string).length
-	    case 'base64':
-	      return base64ToBytes(string).length
-	    default:
-	      return string.length
+	  // Use a for loop to avoid recursion
+	  var loweredCase = false
+	  for (;;) {
+	    switch (encoding) {
+	      case 'ascii':
+	      case 'binary':
+	      // Deprecated
+	      case 'raw':
+	      case 'raws':
+	        return len
+	      case 'utf8':
+	      case 'utf-8':
+	        return utf8ToBytes(string).length
+	      case 'ucs2':
+	      case 'ucs-2':
+	      case 'utf16le':
+	      case 'utf-16le':
+	        return len * 2
+	      case 'hex':
+	        return len >>> 1
+	      case 'base64':
+	        return base64ToBytes(string).length
+	      default:
+	        if (loweredCase) return utf8ToBytes(string).length // assume utf8
+	        encoding = ('' + encoding).toLowerCase()
+	        loweredCase = true
+	    }
 	  }
 	}
 	Buffer.byteLength = byteLength
@@ -1134,8 +562,7 @@
 	Buffer.prototype.length = undefined
 	Buffer.prototype.parent = undefined
 
-	// toString(encoding, start=0, end=buffer.length)
-	Buffer.prototype.toString = function toString (encoding, start, end) {
+	function slowToString (encoding, start, end) {
 	  var loweredCase = false
 
 	  start = start | 0
@@ -1176,6 +603,13 @@
 	        loweredCase = true
 	    }
 	  }
+	}
+
+	Buffer.prototype.toString = function toString () {
+	  var length = this.length | 0
+	  if (length === 0) return ''
+	  if (arguments.length === 0) return utf8Slice(this, 0, length)
+	  return slowToString.apply(this, arguments)
 	}
 
 	Buffer.prototype.equals = function equals (b) {
@@ -1241,13 +675,13 @@
 	  throw new TypeError('val must be string, number or Buffer')
 	}
 
-	// `get` will be removed in Node 0.13+
+	// `get` is deprecated
 	Buffer.prototype.get = function get (offset) {
 	  console.log('.get() is deprecated. Access using array indexes instead.')
 	  return this.readUInt8(offset)
 	}
 
-	// `set` will be removed in Node 0.13+
+	// `set` is deprecated
 	Buffer.prototype.set = function set (v, offset) {
 	  console.log('.set() is deprecated. Access using array indexes instead.')
 	  return this.writeUInt8(v, offset)
@@ -1388,20 +822,99 @@
 	}
 
 	function utf8Slice (buf, start, end) {
-	  var res = ''
-	  var tmp = ''
 	  end = Math.min(buf.length, end)
+	  var res = []
 
-	  for (var i = start; i < end; i++) {
-	    if (buf[i] <= 0x7F) {
-	      res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
-	      tmp = ''
-	    } else {
-	      tmp += '%' + buf[i].toString(16)
+	  var i = start
+	  while (i < end) {
+	    var firstByte = buf[i]
+	    var codePoint = null
+	    var bytesPerSequence = (firstByte > 0xEF) ? 4
+	      : (firstByte > 0xDF) ? 3
+	      : (firstByte > 0xBF) ? 2
+	      : 1
+
+	    if (i + bytesPerSequence <= end) {
+	      var secondByte, thirdByte, fourthByte, tempCodePoint
+
+	      switch (bytesPerSequence) {
+	        case 1:
+	          if (firstByte < 0x80) {
+	            codePoint = firstByte
+	          }
+	          break
+	        case 2:
+	          secondByte = buf[i + 1]
+	          if ((secondByte & 0xC0) === 0x80) {
+	            tempCodePoint = (firstByte & 0x1F) << 0x6 | (secondByte & 0x3F)
+	            if (tempCodePoint > 0x7F) {
+	              codePoint = tempCodePoint
+	            }
+	          }
+	          break
+	        case 3:
+	          secondByte = buf[i + 1]
+	          thirdByte = buf[i + 2]
+	          if ((secondByte & 0xC0) === 0x80 && (thirdByte & 0xC0) === 0x80) {
+	            tempCodePoint = (firstByte & 0xF) << 0xC | (secondByte & 0x3F) << 0x6 | (thirdByte & 0x3F)
+	            if (tempCodePoint > 0x7FF && (tempCodePoint < 0xD800 || tempCodePoint > 0xDFFF)) {
+	              codePoint = tempCodePoint
+	            }
+	          }
+	          break
+	        case 4:
+	          secondByte = buf[i + 1]
+	          thirdByte = buf[i + 2]
+	          fourthByte = buf[i + 3]
+	          if ((secondByte & 0xC0) === 0x80 && (thirdByte & 0xC0) === 0x80 && (fourthByte & 0xC0) === 0x80) {
+	            tempCodePoint = (firstByte & 0xF) << 0x12 | (secondByte & 0x3F) << 0xC | (thirdByte & 0x3F) << 0x6 | (fourthByte & 0x3F)
+	            if (tempCodePoint > 0xFFFF && tempCodePoint < 0x110000) {
+	              codePoint = tempCodePoint
+	            }
+	          }
+	      }
 	    }
+
+	    if (codePoint === null) {
+	      // we did not generate a valid codePoint so insert a
+	      // replacement char (U+FFFD) and advance only 1 byte
+	      codePoint = 0xFFFD
+	      bytesPerSequence = 1
+	    } else if (codePoint > 0xFFFF) {
+	      // encode to utf16 (surrogate pair dance)
+	      codePoint -= 0x10000
+	      res.push(codePoint >>> 10 & 0x3FF | 0xD800)
+	      codePoint = 0xDC00 | codePoint & 0x3FF
+	    }
+
+	    res.push(codePoint)
+	    i += bytesPerSequence
 	  }
 
-	  return res + decodeUtf8Char(tmp)
+	  return decodeCodePointsArray(res)
+	}
+
+	// Based on http://stackoverflow.com/a/22747272/680742, the browser with
+	// the lowest limit is Chrome, with 0x10000 args.
+	// We go 1 magnitude less, for safety
+	var MAX_ARGUMENTS_LENGTH = 0x1000
+
+	function decodeCodePointsArray (codePoints) {
+	  var len = codePoints.length
+	  if (len <= MAX_ARGUMENTS_LENGTH) {
+	    return String.fromCharCode.apply(String, codePoints) // avoid extra slice()
+	  }
+
+	  // Decode in chunks to avoid "call stack size exceeded".
+	  var res = ''
+	  var i = 0
+	  while (i < len) {
+	    res += String.fromCharCode.apply(
+	      String,
+	      codePoints.slice(i, i += MAX_ARGUMENTS_LENGTH)
+	    )
+	  }
+	  return res
 	}
 
 	function asciiSlice (buf, start, end) {
@@ -1936,9 +1449,16 @@
 	  }
 
 	  var len = end - start
+	  var i
 
-	  if (len < 1000 || !Buffer.TYPED_ARRAY_SUPPORT) {
-	    for (var i = 0; i < len; i++) {
+	  if (this === target && start < targetStart && targetStart < end) {
+	    // descending copy from end
+	    for (i = len - 1; i >= 0; i--) {
+	      target[i + targetStart] = this[i + start]
+	    }
+	  } else if (len < 1000 || !Buffer.TYPED_ARRAY_SUPPORT) {
+	    // ascending copy from start
+	    for (i = 0; i < len; i++) {
 	      target[i + targetStart] = this[i + start]
 	    }
 	  } else {
@@ -2014,7 +1534,7 @@
 	  // save reference to original Uint8Array set method before overwriting
 	  arr._set = arr.set
 
-	  // deprecated, will be removed in node 0.13+
+	  // deprecated
 	  arr.get = BP.get
 	  arr.set = BP.set
 
@@ -2070,7 +1590,7 @@
 	  return arr
 	}
 
-	var INVALID_BASE64_RE = /[^+\/0-9A-z\-]/g
+	var INVALID_BASE64_RE = /[^+\/0-9A-Za-z-_]/g
 
 	function base64clean (str) {
 	  // Node strips out invalid characters like \n and \t from the string, base64-js does not
@@ -2100,28 +1620,15 @@
 	  var length = string.length
 	  var leadSurrogate = null
 	  var bytes = []
-	  var i = 0
 
-	  for (; i < length; i++) {
+	  for (var i = 0; i < length; i++) {
 	    codePoint = string.charCodeAt(i)
 
 	    // is surrogate component
 	    if (codePoint > 0xD7FF && codePoint < 0xE000) {
 	      // last char was a lead
-	      if (leadSurrogate) {
-	        // 2 leads in a row
-	        if (codePoint < 0xDC00) {
-	          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
-	          leadSurrogate = codePoint
-	          continue
-	        } else {
-	          // valid surrogate pair
-	          codePoint = leadSurrogate - 0xD800 << 10 | codePoint - 0xDC00 | 0x10000
-	          leadSurrogate = null
-	        }
-	      } else {
+	      if (!leadSurrogate) {
 	        // no lead yet
-
 	        if (codePoint > 0xDBFF) {
 	          // unexpected trail
 	          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
@@ -2130,17 +1637,29 @@
 	          // unpaired lead
 	          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
 	          continue
-	        } else {
-	          // valid lead
-	          leadSurrogate = codePoint
-	          continue
 	        }
+
+	        // valid lead
+	        leadSurrogate = codePoint
+
+	        continue
 	      }
+
+	      // 2 leads in a row
+	      if (codePoint < 0xDC00) {
+	        if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
+	        leadSurrogate = codePoint
+	        continue
+	      }
+
+	      // valid surrogate pair
+	      codePoint = leadSurrogate - 0xD800 << 10 | codePoint - 0xDC00 | 0x10000
 	    } else if (leadSurrogate) {
 	      // valid bmp char, but last char was a lead
 	      if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
-	      leadSurrogate = null
 	    }
+
+	    leadSurrogate = null
 
 	    // encode utf8
 	    if (codePoint < 0x80) {
@@ -2159,7 +1678,7 @@
 	        codePoint >> 0x6 & 0x3F | 0x80,
 	        codePoint & 0x3F | 0x80
 	      )
-	    } else if (codePoint < 0x200000) {
+	    } else if (codePoint < 0x110000) {
 	      if ((units -= 4) < 0) break
 	      bytes.push(
 	        codePoint >> 0x12 | 0xF0,
@@ -2212,81 +1731,265 @@
 	  return i
 	}
 
-	function decodeUtf8Char (str) {
-	  try {
-	    return decodeURIComponent(str)
-	  } catch (err) {
-	    return String.fromCharCode(0xFFFD) // UTF 8 invalid char
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 3 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+	;(function (exports) {
+		'use strict';
+
+	  var Arr = (typeof Uint8Array !== 'undefined')
+	    ? Uint8Array
+	    : Array
+
+		var PLUS   = '+'.charCodeAt(0)
+		var SLASH  = '/'.charCodeAt(0)
+		var NUMBER = '0'.charCodeAt(0)
+		var LOWER  = 'a'.charCodeAt(0)
+		var UPPER  = 'A'.charCodeAt(0)
+		var PLUS_URL_SAFE = '-'.charCodeAt(0)
+		var SLASH_URL_SAFE = '_'.charCodeAt(0)
+
+		function decode (elt) {
+			var code = elt.charCodeAt(0)
+			if (code === PLUS ||
+			    code === PLUS_URL_SAFE)
+				return 62 // '+'
+			if (code === SLASH ||
+			    code === SLASH_URL_SAFE)
+				return 63 // '/'
+			if (code < NUMBER)
+				return -1 //no match
+			if (code < NUMBER + 10)
+				return code - NUMBER + 26 + 26
+			if (code < UPPER + 26)
+				return code - UPPER
+			if (code < LOWER + 26)
+				return code - LOWER + 26
+		}
+
+		function b64ToByteArray (b64) {
+			var i, j, l, tmp, placeHolders, arr
+
+			if (b64.length % 4 > 0) {
+				throw new Error('Invalid string. Length must be a multiple of 4')
+			}
+
+			// the number of equal signs (place holders)
+			// if there are two placeholders, than the two characters before it
+			// represent one byte
+			// if there is only one, then the three characters before it represent 2 bytes
+			// this is just a cheap hack to not do indexOf twice
+			var len = b64.length
+			placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
+
+			// base64 is 4/3 + up to two characters of the original data
+			arr = new Arr(b64.length * 3 / 4 - placeHolders)
+
+			// if there are placeholders, only get up to the last complete 4 chars
+			l = placeHolders > 0 ? b64.length - 4 : b64.length
+
+			var L = 0
+
+			function push (v) {
+				arr[L++] = v
+			}
+
+			for (i = 0, j = 0; i < l; i += 4, j += 3) {
+				tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
+				push((tmp & 0xFF0000) >> 16)
+				push((tmp & 0xFF00) >> 8)
+				push(tmp & 0xFF)
+			}
+
+			if (placeHolders === 2) {
+				tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
+				push(tmp & 0xFF)
+			} else if (placeHolders === 1) {
+				tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
+				push((tmp >> 8) & 0xFF)
+				push(tmp & 0xFF)
+			}
+
+			return arr
+		}
+
+		function uint8ToBase64 (uint8) {
+			var i,
+				extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
+				output = "",
+				temp, length
+
+			function encode (num) {
+				return lookup.charAt(num)
+			}
+
+			function tripletToBase64 (num) {
+				return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
+			}
+
+			// go through the array every three bytes, we'll deal with trailing stuff later
+			for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
+				temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
+				output += tripletToBase64(temp)
+			}
+
+			// pad the end with zeros, but make sure to not forget the extra bytes
+			switch (extraBytes) {
+				case 1:
+					temp = uint8[uint8.length - 1]
+					output += encode(temp >> 2)
+					output += encode((temp << 4) & 0x3F)
+					output += '=='
+					break
+				case 2:
+					temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
+					output += encode(temp >> 10)
+					output += encode((temp >> 4) & 0x3F)
+					output += encode((temp << 2) & 0x3F)
+					output += '='
+					break
+			}
+
+			return output
+		}
+
+		exports.toByteArray = b64ToByteArray
+		exports.fromByteArray = uint8ToBase64
+	}( false ? (this.base64js = {}) : exports))
+
+
+/***/ },
+/* 4 */
+/***/ function(module, exports) {
+
+	exports.read = function (buffer, offset, isLE, mLen, nBytes) {
+	  var e, m
+	  var eLen = nBytes * 8 - mLen - 1
+	  var eMax = (1 << eLen) - 1
+	  var eBias = eMax >> 1
+	  var nBits = -7
+	  var i = isLE ? (nBytes - 1) : 0
+	  var d = isLE ? -1 : 1
+	  var s = buffer[offset + i]
+
+	  i += d
+
+	  e = s & ((1 << (-nBits)) - 1)
+	  s >>= (-nBits)
+	  nBits += eLen
+	  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8) {}
+
+	  m = e & ((1 << (-nBits)) - 1)
+	  e >>= (-nBits)
+	  nBits += mLen
+	  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8) {}
+
+	  if (e === 0) {
+	    e = 1 - eBias
+	  } else if (e === eMax) {
+	    return m ? NaN : ((s ? -1 : 1) * Infinity)
+	  } else {
+	    m = m + Math.pow(2, mLen)
+	    e = e - eBias
 	  }
+	  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
 	}
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
+	exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
+	  var e, m, c
+	  var eLen = nBytes * 8 - mLen - 1
+	  var eMax = (1 << eLen) - 1
+	  var eBias = eMax >> 1
+	  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
+	  var i = isLE ? 0 : (nBytes - 1)
+	  var d = isLE ? 1 : -1
+	  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0
+
+	  value = Math.abs(value)
+
+	  if (isNaN(value) || value === Infinity) {
+	    m = isNaN(value) ? 1 : 0
+	    e = eMax
+	  } else {
+	    e = Math.floor(Math.log(value) / Math.LN2)
+	    if (value * (c = Math.pow(2, -e)) < 1) {
+	      e--
+	      c *= 2
+	    }
+	    if (e + eBias >= 1) {
+	      value += rt / c
+	    } else {
+	      value += rt * Math.pow(2, 1 - eBias)
+	    }
+	    if (value * c >= 2) {
+	      e++
+	      c /= 2
+	    }
+
+	    if (e + eBias >= eMax) {
+	      m = 0
+	      e = eMax
+	    } else if (e + eBias >= 1) {
+	      m = (value * c - 1) * Math.pow(2, mLen)
+	      e = e + eBias
+	    } else {
+	      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
+	      e = 0
+	    }
+	  }
+
+	  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
+
+	  e = (e << mLen) | m
+	  eLen += mLen
+	  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
+
+	  buffer[offset + i - d] |= s * 128
+	}
+
 
 /***/ },
 /* 5 */
-/***/ function(module, exports, __webpack_require__) {
+/***/ function(module, exports) {
 
-	/* jslint node: true */
-	'use strict';
+	
+	/**
+	 * isArray
+	 */
 
-	var _ = __webpack_require__(11);
-	var FontWrapper = __webpack_require__(16);
+	var isArray = Array.isArray;
 
-	function typeName(bold, italics){
-		var type = 'normal';
-		if (bold && italics) type = 'bolditalics';
-		else if (bold) type = 'bold';
-		else if (italics) type = 'italics';
-		return type;
-	}
+	/**
+	 * toString
+	 */
 
-	function FontProvider(fontDescriptors, pdfDoc) {
-		this.fonts = {};
-		this.pdfDoc = pdfDoc;
-		this.fontWrappers = {};
+	var str = Object.prototype.toString;
 
-		for(var font in fontDescriptors) {
-			if (fontDescriptors.hasOwnProperty(font)) {
-				var fontDef = fontDescriptors[font];
+	/**
+	 * Whether or not the given `val`
+	 * is an array.
+	 *
+	 * example:
+	 *
+	 *        isArray([]);
+	 *        // > true
+	 *        isArray(arguments);
+	 *        // > false
+	 *        isArray('');
+	 *        // > false
+	 *
+	 * @param {mixed} val
+	 * @return {bool}
+	 */
 
-				this.fonts[font] = {
-					normal: fontDef.normal,
-					bold: fontDef.bold,
-					italics: fontDef.italics,
-					bolditalics: fontDef.bolditalics
-				};
-			}
-		}
-	}
-
-	FontProvider.prototype.provideFont = function(familyName, bold, italics) {
-	  if (!this.fonts[familyName]) return this.pdfDoc._font;
-		var type = typeName(bold, italics);
-
-	  this.fontWrappers[familyName] = this.fontWrappers[familyName] || {};
-
-	  if (!this.fontWrappers[familyName][type]) {
-			this.fontWrappers[familyName][type] = new FontWrapper(this.pdfDoc, this.fonts[familyName][type], familyName + '(' + type + ')');
-		}
-
-	  return this.fontWrappers[familyName][type];
+	module.exports = isArray || function (val) {
+	  return !! val && '[object Array]' == str.call(val);
 	};
-
-	FontProvider.prototype.setFontRefsToPdfDoc = function(){
-	  var self = this;
-
-	  _.each(self.fontWrappers, function(fontFamily) {
-	    _.each(fontFamily, function(fontWrapper){
-	      _.each(fontWrapper.pdfFonts, function(font){
-	        if (!self.pdfDoc.page.fonts[font.id]) {
-	          self.pdfDoc.page.fonts[font.id] = font.ref();
-	        }
-	      });
-	    });
-	  });
-	};
-
-	module.exports = FontProvider;
 
 
 /***/ },
@@ -2294,892 +1997,370 @@
 /***/ function(module, exports, __webpack_require__) {
 
 	/* jslint node: true */
+	/* global window */
 	'use strict';
 
-	var _ = __webpack_require__(11);
-	var TraversalTracker = __webpack_require__(18);
-	var DocMeasure = __webpack_require__(19);
-	var DocumentContext = __webpack_require__(20);
-	var PageElementWriter = __webpack_require__(21);
-	var ColumnCalculator = __webpack_require__(22);
-	var TableProcessor = __webpack_require__(23);
-	var Line = __webpack_require__(24);
-	var pack = __webpack_require__(25).pack;
-	var offsetVector = __webpack_require__(25).offsetVector;
-	var fontStringify = __webpack_require__(25).fontStringify;
-	var isFunction = __webpack_require__(25).isFunction;
-	var TextTools = __webpack_require__(26);
-	var StyleContextStack = __webpack_require__(27);
+	var _ = __webpack_require__(7);
+	var FontProvider = __webpack_require__(9);
+	var LayoutBuilder = __webpack_require__(11);
+	var PdfKit = __webpack_require__(24);
+	var PDFReference = __webpack_require__(46);
+	var sizes = __webpack_require__(102);
+	var ImageMeasure = __webpack_require__(103);
+	var textDecorator = __webpack_require__(104);
+	var FontProvider = __webpack_require__(9);
 
-	function addAll(target, otherArray){
-	  _.each(otherArray, function(item){
-	    target.push(item);
-	  });
+	////////////////////////////////////////
+	// PdfPrinter
+
+	/**
+	 * @class Creates an instance of a PdfPrinter which turns document definition into a pdf
+	 *
+	 * @param {Object} fontDescriptors font definition dictionary
+	 *
+	 * @example
+	 * var fontDescriptors = {
+	 *	Roboto: {
+	 *		normal: 'fonts/Roboto-Regular.ttf',
+	 *		bold: 'fonts/Roboto-Medium.ttf',
+	 *		italics: 'fonts/Roboto-Italic.ttf',
+	 *		bolditalics: 'fonts/Roboto-Italic.ttf'
+	 *	}
+	 * };
+	 *
+	 * var printer = new PdfPrinter(fontDescriptors);
+	 */
+	function PdfPrinter(fontDescriptors) {
+		this.fontDescriptors = fontDescriptors;
 	}
 
 	/**
-	 * Creates an instance of LayoutBuilder - layout engine which turns document-definition-object
-	 * into a set of pages, lines, inlines and vectors ready to be rendered into a PDF
+	 * Executes layout engine for the specified document and renders it into a pdfkit document
+	 * ready to be saved.
 	 *
-	 * @param {Object} pageSize - an object defining page width and height
-	 * @param {Object} pageMargins - an object defining top, left, right and bottom margins
+	 * @param {Object} docDefinition document definition
+	 * @param {Object} docDefinition.content an array describing the pdf structure (for more information take a look at the examples in the /examples folder)
+	 * @param {Object} [docDefinition.defaultStyle] default (implicit) style definition
+	 * @param {Object} [docDefinition.styles] dictionary defining all styles which can be used in the document
+	 * @param {Object} [docDefinition.pageSize] page size (pdfkit units, A4 dimensions by default)
+	 * @param {Number} docDefinition.pageSize.width width
+	 * @param {Number} docDefinition.pageSize.height height
+	 * @param {Object} [docDefinition.pageMargins] page margins (pdfkit units)
+	 *
+	 * @example
+	 *
+	 * var docDefinition = {
+	 *	content: [
+	 *		'First paragraph',
+	 *		'Second paragraph, this time a little bit longer',
+	 *		{ text: 'Third paragraph, slightly bigger font size', fontSize: 20 },
+	 *		{ text: 'Another paragraph using a named style', style: 'header' },
+	 *		{ text: ['playing with ', 'inlines' ] },
+	 *		{ text: ['and ', { text: 'restyling ', bold: true }, 'them'] },
+	 *	],
+	 *	styles: {
+	 *		header: { fontSize: 30, bold: true }
+	 *	}
+	 * }
+	 *
+	 * var pdfDoc = printer.createPdfKitDocument(docDefinition);
+	 *
+	 * pdfDoc.pipe(fs.createWriteStream('sample.pdf'));
+	 * pdfDoc.end();
+	 *
+	 * @return {Object} a pdfKit document object which can be saved or encode to data-url
 	 */
-	function LayoutBuilder(pageSize, pageMargins, imageMeasure) {
-		this.pageSize = pageSize;
-		this.pageMargins = pageMargins;
-		this.tracker = new TraversalTracker();
-	    this.imageMeasure = imageMeasure;
-	    this.tableLayouts = {};
+	PdfPrinter.prototype.createPdfKitDocument = function(docDefinition, options) {
+		options = options || {};
+
+		var pageSize = pageSize2widthAndHeight(docDefinition.pageSize || 'a4');
+
+	  if(docDefinition.pageOrientation === 'landscape') {
+	    pageSize = { width: pageSize.height, height: pageSize.width};
+	  }
+		pageSize.orientation = docDefinition.pageOrientation === 'landscape' ? docDefinition.pageOrientation : 'portrait';
+
+		this.pdfKitDoc = new PdfKit({ size: [ pageSize.width, pageSize.height ], compress: false});
+		this.pdfKitDoc.info.Producer = 'pdfmake';
+		this.pdfKitDoc.info.Creator = 'pdfmake';
+		this.fontProvider = new FontProvider(this.fontDescriptors, this.pdfKitDoc);
+
+	  docDefinition.images = docDefinition.images || {};
+
+		var builder = new LayoutBuilder(
+			pageSize,
+			fixPageMargins(docDefinition.pageMargins || 40),
+	        new ImageMeasure(this.pdfKitDoc, docDefinition.images));
+
+	  registerDefaultTableLayouts(builder);
+	  if (options.tableLayouts) {
+	    builder.registerTableLayouts(options.tableLayouts);
+	  }
+
+		var pages = builder.layoutDocument(docDefinition.content, this.fontProvider, docDefinition.styles || {}, docDefinition.defaultStyle || { fontSize: 12, font: 'Roboto' }, docDefinition.background, docDefinition.header, docDefinition.footer, docDefinition.images, docDefinition.watermark, docDefinition.pageBreakBefore);
+
+		renderPages(pages, this.fontProvider, this.pdfKitDoc);
+
+		if(options.autoPrint){
+	    var printActionRef = this.pdfKitDoc.ref({
+	      Type: 'Action',
+	      S: 'Named',
+	      N: 'Print'
+	    });
+	    this.pdfKitDoc._root.data.OpenAction = printActionRef;
+	    printActionRef.end();
+		}
+		return this.pdfKitDoc;
+	};
+
+	function fixPageMargins(margin) {
+	    if (!margin) return null;
+
+	    if (typeof margin === 'number' || margin instanceof Number) {
+	        margin = { left: margin, right: margin, top: margin, bottom: margin };
+	    } else if (margin instanceof Array) {
+	        if (margin.length === 2) {
+	            margin = { left: margin[0], top: margin[1], right: margin[0], bottom: margin[1] };
+	        } else if (margin.length === 4) {
+	            margin = { left: margin[0], top: margin[1], right: margin[2], bottom: margin[3] };
+	        } else throw 'Invalid pageMargins definition';
+	    }
+
+	    return margin;
 	}
 
-	LayoutBuilder.prototype.registerTableLayouts = function (tableLayouts) {
-	  this.tableLayouts = pack(this.tableLayouts, tableLayouts);
-	};
-
-	/**
-	 * Executes layout engine on document-definition-object and creates an array of pages
-	 * containing positioned Blocks, Lines and inlines
-	 *
-	 * @param {Object} docStructure document-definition-object
-	 * @param {Object} fontProvider font provider
-	 * @param {Object} styleDictionary dictionary with style definitions
-	 * @param {Object} defaultStyle default style definition
-	 * @return {Array} an array of pages
-	 */
-	LayoutBuilder.prototype.layoutDocument = function (docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark, pageBreakBeforeFct) {
-
-	  function addPageBreaksIfNecessary(linearNodeList, pages) {
-	    linearNodeList = _.reject(linearNodeList, function(node){
-	      return _.isEmpty(node.positions);
-	    });
-
-	    _.each(linearNodeList, function(node) {
-	      var nodeInfo = _.pick(node, [
-	        'id', 'text', 'ul', 'ol', 'table', 'image', 'qr', 'canvas', 'columns',
-	        'headlineLevel', 'style', 'pageBreak', 'pageOrientation',
-	        'width', 'height'
-	      ]);
-	      nodeInfo.startPosition = _.first(node.positions);
-	      nodeInfo.pageNumbers = _.chain(node.positions).map('pageNumber').uniq().value();
-	      nodeInfo.pages = pages.length;
-	      nodeInfo.stack = _.isArray(node.stack);
-
-	      node.nodeInfo = nodeInfo;
-	    });
-
-	    return _.any(linearNodeList, function (node, index, followingNodeList) {
-	      if (node.pageBreak !== 'before' && !node.pageBreakCalculated) {
-	        node.pageBreakCalculated = true;
-	        var pageNumber = _.first(node.nodeInfo.pageNumbers);
-
-					var followingNodesOnPage = _.chain(followingNodeList).drop(index + 1).filter(function (node0) {
-	          return _.contains(node0.nodeInfo.pageNumbers, pageNumber);
-	        }).value();
-
-	        var nodesOnNextPage = _.chain(followingNodeList).drop(index + 1).filter(function (node0) {
-	          return _.contains(node0.nodeInfo.pageNumbers, pageNumber + 1);
-	        }).value();
-
-	        var previousNodesOnPage = _.chain(followingNodeList).take(index).filter(function (node0) {
-	          return _.contains(node0.nodeInfo.pageNumbers, pageNumber);
-	        }).value();
-
-	        if (pageBreakBeforeFct(node.nodeInfo,
-	          _.map(followingNodesOnPage, 'nodeInfo'),
-	          _.map(nodesOnNextPage, 'nodeInfo'),
-	          _.map(previousNodesOnPage, 'nodeInfo'))) {
-	          node.pageBreak = 'before';
-	          return true;
-	        }
+	function registerDefaultTableLayouts(layoutBuilder) {
+	  layoutBuilder.registerTableLayouts({
+	    noBorders: {
+	      hLineWidth: function(i) { return 0; },
+	      vLineWidth: function(i) { return 0; },
+	      paddingLeft: function(i) { return i && 4 || 0; },
+	      paddingRight: function(i, node) { return (i < node.table.widths.length - 1) ? 4 : 0; },
+	    },
+	    headerLineOnly: {
+	      hLineWidth: function(i, node) {
+	        if (i === 0 || i === node.table.body.length) return 0;
+	        return (i === node.table.headerRows) ? 2 : 0;
+	      },
+	      vLineWidth: function(i) { return 0; },
+	      paddingLeft: function(i) {
+	        return i === 0 ? 0 : 8;
+	      },
+	      paddingRight: function(i, node) {
+	        return (i === node.table.widths.length - 1) ? 0 : 8;
 	      }
-	    });
-	  }
-
-	  if(!isFunction(pageBreakBeforeFct)){
-	    pageBreakBeforeFct = function(){
-	      return false;
-	    };
-	  }
-
-	  this.docMeasure = new DocMeasure(fontProvider, styleDictionary, defaultStyle, this.imageMeasure, this.tableLayouts, images);
-
-
-	  function resetXYs(result) {
-	    _.each(result.linearNodeList, function (node) {
-	      node.resetXY();
-	    });
-	  }
-
-	  var result = this.tryLayoutDocument(docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark);
-	  while(addPageBreaksIfNecessary(result.linearNodeList, result.pages)){
-	    resetXYs(result);
-	    result = this.tryLayoutDocument(docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark);
-	  }
-
-		return result.pages;
-	};
-
-	LayoutBuilder.prototype.tryLayoutDocument = function (docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark, pageBreakBeforeFct) {
-
-	  this.linearNodeList = [];
-	  docStructure = this.docMeasure.measureDocument(docStructure);
-
-	  this.writer = new PageElementWriter(
-	    new DocumentContext(this.pageSize, this.pageMargins), this.tracker);
-
-	  var _this = this;
-	  this.writer.context().tracker.startTracking('pageAdded', function() {
-	    _this.addBackground(background);
+	    },
+	    lightHorizontalLines: {
+	      hLineWidth: function(i, node) {
+	        if (i === 0 || i === node.table.body.length) return 0;
+	        return (i === node.table.headerRows) ? 2 : 1;
+	      },
+	      vLineWidth: function(i) { return 0; },
+	      hLineColor: function(i) { return i === 1 ? 'black' : '#aaa'; },
+	      paddingLeft: function(i) {
+	        return i === 0 ? 0 : 8;
+	      },
+	      paddingRight: function(i, node) {
+	        return (i === node.table.widths.length - 1) ? 0 : 8;
+	      }
+	    }
 	  });
-
-	  this.addBackground(background);
-	  this.processNode(docStructure);
-	  this.addHeadersAndFooters(header, footer);
-	  /* jshint eqnull:true */
-	  if(watermark != null)
-	    this.addWatermark(watermark, fontProvider);
-
-	  return {pages: this.writer.context().pages, linearNodeList: this.linearNodeList};
-	};
-
-
-	LayoutBuilder.prototype.addBackground = function(background) {
-	    var backgroundGetter = isFunction(background) ? background : function() { return background; };
-
-	    var pageBackground = backgroundGetter(this.writer.context().page + 1);
-
-	    if (pageBackground) {
-	      var pageSize = this.writer.context().getCurrentPage().pageSize;
-	      this.writer.beginUnbreakableBlock(pageSize.width, pageSize.height);
-	      this.processNode(this.docMeasure.measureDocument(pageBackground));
-	      this.writer.commitUnbreakableBlock(0, 0);
-	    }
-	};
-
-	LayoutBuilder.prototype.addStaticRepeatable = function(headerOrFooter, sizeFunction) {
-	  this.addDynamicRepeatable(function() { return headerOrFooter; }, sizeFunction);
-	};
-
-	LayoutBuilder.prototype.addDynamicRepeatable = function(nodeGetter, sizeFunction) {
-	  var pages = this.writer.context().pages;
-
-	  for(var pageIndex = 0, l = pages.length; pageIndex < l; pageIndex++) {
-	    this.writer.context().page = pageIndex;
-
-	    var node = nodeGetter(pageIndex + 1, l);
-
-	    if (node) {
-	      var sizes = sizeFunction(this.writer.context().getCurrentPage().pageSize, this.pageMargins);
-	      this.writer.beginUnbreakableBlock(sizes.width, sizes.height);
-	      this.processNode(this.docMeasure.measureDocument(node));
-	      this.writer.commitUnbreakableBlock(sizes.x, sizes.y);
-	    }
-	  }
-	};
-
-	LayoutBuilder.prototype.addHeadersAndFooters = function(header, footer) {
-	  var headerSizeFct = function(pageSize, pageMargins){
-	    return {
-	      x: 0,
-	      y: 0,
-	      width: pageSize.width,
-	      height: pageMargins.top
-	    };
-	  };
-
-	  var footerSizeFct = function (pageSize, pageMargins) {
-	    return {
-	      x: 0,
-	      y: pageSize.height - pageMargins.bottom,
-	      width: pageSize.width,
-	      height: pageMargins.bottom
-	    };
-	  };
-
-	  if(isFunction(header)) {
-	    this.addDynamicRepeatable(header, headerSizeFct);
-	  } else if(header) {
-	    this.addStaticRepeatable(header, headerSizeFct);
-	  }
-
-	  if(isFunction(footer)) {
-	    this.addDynamicRepeatable(footer, footerSizeFct);
-	  } else if(footer) {
-	    this.addStaticRepeatable(footer, footerSizeFct);
-	  }
-	};
-
-	LayoutBuilder.prototype.addWatermark = function(watermark, fontProvider){
-	  var defaultFont = Object.getOwnPropertyNames(fontProvider.fonts)[0]; // TODO allow selection of other font
-	  var watermarkObject = {
-	    text: watermark,
-	    font: fontProvider.provideFont(fontProvider[defaultFont], false, false),
-	    size: getSize(this.pageSize, watermark, fontProvider)
-	  };
-
-	  var pages = this.writer.context().pages;
-	  for(var i = 0, l = pages.length; i < l; i++) {
-	    pages[i].watermark = watermarkObject;
-	  }
-
-	  function getSize(pageSize, watermark, fontProvider){
-	    var width = pageSize.width;
-	    var height = pageSize.height;
-	    var targetWidth = Math.sqrt(width*width + height*height)*0.8; /* page diagnoal * sample factor */
-	    var textTools = new TextTools(fontProvider);
-	    var styleContextStack = new StyleContextStack();
-	    var size;
-
-	    /**
-	     * Binary search the best font size.
-	     * Initial bounds [0, 1000]
-	     * Break when range < 1
-	     */
-	    var a = 0;
-	    var b = 1000;
-	    var c = (a+b)/2;
-	    while(Math.abs(a - b) > 1){
-	      styleContextStack.push({
-	        fontSize: c
-	      });
-	      size = textTools.sizeOfString(watermark, styleContextStack);
-	      if(size.width > targetWidth){
-	        b = c;
-	        c = (a+b)/2;
-	      }
-	      else if(size.width < targetWidth){
-	        a = c;
-	        c = (a+b)/2;
-	      }
-	      styleContextStack.pop();
-	    }
-	    /*
-	      End binary search
-	     */
-	    return {size: size, fontSize: c};
-	  }
-	};
-
-	function decorateNode(node){
-	  var x = node.x, y = node.y;
-	  node.positions = [];
-
-	  _.each(node.canvas, function(vector){
-	    var x = vector.x, y = vector.y;
-	    vector.resetXY = function(){
-	      vector.x = x;
-	      vector.y = y;
-	    };
-	  });
-
-	  node.resetXY = function(){
-	    node.x = x;
-	    node.y = y;
-	    _.each(node.canvas, function(vector){
-	      vector.resetXY();
-	    });
-	  };
 	}
 
-	LayoutBuilder.prototype.processNode = function(node) {
-	  var self = this;
+	var defaultLayout = {
+	  hLineWidth: function(i, node) { return 1; }, //return node.table.headerRows && i === node.table.headerRows && 3 || 0; },
+	  vLineWidth: function(i, node) { return 1; },
+	  hLineColor: function(i, node) { return 'black'; },
+	  vLineColor: function(i, node) { return 'black'; },
+	  paddingLeft: function(i, node) { return 4; }, //i && 4 || 0; },
+	  paddingRight: function(i, node) { return 4; }, //(i < node.table.widths.length - 1) ? 4 : 0; },
+	  paddingTop: function(i, node) { return 2; },
+	  paddingBottom: function(i, node) { return 2; }
+	};
 
-	  this.linearNodeList.push(node);
-	  decorateNode(node);
-
-	  applyMargins(function() {
-	    var absPosition = node.absolutePosition;
-	    if(absPosition){
-	      self.writer.context().beginDetachedBlock();
-	      self.writer.context().moveTo(absPosition.x || 0, absPosition.y || 0);
+	function pageSize2widthAndHeight(pageSize) {
+	    if (typeof pageSize == 'string' || pageSize instanceof String) {
+	        var size = sizes[pageSize.toUpperCase()];
+	        if (!size) throw ('Page size ' + pageSize + ' not recognized');
+	        return { width: size[0], height: size[1] };
 	    }
 
-	    if (node.stack) {
-	      self.processVerticalContainer(node);
-	    } else if (node.columns) {
-	      self.processColumns(node);
-	    } else if (node.ul) {
-	      self.processList(false, node);
-	    } else if (node.ol) {
-	      self.processList(true, node);
-	    } else if (node.table) {
-	      self.processTable(node);
-	    } else if (node.text !== undefined) {
-	      self.processLeaf(node);
-	    } else if (node.image) {
-	      self.processImage(node);
-	    } else if (node.canvas) {
-	      self.processCanvas(node);
-	    } else if (node.qr) {
-	      self.processQr(node);
-	    }else if (!node._span) {
-			throw 'Unrecognized document structure: ' + JSON.stringify(node, fontStringify);
-			}
+	    return pageSize;
+	}
 
-	    if(absPosition){
-	      self.writer.context().endDetachedBlock();
-	    }
-		});
+	function StringObject(str){
+		this.isString = true;
+		this.toString = function(){
+			return str;
+		};
+	}
 
-		function applyMargins(callback) {
-			var margin = node._margin;
+	function updatePageOrientationInOptions(currentPage, pdfKitDoc) {
+		var previousPageOrientation = pdfKitDoc.options.size[0] > pdfKitDoc.options.size[1] ? 'landscape' : 'portrait';
 
-	    if (node.pageBreak === 'before') {
-	        self.writer.moveToNextPage(node.pageOrientation);
-	    }
-
-			if (margin) {
-				self.writer.context().moveDown(margin[1]);
-				self.writer.context().addMargin(margin[0], margin[2]);
-			}
-
-			callback();
-
-			if(margin) {
-				self.writer.context().addMargin(-margin[0], -margin[2]);
-				self.writer.context().moveDown(margin[3]);
-			}
-
-	    if (node.pageBreak === 'after') {
-	        self.writer.moveToNextPage(node.pageOrientation);
-	    }
+		if(currentPage.pageSize.orientation !== previousPageOrientation) {
+			var width = pdfKitDoc.options.size[0];
+			var height = pdfKitDoc.options.size[1];
+			pdfKitDoc.options.size = [height, width];
 		}
-	};
+	}
 
-	// vertical container
-	LayoutBuilder.prototype.processVerticalContainer = function(node) {
-		var self = this;
-		node.stack.forEach(function(item) {
-			self.processNode(item);
-			addAll(node.positions, item.positions);
-
-			//TODO: paragraph gap
-		});
-	};
-
-	// columns
-	LayoutBuilder.prototype.processColumns = function(columnNode) {
-		var columns = columnNode.columns;
-		var availableWidth = this.writer.context().availableWidth;
-		var gaps = gapArray(columnNode._gap);
-
-		if (gaps) availableWidth -= (gaps.length - 1) * columnNode._gap;
-
-		ColumnCalculator.buildColumnWidths(columns, availableWidth);
-		var result = this.processRow(columns, columns, gaps);
-	    addAll(columnNode.positions, result.positions);
-
-
-		function gapArray(gap) {
-			if (!gap) return null;
-
-			var gaps = [];
-			gaps.push(0);
-
-			for(var i = columns.length - 1; i > 0; i--) {
-				gaps.push(gap);
+	function renderPages(pages, fontProvider, pdfKitDoc) {
+	  pdfKitDoc._pdfMakePages = pages;
+		for (var i = 0; i < pages.length; i++) {
+			if (i > 0) {
+				updatePageOrientationInOptions(pages[i], pdfKitDoc);
+				pdfKitDoc.addPage(pdfKitDoc.options);
 			}
 
-			return gaps;
+			var page = pages[i];
+	    for(var ii = 0, il = page.items.length; ii < il; ii++) {
+	        var item = page.items[ii];
+	        switch(item.type) {
+	          case 'vector':
+	              renderVector(item.item, pdfKitDoc);
+	              break;
+	          case 'line':
+	              renderLine(item.item, item.item.x, item.item.y, pdfKitDoc);
+	              break;
+	          case 'image':
+	              renderImage(item.item, item.item.x, item.item.y, pdfKitDoc);
+	              break;
+					}
+	    }
+	    if(page.watermark){
+	      renderWatermark(page, pdfKitDoc);
 		}
-	};
 
-	LayoutBuilder.prototype.processRow = function(columns, widths, gaps, tableBody, tableRow) {
-	  var self = this;
-	  var pageBreaks = [], positions = [];
-
-	  this.tracker.auto('pageChanged', storePageBreakData, function() {
-	    widths = widths || columns;
-
-	    self.writer.context().beginColumnGroup();
-
-	    for(var i = 0, l = columns.length; i < l; i++) {
-	      var column = columns[i];
-	      var width = widths[i]._calcWidth;
-	      var leftOffset = colLeftOffset(i);
-
-	      if (column.colSpan && column.colSpan > 1) {
-	          for(var j = 1; j < column.colSpan; j++) {
-	              width += widths[++i]._calcWidth + gaps[i];
-	          }
-	      }
-
-	      self.writer.context().beginColumn(width, leftOffset, getEndingCell(column, i));
-	      if (!column._span) {
-	        self.processNode(column);
-	        addAll(positions, column.positions);
-	      } else if (column._columnEndingContext) {
-	        // row-span ending
-	        self.writer.context().markEnding(column);
-	      }
-	    }
-
-	    self.writer.context().completeColumnGroup();
-	  });
-
-	  return {pageBreaks: pageBreaks, positions: positions};
-
-	  function storePageBreakData(data) {
-	    var pageDesc;
-
-	    for(var i = 0, l = pageBreaks.length; i < l; i++) {
-	      var desc = pageBreaks[i];
-	      if (desc.prevPage === data.prevPage) {
-	        pageDesc = desc;
-	        break;
-	      }
-	    }
-
-	    if (!pageDesc) {
-	      pageDesc = data;
-	      pageBreaks.push(pageDesc);
-	    }
-	    pageDesc.prevY = Math.max(pageDesc.prevY, data.prevY);
-	    pageDesc.y = Math.min(pageDesc.y, data.y);
+	    fontProvider.setFontRefsToPdfDoc();
 	  }
+	}
 
-		function colLeftOffset(i) {
-			if (gaps && gaps.length > i) return gaps[i];
-			return 0;
+	function renderLine(line, x, y, pdfKitDoc) {
+		x = x || 0;
+		y = y || 0;
+
+		var ascenderHeight = line.getAscenderHeight();
+
+		textDecorator.drawBackground(line, x, y, pdfKitDoc);
+
+		//TODO: line.optimizeInlines();
+		for(var i = 0, l = line.inlines.length; i < l; i++) {
+			var inline = line.inlines[i];
+
+			pdfKitDoc.fill(inline.color || 'black');
+
+			pdfKitDoc.save();
+			pdfKitDoc.transform(1, 0, 0, -1, 0, pdfKitDoc.page.height);
+
+
+	    var encoded = inline.font.encode(inline.text);
+			pdfKitDoc.addContent('BT');
+
+			pdfKitDoc.addContent('' + (x + inline.x) + ' ' + (pdfKitDoc.page.height - y - ascenderHeight) + ' Td');
+			pdfKitDoc.addContent('/' + encoded.fontId + ' ' + inline.fontSize + ' Tf');
+
+	        pdfKitDoc.addContent('<' + encoded.encodedText + '> Tj');
+
+			pdfKitDoc.addContent('ET');
+			pdfKitDoc.restore();
 		}
 
-	  function getEndingCell(column, columnIndex) {
-	    if (column.rowSpan && column.rowSpan > 1) {
-	      var endingRow = tableRow + column.rowSpan - 1;
-	      if (endingRow >= tableBody.length) throw 'Row span for column ' + columnIndex + ' (with indexes starting from 0) exceeded row count';
-	      return tableBody[endingRow][columnIndex];
-	    }
+		textDecorator.drawDecorations(line, x, y, pdfKitDoc);
 
-	    return null;
-	  }
-	};
+	}
 
-	// lists
-	LayoutBuilder.prototype.processList = function(orderedList, node) {
-		var self = this,
-	      items = orderedList ? node.ol : node.ul,
-	      gapSize = node._gapSize;
+	function renderWatermark(page, pdfKitDoc){
+		var watermark = page.watermark;
 
-		this.writer.context().addMargin(gapSize.width);
+		pdfKitDoc.fill('black');
+		pdfKitDoc.opacity(0.6);
 
-		var nextMarker;
-		this.tracker.auto('lineAdded', addMarkerToFirstLeaf, function() {
-			items.forEach(function(item) {
-				nextMarker = item.listMarker;
-				self.processNode(item);
-	            addAll(node.positions, item.positions);
-			});
-		});
+		pdfKitDoc.save();
+		pdfKitDoc.transform(1, 0, 0, -1, 0, pdfKitDoc.page.height);
 
-		this.writer.context().addMargin(-gapSize.width);
+		var angle = Math.atan2(pdfKitDoc.page.height, pdfKitDoc.page.width) * 180/Math.PI;
+		pdfKitDoc.rotate(angle, {origin: [pdfKitDoc.page.width/2, pdfKitDoc.page.height/2]});
 
-		function addMarkerToFirstLeaf(line) {
-			// I'm not very happy with the way list processing is implemented
-			// (both code and algorithm should be rethinked)
-			if (nextMarker) {
-				var marker = nextMarker;
-				nextMarker = null;
+	  var encoded = watermark.font.encode(watermark.text);
+		pdfKitDoc.addContent('BT');
+		pdfKitDoc.addContent('' + (pdfKitDoc.page.width/2 - watermark.size.size.width/2) + ' ' + (pdfKitDoc.page.height/2 - watermark.size.size.height/4) + ' Td');
+		pdfKitDoc.addContent('/' + encoded.fontId + ' ' + watermark.size.fontSize + ' Tf');
+		pdfKitDoc.addContent('<' + encoded.encodedText + '> Tj');
+		pdfKitDoc.addContent('ET');
+		pdfKitDoc.restore();
+	}
 
-				if (marker.canvas) {
-					var vector = marker.canvas[0];
+	function renderVector(vector, pdfDoc) {
+		//TODO: pdf optimization (there's no need to write all properties everytime)
+		pdfDoc.lineWidth(vector.lineWidth || 1);
+		if (vector.dash) {
+			pdfDoc.dash(vector.dash.length, { space: vector.dash.space || vector.dash.length });
+		} else {
+			pdfDoc.undash();
+		}
+		pdfDoc.fillOpacity(vector.fillOpacity || 1);
+		pdfDoc.strokeOpacity(vector.strokeOpacity || 1);
+		pdfDoc.lineJoin(vector.lineJoin || 'miter');
 
-					offsetVector(vector, -marker._minWidth, 0);
-					self.writer.addVector(vector);
+		//TODO: clipping
+
+		switch(vector.type) {
+			case 'ellipse':
+				pdfDoc.ellipse(vector.x, vector.y, vector.r1, vector.r2);
+				break;
+			case 'rect':
+				if (vector.r) {
+					pdfDoc.roundedRect(vector.x, vector.y, vector.w, vector.h, vector.r);
 				} else {
-					var markerLine = new Line(self.pageSize.width);
-					markerLine.addInline(marker._inlines[0]);
-					markerLine.x = -marker._minWidth;
-					markerLine.y = line.getAscenderHeight() - markerLine.getAscenderHeight();
-					self.writer.addLine(markerLine, true);
+					pdfDoc.rect(vector.x, vector.y, vector.w, vector.h);
 				}
-			}
-		}
-	};
+				break;
+			case 'line':
+				pdfDoc.moveTo(vector.x1, vector.y1);
+				pdfDoc.lineTo(vector.x2, vector.y2);
+				break;
+			case 'polyline':
+				if (vector.points.length === 0) break;
 
-	// tables
-	LayoutBuilder.prototype.processTable = function(tableNode) {
-	  var processor = new TableProcessor(tableNode);
+				pdfDoc.moveTo(vector.points[0].x, vector.points[0].y);
+				for(var i = 1, l = vector.points.length; i < l; i++) {
+					pdfDoc.lineTo(vector.points[i].x, vector.points[i].y);
+				}
 
-	  processor.beginTable(this.writer);
+				if (vector.points.length > 1) {
+					var p1 = vector.points[0];
+					var pn = vector.points[vector.points.length - 1];
 
-	  for(var i = 0, l = tableNode.table.body.length; i < l; i++) {
-	    processor.beginRow(i, this.writer);
-
-	    var result = this.processRow(tableNode.table.body[i], tableNode.table.widths, tableNode._offsets.offsets, tableNode.table.body, i);
-	    addAll(tableNode.positions, result.positions);
-
-	    processor.endRow(i, this.writer, result.pageBreaks);
-	  }
-
-	  processor.endTable(this.writer);
-	};
-
-	// leafs (texts)
-	LayoutBuilder.prototype.processLeaf = function(node) {
-		var line = this.buildNextLine(node);
-
-		while (line) {
-			var positions = this.writer.addLine(line);
-	    node.positions.push(positions);
-			line = this.buildNextLine(node);
-		}
-	};
-
-	LayoutBuilder.prototype.buildNextLine = function(textNode) {
-		if (!textNode._inlines || textNode._inlines.length === 0) return null;
-
-		var line = new Line(this.writer.context().availableWidth);
-
-		while(textNode._inlines && textNode._inlines.length > 0 && line.hasEnoughSpaceForInline(textNode._inlines[0])) {
-			line.addInline(textNode._inlines.shift());
+					if (vector.closePath || p1.x === pn.x && p1.y === pn.y) {
+						pdfDoc.closePath();
+					}
+				}
+				break;
 		}
 
-		line.lastLineInParagraph = textNode._inlines.length === 0;
-		return line;
-	};
-
-	// images
-	LayoutBuilder.prototype.processImage = function(node) {
-	    var position = this.writer.addImage(node);
-	    node.positions.push(position);
-	};
-
-	LayoutBuilder.prototype.processCanvas = function(node) {
-		var height = node._minHeight;
-
-		if (this.writer.context().availableHeight < height) {
-			// TODO: support for canvas larger than a page
-			// TODO: support for other overflow methods
-
-			this.writer.moveToNextPage();
+		if (vector.color && vector.lineColor) {
+			pdfDoc.fillAndStroke(vector.color, vector.lineColor);
+		} else if (vector.color) {
+			pdfDoc.fill(vector.color);
+		} else {
+			pdfDoc.stroke(vector.lineColor || 'black');
 		}
+	}
 
-		node.canvas.forEach(function(vector) {
-			var position = this.writer.addVector(vector);
-	        node.positions.push(position);
-		}, this);
+	function renderImage(image, x, y, pdfKitDoc) {
+	    pdfKitDoc.image(image.image, image.x, image.y, { width: image._width, height: image._height });
+	}
 
-		this.writer.context().moveDown(height);
-	};
+	module.exports = PdfPrinter;
 
-	LayoutBuilder.prototype.processQr = function(node) {
-		var position = this.writer.addQr(node);
-	    node.positions.push(position);
-	};
 
-	module.exports = LayoutBuilder;
+	/* temporary browser extension */
+	PdfPrinter.prototype.fs = __webpack_require__(44);
 
 
 /***/ },
 /* 7 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = {
-		'4A0': [4767.87, 6740.79],
-		'2A0': [3370.39, 4767.87],
-		A0: [2383.94, 3370.39],
-		A1: [1683.78, 2383.94],
-		A2: [1190.55, 1683.78],
-		A3: [841.89, 1190.55],
-		A4: [595.28, 841.89],
-		A5: [419.53, 595.28],
-		A6: [297.64, 419.53],
-		A7: [209.76, 297.64],
-		A8: [147.40, 209.76],
-		A9: [104.88, 147.40],
-		A10: [73.70, 104.88],
-		B0: [2834.65, 4008.19],
-		B1: [2004.09, 2834.65],
-		B2: [1417.32, 2004.09],
-		B3: [1000.63, 1417.32],
-		B4: [708.66, 1000.63],
-		B5: [498.90, 708.66],
-		B6: [354.33, 498.90],
-		B7: [249.45, 354.33],
-		B8: [175.75, 249.45],
-		B9: [124.72, 175.75],
-		B10: [87.87, 124.72],
-		C0: [2599.37, 3676.54],
-		C1: [1836.85, 2599.37],
-		C2: [1298.27, 1836.85],
-		C3: [918.43, 1298.27],
-		C4: [649.13, 918.43],
-		C5: [459.21, 649.13],
-		C6: [323.15, 459.21],
-		C7: [229.61, 323.15],
-		C8: [161.57, 229.61],
-		C9: [113.39, 161.57],
-		C10: [79.37, 113.39],
-		RA0: [2437.80, 3458.27],
-		RA1: [1729.13, 2437.80],
-		RA2: [1218.90, 1729.13],
-		RA3: [864.57, 1218.90],
-		RA4: [609.45, 864.57],
-		SRA0: [2551.18, 3628.35],
-		SRA1: [1814.17, 2551.18],
-		SRA2: [1275.59, 1814.17],
-		SRA3: [907.09, 1275.59],
-		SRA4: [637.80, 907.09],
-		EXECUTIVE: [521.86, 756.00],
-		FOLIO: [612.00, 936.00],
-		LEGAL: [612.00, 1008.00],
-		LETTER: [612.00, 792.00],
-		TABLOID: [792.00, 1224.00]
-	};
-
-
-/***/ },
-/* 8 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {/* jslint node: true */
-	'use strict';
-
-	var pdfKit = __webpack_require__(28);
-	var PDFImage = __webpack_require__(17);
-
-	function ImageMeasure(pdfDoc, imageDictionary) {
-		this.pdfDoc = pdfDoc;
-		this.imageDictionary = imageDictionary || {};
-	}
-
-	ImageMeasure.prototype.measureImage = function(src) {
-		var image, label;
-		var that = this;
-
-		if (!this.pdfDoc._imageRegistry[src]) {
-			label = 'I' + (++this.pdfDoc._imageCount);
-			image = PDFImage.open(realImageSrc(src), label);
-			image.embed(this.pdfDoc);
-			this.pdfDoc._imageRegistry[src] = image;
-		} else {
-			image = this.pdfDoc._imageRegistry[src];
-		}
-
-		return { width: image.width, height: image.height };
-
-		function realImageSrc(src) {
-			var img = that.imageDictionary[src];
-
-			if (!img) return src;
-
-			var index = img.indexOf('base64,');
-			if (index < 0) {
-				throw 'invalid image format, images dictionary should contain dataURL entries';
-			}
-
-			return new Buffer(img.substring(index + 7), 'base64');
-		}
-	};
-
-	module.exports = ImageMeasure;
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 9 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-
-	function groupDecorations(line) {
-		var groups = [], curGroup = null;
-		for(var i = 0, l = line.inlines.length; i < l; i++) {
-			var inline = line.inlines[i];
-			var decoration = inline.decoration;
-			if(!decoration) {
-				curGroup = null;
-				continue;
-			}
-			var color = inline.decorationColor || inline.color || 'black';
-			var style = inline.decorationStyle || 'solid';
-			decoration = Array.isArray(decoration) ? decoration : [ decoration ];
-			for(var ii = 0, ll = decoration.length; ii < ll; ii++) {
-				var deco = decoration[ii];
-				if(!curGroup || deco !== curGroup.decoration ||
-						style !== curGroup.decorationStyle || color !== curGroup.decorationColor ||
-						deco === 'lineThrough') {
-			
-					curGroup = {
-						line: line,
-						decoration: deco, 
-						decorationColor: color, 
-						decorationStyle: style,
-						inlines: [ inline ]
-					};
-					groups.push(curGroup);
-				} else {
-					curGroup.inlines.push(inline);
-				}
-			}
-		}
-		
-		return groups;
-	}
-
-	function drawDecoration(group, x, y, pdfKitDoc) {
-		function maxInline() {
-			var max = 0;
-			for (var i = 0, l = group.inlines.length; i < l; i++) {
-				var inl = group.inlines[i];
-				max = inl.fontSize > max ? i : max;
-			}
-			return group.inlines[max];
-		}
-		function width() {
-			var sum = 0;
-			for (var i = 0, l = group.inlines.length; i < l; i++) {
-				sum += group.inlines[i].width;
-			}
-			return sum;
-		}
-		var firstInline = group.inlines[0],
-			biggerInline = maxInline(),
-			totalWidth = width(),
-			lineAscent = group.line.getAscenderHeight(),
-			ascent = biggerInline.font.ascender / 1000 * biggerInline.fontSize,
-			height = biggerInline.height,
-			descent = height - ascent;
-		
-		var lw = 0.5 + Math.floor(Math.max(biggerInline.fontSize - 8, 0) / 2) * 0.12;
-		
-		switch (group.decoration) {
-			case 'underline':
-				y += lineAscent + descent * 0.45;
-				break;
-			case 'overline':
-				y += lineAscent - (ascent * 0.85);
-				break;
-			case 'lineThrough':
-				y += lineAscent - (ascent * 0.25);
-				break;
-			default:
-				throw 'Unkown decoration : ' + group.decoration;
-		}
-		pdfKitDoc.save();
-		
-		if(group.decorationStyle === 'double') {
-			var gap = Math.max(0.5, lw*2);
-			pdfKitDoc	.fillColor(group.decorationColor)
-						.rect(x + firstInline.x, y-lw/2, totalWidth, lw/2).fill()
-						.rect(x + firstInline.x, y+gap-lw/2, totalWidth, lw/2).fill();
-		} else if(group.decorationStyle === 'dashed') {
-			var nbDashes = Math.ceil(totalWidth / (3.96+2.84));
-			var rdx = x + firstInline.x;
-			pdfKitDoc.rect(rdx, y, totalWidth, lw).clip();
-			pdfKitDoc.fillColor(group.decorationColor);
-			for (var i = 0; i < nbDashes; i++) {
-				pdfKitDoc.rect(rdx, y-lw/2, 3.96, lw).fill();
-				rdx += 3.96 + 2.84;
-			}
-		} else if(group.decorationStyle === 'dotted') {
-			var nbDots = Math.ceil(totalWidth / (lw*3));
-			var rx = x + firstInline.x;
-			pdfKitDoc.rect(rx, y, totalWidth, lw).clip();
-			pdfKitDoc.fillColor(group.decorationColor);
-			for (var ii = 0; ii < nbDots; ii++) {
-				pdfKitDoc.rect(rx, y-lw/2, lw, lw).fill();
-				rx += (lw*3);
-			}
-		} else if(group.decorationStyle === 'wavy') {
-			var sh = 0.7, sv = 1;
-			var nbWaves = Math.ceil(totalWidth / (sh*2))+1;
-			var rwx = x + firstInline.x - 1;
-			pdfKitDoc.rect(x + firstInline.x, y-sv, totalWidth, y+sv).clip();
-			pdfKitDoc.lineWidth(0.24);
-			pdfKitDoc.moveTo(rwx, y);
-			for(var iii = 0; iii < nbWaves; iii++) {
-				pdfKitDoc   .bezierCurveTo(rwx+sh, y-sv, rwx+sh*2, y-sv, rwx+sh*3, y)
-							.bezierCurveTo(rwx+sh*4, y+sv, rwx+sh*5, y+sv, rwx+sh*6, y);
-					rwx += sh*6;
-				}
-			pdfKitDoc.stroke(group.decorationColor);
-			
-		} else {
-			pdfKitDoc	.fillColor(group.decorationColor)
-						.rect(x + firstInline.x, y-lw/2, totalWidth, lw)
-						.fill();
-		}
-		pdfKitDoc.restore();
-	}
-
-	function drawDecorations(line, x, y, pdfKitDoc) {
-		var groups = groupDecorations(line);
-		for (var i = 0, l = groups.length; i < l; i++) {
-			drawDecoration(groups[i], x, y, pdfKitDoc);
-		}
-	}
-
-	function drawBackground(line, x, y, pdfKitDoc) {
-		var height = line.getHeight();
-		for(var i = 0, l = line.inlines.length; i < l; i++) {
-			var inline = line.inlines[i];
-				if(inline.background) {
-					pdfKitDoc	.fillColor(inline.background)
-								.rect(x + inline.x, y, inline.width, height)
-								.fill();
-				}
-		}
-	}
-
-	module.exports = {
-		drawBackground: drawBackground,
-		drawDecorations: drawDecorations
-	};
-
-/***/ },
-/* 10 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer, __dirname) {/* jslint node: true */
-	'use strict';
-
-	// var b64 = require('./base64.js').base64DecToArr;
-	function VirtualFileSystem() {
-		this.fileSystem = {};
-		this.baseSystem = {};
-	}
-
-	VirtualFileSystem.prototype.readFileSync = function(filename) {
-		filename = fixFilename(filename);
-
-		var base64content = this.baseSystem[filename];
-		if (base64content) {
-			return new Buffer(base64content, 'base64');
-		}
-
-		return this.fileSystem[filename];
-	};
-
-	VirtualFileSystem.prototype.writeFileSync = function(filename, content) {
-		this.fileSystem[fixFilename(filename)] = content;
-	};
-
-	VirtualFileSystem.prototype.bindFS = function(data) {
-		this.baseSystem = data;
-	};
-
-
-	function fixFilename(filename) {
-		if (filename.indexOf(__dirname) === 0) {
-			filename = filename.substring(__dirname.length);
-		}
-
-		if (filename.indexOf('/') === 0) {
-			filename = filename.substring(1);
-		}
-
-		return filename;
-	}
-
-	module.exports = new VirtualFileSystem();
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer, "/"))
-
-/***/ },
-/* 11 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(module, global) {/**
@@ -14007,134 +13188,11 @@
 	  }
 	}.call(this));
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(15)(module), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(8)(module), (function() { return this; }())))
 
 /***/ },
-/* 12 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
-
-	/*
-	PDFReference - represents a reference to another object in the PDF object heirarchy
-	By Devon Govett
-	 */
-
-	(function() {
-	  var PDFObject, PDFReference, zlib,
-	    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
-
-	  zlib = __webpack_require__(45);
-
-	  PDFReference = (function() {
-	    function PDFReference(document, id, data) {
-	      this.document = document;
-	      this.id = id;
-	      this.data = data != null ? data : {};
-	      this.finalize = __bind(this.finalize, this);
-	      this.gen = 0;
-	      this.deflate = null;
-	      this.compress = this.document.compress && !this.data.Filter;
-	      this.uncompressedLength = 0;
-	      this.chunks = [];
-	    }
-
-	    PDFReference.prototype.initDeflate = function() {
-	      this.data.Filter = 'FlateDecode';
-	      this.deflate = zlib.createDeflate();
-	      this.deflate.on('data', (function(_this) {
-	        return function(chunk) {
-	          _this.chunks.push(chunk);
-	          return _this.data.Length += chunk.length;
-	        };
-	      })(this));
-	      return this.deflate.on('end', this.finalize);
-	    };
-
-	    PDFReference.prototype.write = function(chunk) {
-	      var _base;
-	      if (!Buffer.isBuffer(chunk)) {
-	        chunk = new Buffer(chunk + '\n', 'binary');
-	      }
-	      this.uncompressedLength += chunk.length;
-	      if ((_base = this.data).Length == null) {
-	        _base.Length = 0;
-	      }
-	      if (this.compress) {
-	        if (!this.deflate) {
-	          this.initDeflate();
-	        }
-	        return this.deflate.write(chunk);
-	      } else {
-	        this.chunks.push(chunk);
-	        return this.data.Length += chunk.length;
-	      }
-	    };
-
-	    PDFReference.prototype.end = function(chunk) {
-	      if (typeof chunk === 'string' || Buffer.isBuffer(chunk)) {
-	        this.write(chunk);
-	      }
-	      if (this.deflate) {
-	        return this.deflate.end();
-	      } else {
-	        return this.finalize();
-	      }
-	    };
-
-	    PDFReference.prototype.finalize = function() {
-	      var chunk, _i, _len, _ref;
-	      this.offset = this.document._offset;
-	      this.document._write("" + this.id + " " + this.gen + " obj");
-	      this.document._write(PDFObject.convert(this.data));
-	      if (this.chunks.length) {
-	        this.document._write('stream');
-	        _ref = this.chunks;
-	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	          chunk = _ref[_i];
-	          this.document._write(chunk);
-	        }
-	        this.chunks.length = 0;
-	        this.document._write('\nendstream');
-	      }
-	      this.document._write('endobj');
-	      return this.document._refEnd(this);
-	    };
-
-	    PDFReference.prototype.toString = function() {
-	      return "" + this.id + " " + this.gen + " R";
-	    };
-
-	    return PDFReference;
-
-	  })();
-
-	  module.exports = PDFReference;
-
-	  PDFObject = __webpack_require__(32);
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 13 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = function() { throw new Error("define cannot be used indirect"); };
-
-
-/***/ },
-/* 14 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(__webpack_amd_options__) {module.exports = __webpack_amd_options__;
-
-	/* WEBPACK VAR INJECTION */}.call(exports, {}))
-
-/***/ },
-/* 15 */
-/***/ function(module, exports, __webpack_require__) {
+/* 8 */
+/***/ function(module, exports) {
 
 	module.exports = function(module) {
 		if(!module.webpackPolyfill) {
@@ -14149,13 +13207,82 @@
 
 
 /***/ },
-/* 16 */
+/* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/* jslint node: true */
 	'use strict';
 
-	var _ = __webpack_require__(11);
+	var _ = __webpack_require__(7);
+	var FontWrapper = __webpack_require__(10);
+
+	function typeName(bold, italics){
+		var type = 'normal';
+		if (bold && italics) type = 'bolditalics';
+		else if (bold) type = 'bold';
+		else if (italics) type = 'italics';
+		return type;
+	}
+
+	function FontProvider(fontDescriptors, pdfDoc) {
+		this.fonts = {};
+		this.pdfDoc = pdfDoc;
+		this.fontWrappers = {};
+
+		for(var font in fontDescriptors) {
+			if (fontDescriptors.hasOwnProperty(font)) {
+				var fontDef = fontDescriptors[font];
+
+				this.fonts[font] = {
+					normal: fontDef.normal,
+					bold: fontDef.bold,
+					italics: fontDef.italics,
+					bolditalics: fontDef.bolditalics
+				};
+			}
+		}
+	}
+
+	FontProvider.prototype.provideFont = function(familyName, bold, italics) {
+		var type = typeName(bold, italics);
+	  if (!this.fonts[familyName] || !this.fonts[familyName][type]) {
+			throw new Error('Font \''+ familyName + '\' in style \''+type+ '\' is not defined in the font section of the document definition.');
+		}
+
+	  this.fontWrappers[familyName] = this.fontWrappers[familyName] || {};
+
+	  if (!this.fontWrappers[familyName][type]) {
+			this.fontWrappers[familyName][type] = new FontWrapper(this.pdfDoc, this.fonts[familyName][type], familyName + '(' + type + ')');
+		}
+
+	  return this.fontWrappers[familyName][type];
+	};
+
+	FontProvider.prototype.setFontRefsToPdfDoc = function(){
+	  var self = this;
+
+	  _.each(self.fontWrappers, function(fontFamily) {
+	    _.each(fontFamily, function(fontWrapper){
+	      _.each(fontWrapper.pdfFonts, function(font){
+	        if (!self.pdfDoc.page.fonts[font.id]) {
+	          self.pdfDoc.page.fonts[font.id] = font.ref();
+	        }
+	      });
+	    });
+	  });
+	};
+
+	module.exports = FontProvider;
+
+
+/***/ },
+/* 10 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* jslint node: true */
+	'use strict';
+
+	var _ = __webpack_require__(7);
 
 	function FontWrapper(pdfkitDoc, path, fontName){
 		this.MAX_CHAR_TYPES = 92;
@@ -14166,13 +13293,17 @@
 		this.charCatalogue = [];
 		this.name = fontName;
 
-	  this.__defineGetter__('ascender', function(){
-	    var font = this.getFont(0);
-	    return font.ascender;
+	  Object.defineProperty(this, 'ascender', {
+	    get: function () {
+	      var font = this.getFont(0);
+	      return font.ascender;
+	    }
 	  });
-	  this.__defineGetter__('decender', function(){
-	    var font = this.getFont(0);
-	    return font.decender;
+	  Object.defineProperty(this, 'decender', {
+	    get: function () {
+	      var font = this.getFont(0);
+	      return font.decender;
+	    }
 	  });
 
 	}
@@ -14236,7 +13367,7 @@
 	    self.charCatalogue[index] = [];
 	  }
 
-		var font = this.getFont(index);
+		var font = self.getFont(index);
 		font.use(text);
 
 	  _.each(charTypesInInline, function(charCode){
@@ -14260,66 +13391,598 @@
 
 
 /***/ },
-/* 17 */
+/* 11 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+	/* jslint node: true */
+	'use strict';
 
-	/*
-	PDFImage - embeds images in PDF documents
-	By Devon Govett
+	var _ = __webpack_require__(7);
+	var TraversalTracker = __webpack_require__(12);
+	var DocMeasure = __webpack_require__(13);
+	var DocumentContext = __webpack_require__(19);
+	var PageElementWriter = __webpack_require__(20);
+	var ColumnCalculator = __webpack_require__(16);
+	var TableProcessor = __webpack_require__(23);
+	var Line = __webpack_require__(22);
+	var pack = __webpack_require__(17).pack;
+	var offsetVector = __webpack_require__(17).offsetVector;
+	var fontStringify = __webpack_require__(17).fontStringify;
+	var isFunction = __webpack_require__(17).isFunction;
+	var TextTools = __webpack_require__(14);
+	var StyleContextStack = __webpack_require__(15);
+
+	function addAll(target, otherArray){
+	  _.each(otherArray, function(item){
+	    target.push(item);
+	  });
+	}
+
+	/**
+	 * Creates an instance of LayoutBuilder - layout engine which turns document-definition-object
+	 * into a set of pages, lines, inlines and vectors ready to be rendered into a PDF
+	 *
+	 * @param {Object} pageSize - an object defining page width and height
+	 * @param {Object} pageMargins - an object defining top, left, right and bottom margins
 	 */
+	function LayoutBuilder(pageSize, pageMargins, imageMeasure) {
+		this.pageSize = pageSize;
+		this.pageMargins = pageMargins;
+		this.tracker = new TraversalTracker();
+	    this.imageMeasure = imageMeasure;
+	    this.tableLayouts = {};
+	}
 
-	(function() {
-	  var Data, JPEG, PDFImage, PNG, fs;
+	LayoutBuilder.prototype.registerTableLayouts = function (tableLayouts) {
+	  this.tableLayouts = pack(this.tableLayouts, tableLayouts);
+	};
 
-	  fs = __webpack_require__(10);
+	/**
+	 * Executes layout engine on document-definition-object and creates an array of pages
+	 * containing positioned Blocks, Lines and inlines
+	 *
+	 * @param {Object} docStructure document-definition-object
+	 * @param {Object} fontProvider font provider
+	 * @param {Object} styleDictionary dictionary with style definitions
+	 * @param {Object} defaultStyle default style definition
+	 * @return {Array} an array of pages
+	 */
+	LayoutBuilder.prototype.layoutDocument = function (docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark, pageBreakBeforeFct) {
 
-	  Data = __webpack_require__(34);
+	  function addPageBreaksIfNecessary(linearNodeList, pages) {
 
-	  JPEG = __webpack_require__(35);
+			if(!isFunction(pageBreakBeforeFct)){
+				return false;
+			}
 
-	  PNG = __webpack_require__(36);
+	    linearNodeList = _.reject(linearNodeList, function(node){
+	      return _.isEmpty(node.positions);
+	    });
 
-	  PDFImage = (function() {
-	    function PDFImage() {}
+	    _.each(linearNodeList, function(node) {
+	      var nodeInfo = _.pick(node, [
+	        'id', 'text', 'ul', 'ol', 'table', 'image', 'qr', 'canvas', 'columns',
+	        'headlineLevel', 'style', 'pageBreak', 'pageOrientation',
+	        'width', 'height'
+	      ]);
+	      nodeInfo.startPosition = _.first(node.positions);
+	      nodeInfo.pageNumbers = _.chain(node.positions).map('pageNumber').uniq().value();
+	      nodeInfo.pages = pages.length;
+	      nodeInfo.stack = _.isArray(node.stack);
 
-	    PDFImage.open = function(src, label) {
-	      var data, match;
-	      if (Buffer.isBuffer(src)) {
-	        data = src;
-	      } else {
-	        if (match = /^data:.+;base64,(.*)$/.exec(src)) {
-	          data = new Buffer(match[1], 'base64');
-	        } else {
-	          data = fs.readFileSync(src);
-	          if (!data) {
-	            return;
-	          }
+	      node.nodeInfo = nodeInfo;
+	    });
+
+	    return _.any(linearNodeList, function (node, index, followingNodeList) {
+	      if (node.pageBreak !== 'before' && !node.pageBreakCalculated) {
+	        node.pageBreakCalculated = true;
+	        var pageNumber = _.first(node.nodeInfo.pageNumbers);
+
+					var followingNodesOnPage = _.chain(followingNodeList).drop(index + 1).filter(function (node0) {
+	          return _.contains(node0.nodeInfo.pageNumbers, pageNumber);
+	        }).value();
+
+	        var nodesOnNextPage = _.chain(followingNodeList).drop(index + 1).filter(function (node0) {
+	          return _.contains(node0.nodeInfo.pageNumbers, pageNumber + 1);
+	        }).value();
+
+	        var previousNodesOnPage = _.chain(followingNodeList).take(index).filter(function (node0) {
+	          return _.contains(node0.nodeInfo.pageNumbers, pageNumber);
+	        }).value();
+
+	        if (pageBreakBeforeFct(node.nodeInfo,
+	          _.map(followingNodesOnPage, 'nodeInfo'),
+	          _.map(nodesOnNextPage, 'nodeInfo'),
+	          _.map(previousNodesOnPage, 'nodeInfo'))) {
+	          node.pageBreak = 'before';
+	          return true;
 	        }
 	      }
-	      if (data[0] === 0xff && data[1] === 0xd8) {
-	        return new JPEG(data, label);
-	      } else if (data[0] === 0x89 && data.toString('ascii', 1, 4) === 'PNG') {
-	        return new PNG(data, label);
-	      } else {
-	        throw new Error('Unknown image format.');
-	      }
+	    });
+	  }
+
+	  this.docMeasure = new DocMeasure(fontProvider, styleDictionary, defaultStyle, this.imageMeasure, this.tableLayouts, images);
+
+
+	  function resetXYs(result) {
+	    _.each(result.linearNodeList, function (node) {
+	      node.resetXY();
+	    });
+	  }
+
+	  var result = this.tryLayoutDocument(docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark);
+	  while(addPageBreaksIfNecessary(result.linearNodeList, result.pages)){
+	    resetXYs(result);
+	    result = this.tryLayoutDocument(docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark);
+	  }
+
+		return result.pages;
+	};
+
+	LayoutBuilder.prototype.tryLayoutDocument = function (docStructure, fontProvider, styleDictionary, defaultStyle, background, header, footer, images, watermark, pageBreakBeforeFct) {
+
+	  this.linearNodeList = [];
+	  docStructure = this.docMeasure.measureDocument(docStructure);
+
+	  this.writer = new PageElementWriter(
+	    new DocumentContext(this.pageSize, this.pageMargins), this.tracker);
+
+	  var _this = this;
+	  this.writer.context().tracker.startTracking('pageAdded', function() {
+	    _this.addBackground(background);
+	  });
+
+	  this.addBackground(background);
+	  this.processNode(docStructure);
+	  this.addHeadersAndFooters(header, footer);
+	  /* jshint eqnull:true */
+	  if(watermark != null)
+	    this.addWatermark(watermark, fontProvider);
+
+	  return {pages: this.writer.context().pages, linearNodeList: this.linearNodeList};
+	};
+
+
+	LayoutBuilder.prototype.addBackground = function(background) {
+	    var backgroundGetter = isFunction(background) ? background : function() { return background; };
+
+	    var pageBackground = backgroundGetter(this.writer.context().page + 1);
+
+	    if (pageBackground) {
+	      var pageSize = this.writer.context().getCurrentPage().pageSize;
+	      this.writer.beginUnbreakableBlock(pageSize.width, pageSize.height);
+	      this.processNode(this.docMeasure.measureDocument(pageBackground));
+	      this.writer.commitUnbreakableBlock(0, 0);
+	    }
+	};
+
+	LayoutBuilder.prototype.addStaticRepeatable = function(headerOrFooter, sizeFunction) {
+	  this.addDynamicRepeatable(function() { return headerOrFooter; }, sizeFunction);
+	};
+
+	LayoutBuilder.prototype.addDynamicRepeatable = function(nodeGetter, sizeFunction) {
+	  var pages = this.writer.context().pages;
+
+	  for(var pageIndex = 0, l = pages.length; pageIndex < l; pageIndex++) {
+	    this.writer.context().page = pageIndex;
+
+	    var node = nodeGetter(pageIndex + 1, l);
+
+	    if (node) {
+	      var sizes = sizeFunction(this.writer.context().getCurrentPage().pageSize, this.pageMargins);
+	      this.writer.beginUnbreakableBlock(sizes.width, sizes.height);
+	      this.processNode(this.docMeasure.measureDocument(node));
+	      this.writer.commitUnbreakableBlock(sizes.x, sizes.y);
+	    }
+	  }
+	};
+
+	LayoutBuilder.prototype.addHeadersAndFooters = function(header, footer) {
+	  var headerSizeFct = function(pageSize, pageMargins){
+	    return {
+	      x: 0,
+	      y: 0,
+	      width: pageSize.width,
+	      height: pageMargins.top
 	    };
+	  };
 
-	    return PDFImage;
+	  var footerSizeFct = function (pageSize, pageMargins) {
+	    return {
+	      x: 0,
+	      y: pageSize.height - pageMargins.bottom,
+	      width: pageSize.width,
+	      height: pageMargins.bottom
+	    };
+	  };
 
-	  })();
+	  if(isFunction(header)) {
+	    this.addDynamicRepeatable(header, headerSizeFct);
+	  } else if(header) {
+	    this.addStaticRepeatable(header, headerSizeFct);
+	  }
 
-	  module.exports = PDFImage;
+	  if(isFunction(footer)) {
+	    this.addDynamicRepeatable(footer, footerSizeFct);
+	  } else if(footer) {
+	    this.addStaticRepeatable(footer, footerSizeFct);
+	  }
+	};
 
-	}).call(this);
+	LayoutBuilder.prototype.addWatermark = function(watermark, fontProvider){
+	  var defaultFont = Object.getOwnPropertyNames(fontProvider.fonts)[0]; // TODO allow selection of other font
+	  var watermarkObject = {
+	    text: watermark,
+	    font: fontProvider.provideFont(fontProvider[defaultFont], false, false),
+	    size: getSize(this.pageSize, watermark, fontProvider)
+	  };
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
+	  var pages = this.writer.context().pages;
+	  for(var i = 0, l = pages.length; i < l; i++) {
+	    pages[i].watermark = watermarkObject;
+	  }
+
+	  function getSize(pageSize, watermark, fontProvider){
+	    var width = pageSize.width;
+	    var height = pageSize.height;
+	    var targetWidth = Math.sqrt(width*width + height*height)*0.8; /* page diagnoal * sample factor */
+	    var textTools = new TextTools(fontProvider);
+	    var styleContextStack = new StyleContextStack();
+	    var size;
+
+	    /**
+	     * Binary search the best font size.
+	     * Initial bounds [0, 1000]
+	     * Break when range < 1
+	     */
+	    var a = 0;
+	    var b = 1000;
+	    var c = (a+b)/2;
+	    while(Math.abs(a - b) > 1){
+	      styleContextStack.push({
+	        fontSize: c
+	      });
+	      size = textTools.sizeOfString(watermark, styleContextStack);
+	      if(size.width > targetWidth){
+	        b = c;
+	        c = (a+b)/2;
+	      }
+	      else if(size.width < targetWidth){
+	        a = c;
+	        c = (a+b)/2;
+	      }
+	      styleContextStack.pop();
+	    }
+	    /*
+	      End binary search
+	     */
+	    return {size: size, fontSize: c};
+	  }
+	};
+
+	function decorateNode(node){
+	  var x = node.x, y = node.y;
+	  node.positions = [];
+
+	  _.each(node.canvas, function(vector){
+	    var x = vector.x, y = vector.y, x1 = vector.x1, y1 = vector.y1, x2 = vector.x2, y2 = vector.y2;
+	    vector.resetXY = function(){
+	      vector.x = x;
+	      vector.y = y;
+				vector.x1 = x1;
+				vector.y1 = y1;
+				vector.x2 = x2;
+				vector.y2 = y2;
+	    };
+	  });
+
+	  node.resetXY = function(){
+	    node.x = x;
+	    node.y = y;
+	    _.each(node.canvas, function(vector){
+	      vector.resetXY();
+	    });
+	  };
+	}
+
+	LayoutBuilder.prototype.processNode = function(node) {
+	  var self = this;
+
+	  this.linearNodeList.push(node);
+	  decorateNode(node);
+
+	  applyMargins(function() {
+	    var absPosition = node.absolutePosition;
+	    if(absPosition){
+	      self.writer.context().beginDetachedBlock();
+	      self.writer.context().moveTo(absPosition.x || 0, absPosition.y || 0);
+	    }
+
+	    if (node.stack) {
+	      self.processVerticalContainer(node);
+	    } else if (node.columns) {
+	      self.processColumns(node);
+	    } else if (node.ul) {
+	      self.processList(false, node);
+	    } else if (node.ol) {
+	      self.processList(true, node);
+	    } else if (node.table) {
+	      self.processTable(node);
+	    } else if (node.text !== undefined) {
+	      self.processLeaf(node);
+	    } else if (node.image) {
+	      self.processImage(node);
+	    } else if (node.canvas) {
+	      self.processCanvas(node);
+	    } else if (node.qr) {
+	      self.processQr(node);
+	    }else if (!node._span) {
+			throw 'Unrecognized document structure: ' + JSON.stringify(node, fontStringify);
+			}
+
+	    if(absPosition){
+	      self.writer.context().endDetachedBlock();
+	    }
+		});
+
+		function applyMargins(callback) {
+			var margin = node._margin;
+
+	    if (node.pageBreak === 'before') {
+	        self.writer.moveToNextPage(node.pageOrientation);
+	    }
+
+			if (margin) {
+				self.writer.context().moveDown(margin[1]);
+				self.writer.context().addMargin(margin[0], margin[2]);
+			}
+
+			callback();
+
+			if(margin) {
+				self.writer.context().addMargin(-margin[0], -margin[2]);
+				self.writer.context().moveDown(margin[3]);
+			}
+
+	    if (node.pageBreak === 'after') {
+	        self.writer.moveToNextPage(node.pageOrientation);
+	    }
+		}
+	};
+
+	// vertical container
+	LayoutBuilder.prototype.processVerticalContainer = function(node) {
+		var self = this;
+		node.stack.forEach(function(item) {
+			self.processNode(item);
+			addAll(node.positions, item.positions);
+
+			//TODO: paragraph gap
+		});
+	};
+
+	// columns
+	LayoutBuilder.prototype.processColumns = function(columnNode) {
+		var columns = columnNode.columns;
+		var availableWidth = this.writer.context().availableWidth;
+		var gaps = gapArray(columnNode._gap);
+
+		if (gaps) availableWidth -= (gaps.length - 1) * columnNode._gap;
+
+		ColumnCalculator.buildColumnWidths(columns, availableWidth);
+		var result = this.processRow(columns, columns, gaps);
+	    addAll(columnNode.positions, result.positions);
+
+
+		function gapArray(gap) {
+			if (!gap) return null;
+
+			var gaps = [];
+			gaps.push(0);
+
+			for(var i = columns.length - 1; i > 0; i--) {
+				gaps.push(gap);
+			}
+
+			return gaps;
+		}
+	};
+
+	LayoutBuilder.prototype.processRow = function(columns, widths, gaps, tableBody, tableRow) {
+	  var self = this;
+	  var pageBreaks = [], positions = [];
+
+	  this.tracker.auto('pageChanged', storePageBreakData, function() {
+	    widths = widths || columns;
+
+	    self.writer.context().beginColumnGroup();
+
+	    for(var i = 0, l = columns.length; i < l; i++) {
+	      var column = columns[i];
+	      var width = widths[i]._calcWidth;
+	      var leftOffset = colLeftOffset(i);
+
+	      if (column.colSpan && column.colSpan > 1) {
+	          for(var j = 1; j < column.colSpan; j++) {
+	              width += widths[++i]._calcWidth + gaps[i];
+	          }
+	      }
+
+	      self.writer.context().beginColumn(width, leftOffset, getEndingCell(column, i));
+	      if (!column._span) {
+	        self.processNode(column);
+	        addAll(positions, column.positions);
+	      } else if (column._columnEndingContext) {
+	        // row-span ending
+	        self.writer.context().markEnding(column);
+	      }
+	    }
+
+	    self.writer.context().completeColumnGroup();
+	  });
+
+	  return {pageBreaks: pageBreaks, positions: positions};
+
+	  function storePageBreakData(data) {
+	    var pageDesc;
+
+	    for(var i = 0, l = pageBreaks.length; i < l; i++) {
+	      var desc = pageBreaks[i];
+	      if (desc.prevPage === data.prevPage) {
+	        pageDesc = desc;
+	        break;
+	      }
+	    }
+
+	    if (!pageDesc) {
+	      pageDesc = data;
+	      pageBreaks.push(pageDesc);
+	    }
+	    pageDesc.prevY = Math.max(pageDesc.prevY, data.prevY);
+	    pageDesc.y = Math.min(pageDesc.y, data.y);
+	  }
+
+		function colLeftOffset(i) {
+			if (gaps && gaps.length > i) return gaps[i];
+			return 0;
+		}
+
+	  function getEndingCell(column, columnIndex) {
+	    if (column.rowSpan && column.rowSpan > 1) {
+	      var endingRow = tableRow + column.rowSpan - 1;
+	      if (endingRow >= tableBody.length) throw 'Row span for column ' + columnIndex + ' (with indexes starting from 0) exceeded row count';
+	      return tableBody[endingRow][columnIndex];
+	    }
+
+	    return null;
+	  }
+	};
+
+	// lists
+	LayoutBuilder.prototype.processList = function(orderedList, node) {
+		var self = this,
+	      items = orderedList ? node.ol : node.ul,
+	      gapSize = node._gapSize;
+
+		this.writer.context().addMargin(gapSize.width);
+
+		var nextMarker;
+		this.tracker.auto('lineAdded', addMarkerToFirstLeaf, function() {
+			items.forEach(function(item) {
+				nextMarker = item.listMarker;
+				self.processNode(item);
+	            addAll(node.positions, item.positions);
+			});
+		});
+
+		this.writer.context().addMargin(-gapSize.width);
+
+		function addMarkerToFirstLeaf(line) {
+			// I'm not very happy with the way list processing is implemented
+			// (both code and algorithm should be rethinked)
+			if (nextMarker) {
+				var marker = nextMarker;
+				nextMarker = null;
+
+				if (marker.canvas) {
+					var vector = marker.canvas[0];
+
+					offsetVector(vector, -marker._minWidth, 0);
+					self.writer.addVector(vector);
+				} else {
+					var markerLine = new Line(self.pageSize.width);
+					markerLine.addInline(marker._inlines[0]);
+					markerLine.x = -marker._minWidth;
+					markerLine.y = line.getAscenderHeight() - markerLine.getAscenderHeight();
+					self.writer.addLine(markerLine, true);
+				}
+			}
+		}
+	};
+
+	// tables
+	LayoutBuilder.prototype.processTable = function(tableNode) {
+	  var processor = new TableProcessor(tableNode);
+
+	  processor.beginTable(this.writer);
+
+	  for(var i = 0, l = tableNode.table.body.length; i < l; i++) {
+	    processor.beginRow(i, this.writer);
+
+	    var result = this.processRow(tableNode.table.body[i], tableNode.table.widths, tableNode._offsets.offsets, tableNode.table.body, i);
+	    addAll(tableNode.positions, result.positions);
+
+	    processor.endRow(i, this.writer, result.pageBreaks);
+	  }
+
+	  processor.endTable(this.writer);
+	};
+
+	// leafs (texts)
+	LayoutBuilder.prototype.processLeaf = function(node) {
+		var line = this.buildNextLine(node);
+	  var currentHeight = (line) ? line.getHeight() : 0;
+	  var maxHeight = node.maxHeight || -1;
+
+	  while (line && (maxHeight === -1 || currentHeight < maxHeight)) {
+	    var positions = this.writer.addLine(line);
+	    node.positions.push(positions);
+	    line = this.buildNextLine(node);
+	    if (line) {
+	      currentHeight += line.getHeight();
+	    }
+		}
+	};
+
+	LayoutBuilder.prototype.buildNextLine = function(textNode) {
+		if (!textNode._inlines || textNode._inlines.length === 0) return null;
+
+		var line = new Line(this.writer.context().availableWidth);
+
+		while(textNode._inlines && textNode._inlines.length > 0 && line.hasEnoughSpaceForInline(textNode._inlines[0])) {
+			line.addInline(textNode._inlines.shift());
+		}
+
+		line.lastLineInParagraph = textNode._inlines.length === 0;
+
+		return line;
+	};
+
+	// images
+	LayoutBuilder.prototype.processImage = function(node) {
+	    var position = this.writer.addImage(node);
+	    node.positions.push(position);
+	};
+
+	LayoutBuilder.prototype.processCanvas = function(node) {
+		var height = node._minHeight;
+
+		if (this.writer.context().availableHeight < height) {
+			// TODO: support for canvas larger than a page
+			// TODO: support for other overflow methods
+
+			this.writer.moveToNextPage();
+		}
+
+		node.canvas.forEach(function(vector) {
+			var position = this.writer.addVector(vector);
+	        node.positions.push(position);
+		}, this);
+
+		this.writer.context().moveDown(height);
+	};
+
+	LayoutBuilder.prototype.processQr = function(node) {
+		var position = this.writer.addQr(node);
+	    node.positions.push(position);
+	};
+
+	module.exports = LayoutBuilder;
+
 
 /***/ },
-/* 18 */
-/***/ function(module, exports, __webpack_require__) {
+/* 12 */
+/***/ function(module, exports) {
 
 	/* jslint node: true */
 	'use strict';
@@ -14374,18 +14037,18 @@
 
 
 /***/ },
-/* 19 */
+/* 13 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/* jslint node: true */
 	'use strict';
 
-	var TextTools = __webpack_require__(26);
-	var StyleContextStack = __webpack_require__(27);
-	var ColumnCalculator = __webpack_require__(22);
-	var fontStringify = __webpack_require__(25).fontStringify;
-	var pack = __webpack_require__(25).pack;
-	var qrEncoder = __webpack_require__(33);
+	var TextTools = __webpack_require__(14);
+	var StyleContextStack = __webpack_require__(15);
+	var ColumnCalculator = __webpack_require__(16);
+	var fontStringify = __webpack_require__(17).fontStringify;
+	var pack = __webpack_require__(17).pack;
+	var qrEncoder = __webpack_require__(18);
 
 	/**
 	* @private
@@ -14878,1038 +14541,8 @@
 
 
 /***/ },
-/* 20 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-	var TraversalTracker = __webpack_require__(18);
-
-	/**
-	* Creates an instance of DocumentContext - a store for current x, y positions and available width/height.
-	* It facilitates column divisions and vertical sync
-	*/
-	function DocumentContext(pageSize, pageMargins) {
-		this.pages = [];
-
-		this.pageMargins = pageMargins;
-
-		this.x = pageMargins.left;
-		this.availableWidth = pageSize.width - pageMargins.left - pageMargins.right;
-		this.availableHeight = 0;
-		this.page = -1;
-
-		this.snapshots = [];
-
-		this.endingCell = null;
-
-	  this.tracker = new TraversalTracker();
-
-		this.addPage(pageSize);
-	}
-
-	DocumentContext.prototype.beginColumnGroup = function() {
-		this.snapshots.push({
-			x: this.x,
-			y: this.y,
-			availableHeight: this.availableHeight,
-			availableWidth: this.availableWidth,
-			page: this.page,
-			bottomMost: { y: this.y, page: this.page },
-			endingCell: this.endingCell,
-			lastColumnWidth: this.lastColumnWidth
-		});
-
-		this.lastColumnWidth = 0;
-	};
-
-	DocumentContext.prototype.beginColumn = function(width, offset, endingCell) {
-		var saved = this.snapshots[this.snapshots.length - 1];
-
-		this.calculateBottomMost(saved);
-
-	  this.endingCell = endingCell;
-		this.page = saved.page;
-		this.x = this.x + this.lastColumnWidth + (offset || 0);
-		this.y = saved.y;
-		this.availableWidth = width;	//saved.availableWidth - offset;
-		this.availableHeight = saved.availableHeight;
-
-		this.lastColumnWidth = width;
-	};
-
-	DocumentContext.prototype.calculateBottomMost = function(destContext) {
-		if (this.endingCell) {
-			this.saveContextInEndingCell(this.endingCell);
-			this.endingCell = null;
-		} else {
-			destContext.bottomMost = bottomMostContext(this, destContext.bottomMost);
-		}
-	};
-
-	DocumentContext.prototype.markEnding = function(endingCell) {
-		this.page = endingCell._columnEndingContext.page;
-		this.x = endingCell._columnEndingContext.x;
-		this.y = endingCell._columnEndingContext.y;
-		this.availableWidth = endingCell._columnEndingContext.availableWidth;
-		this.availableHeight = endingCell._columnEndingContext.availableHeight;
-		this.lastColumnWidth = endingCell._columnEndingContext.lastColumnWidth;
-	};
-
-	DocumentContext.prototype.saveContextInEndingCell = function(endingCell) {
-		endingCell._columnEndingContext = {
-			page: this.page,
-			x: this.x,
-			y: this.y,
-			availableHeight: this.availableHeight,
-			availableWidth: this.availableWidth,
-			lastColumnWidth: this.lastColumnWidth
-		};
-	};
-
-	DocumentContext.prototype.completeColumnGroup = function() {
-		var saved = this.snapshots.pop();
-
-		this.calculateBottomMost(saved);
-
-		this.endingCell = null;
-		this.x = saved.x;
-		this.y = saved.bottomMost.y;
-		this.page = saved.bottomMost.page;
-		this.availableWidth = saved.availableWidth;
-		this.availableHeight = saved.bottomMost.availableHeight;
-		this.lastColumnWidth = saved.lastColumnWidth;
-	};
-
-	DocumentContext.prototype.addMargin = function(left, right) {
-		this.x += left;
-		this.availableWidth -= left + (right || 0);
-	};
-
-	DocumentContext.prototype.moveDown = function(offset) {
-		this.y += offset;
-		this.availableHeight -= offset;
-
-		return this.availableHeight > 0;
-	};
-
-	DocumentContext.prototype.initializePage = function() {
-		this.y = this.pageMargins.top;
-		this.availableHeight = this.getCurrentPage().pageSize.height - this.pageMargins.top - this.pageMargins.bottom;
-		this.pageSnapshot().availableWidth = this.getCurrentPage().pageSize.width - this.pageMargins.left - this.pageMargins.right;
-	};
-
-	DocumentContext.prototype.pageSnapshot = function(){
-	  if(this.snapshots[0]){
-	    return this.snapshots[0];
-	  } else {
-	    return this;
-	  }
-	};
-
-	DocumentContext.prototype.moveTo = function(x,y) {
-		if(x !== undefined && x !== null) {
-			this.x = x;
-			this.availableWidth = this.getCurrentPage().pageSize.width - this.x - this.pageMargins.right;
-		}
-		if(y !== undefined && y !== null){
-			this.y = y;
-			this.availableHeight = this.getCurrentPage().pageSize.height - this.y - this.pageMargins.bottom;
-		}
-	};
-
-	DocumentContext.prototype.beginDetachedBlock = function() {
-		this.snapshots.push({
-			x: this.x,
-			y: this.y,
-			availableHeight: this.availableHeight,
-			availableWidth: this.availableWidth,
-			page: this.page,
-			endingCell: this.endingCell,
-			lastColumnWidth: this.lastColumnWidth
-		});
-	};
-
-	DocumentContext.prototype.endDetachedBlock = function() {
-		var saved = this.snapshots.pop();
-
-		this.x = saved.x;
-		this.y = saved.y;
-		this.availableWidth = saved.availableWidth;
-		this.availableHeight = saved.availableHeight;
-		this.page = saved.page;
-		this.endingCell = saved.endingCell;
-		this.lastColumnWidth = saved.lastColumnWidth;
-	};
-
-	function pageOrientation(pageOrientationString, currentPageOrientation){
-		if(pageOrientationString === undefined) {
-			return currentPageOrientation;
-		} else if(pageOrientationString === 'landscape'){
-			return 'landscape';
-		} else {
-			return 'portrait';
-		}
-	}
-
-	var getPageSize = function (currentPage, newPageOrientation) {
-
-		newPageOrientation = pageOrientation(newPageOrientation, currentPage.pageSize.orientation);
-
-		if(newPageOrientation !== currentPage.pageSize.orientation) {
-			return {
-				orientation: newPageOrientation,
-				width: currentPage.pageSize.height,
-				height: currentPage.pageSize.width
-			};
-		} else {
-			return {
-				orientation: currentPage.pageSize.orientation,
-				width: currentPage.pageSize.width,
-				height: currentPage.pageSize.height
-			};
-		}
-
-	};
-
-
-	DocumentContext.prototype.moveToNextPage = function(pageOrientation) {
-		var nextPageIndex = this.page + 1;
-
-		var prevPage = this.page;
-		var prevY = this.y;
-
-		var createNewPage = nextPageIndex >= this.pages.length;
-		if (createNewPage) {
-			this.addPage(getPageSize(this.getCurrentPage(), pageOrientation));
-		} else {
-			this.page = nextPageIndex;
-			this.initializePage();
-		}
-
-	  return {
-			newPageCreated: createNewPage,
-			prevPage: prevPage,
-			prevY: prevY,
-			y: this.y
-		};
-	};
-
-
-	DocumentContext.prototype.addPage = function(pageSize) {
-		var page = { items: [], pageSize: pageSize };
-		this.pages.push(page);
-		this.page = this.pages.length - 1;
-		this.initializePage();
-
-		this.tracker.emit('pageAdded');
-
-		return page;
-	};
-
-	DocumentContext.prototype.getCurrentPage = function() {
-		if (this.page < 0 || this.page >= this.pages.length) return null;
-
-		return this.pages[this.page];
-	};
-
-	DocumentContext.prototype.getCurrentPosition = function() {
-	  var pageSize = this.getCurrentPage().pageSize;
-	  var innerHeight = pageSize.height - this.pageMargins.top - this.pageMargins.bottom;
-	  var innerWidth = pageSize.width - this.pageMargins.left - this.pageMargins.right;
-
-	  return {
-	    pageNumber: this.page + 1,
-	    pageOrientation: pageSize.orientation,
-	    pageInnerHeight: innerHeight,
-	    pageInnerWidth: innerWidth,
-	    left: this.x,
-	    top: this.y,
-	    verticalRatio: ((this.y - this.pageMargins.top) / innerHeight),
-	    horizontalRatio: ((this.x - this.pageMargins.left) / innerWidth)
-	  };
-	};
-
-	function bottomMostContext(c1, c2) {
-		var r;
-
-		if (c1.page > c2.page) r = c1;
-		else if (c2.page > c1.page) r = c2;
-		else r = (c1.y > c2.y) ? c1 : c2;
-
-		return {
-			page: r.page,
-			x: r.x,
-			y: r.y,
-			availableHeight: r.availableHeight,
-			availableWidth: r.availableWidth
-		};
-	}
-
-	/****TESTS**** (add a leading '/' to uncomment)
-	DocumentContext.bottomMostContext = bottomMostContext;
-	// */
-
-	module.exports = DocumentContext;
-
-
-/***/ },
-/* 21 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-	var ElementWriter = __webpack_require__(37);
-
-	/**
-	* Creates an instance of PageElementWriter - an extended ElementWriter
-	* which can handle:
-	* - page-breaks (it adds new pages when there's not enough space left),
-	* - repeatable fragments (like table-headers, which are repeated everytime
-	*                         a page-break occurs)
-	* - transactions (used for unbreakable-blocks when we want to make sure
-	*                 whole block will be rendered on the same page)
-	*/
-	function PageElementWriter(context, tracker) {
-		this.transactionLevel = 0;
-		this.repeatables = [];
-		this.tracker = tracker;
-		this.writer = new ElementWriter(context, tracker);
-	}
-
-	function fitOnPage(self, addFct){
-	  var position = addFct(self);
-	  if (!position) {
-	    self.moveToNextPage();
-	    position = addFct(self);
-	  }
-	  return position;
-	}
-
-	PageElementWriter.prototype.addLine = function(line, dontUpdateContextPosition, index) {
-	  return fitOnPage(this, function(self){
-	    return self.writer.addLine(line, dontUpdateContextPosition, index);
-	  });
-	};
-
-	PageElementWriter.prototype.addImage = function(image, index) {
-	  return fitOnPage(this, function(self){
-	    return self.writer.addImage(image, index);
-	  });
-	};
-
-	PageElementWriter.prototype.addQr = function(qr, index) {
-	  return fitOnPage(this, function(self){
-			return self.writer.addQr(qr, index);
-		});
-	};
-
-	PageElementWriter.prototype.addVector = function(vector, ignoreContextX, ignoreContextY, index) {
-		return this.writer.addVector(vector, ignoreContextX, ignoreContextY, index);
-	};
-
-	PageElementWriter.prototype.addFragment = function(fragment, useBlockXOffset, useBlockYOffset, dontUpdateContextPosition) {
-		if (!this.writer.addFragment(fragment, useBlockXOffset, useBlockYOffset, dontUpdateContextPosition)) {
-			this.moveToNextPage();
-			this.writer.addFragment(fragment, useBlockXOffset, useBlockYOffset, dontUpdateContextPosition);
-		}
-	};
-
-	PageElementWriter.prototype.moveToNextPage = function(pageOrientation) {
-		
-		var nextPage = this.writer.context.moveToNextPage(pageOrientation);
-		
-	  if (nextPage.newPageCreated) {
-			this.repeatables.forEach(function(rep) {
-				this.writer.addFragment(rep, true);
-			}, this);
-		} else {
-			this.repeatables.forEach(function(rep) {
-				this.writer.context.moveDown(rep.height);
-			}, this);
-		}
-
-		this.writer.tracker.emit('pageChanged', {
-			prevPage: nextPage.prevPage,
-			prevY: nextPage.prevY,
-			y: nextPage.y
-		});
-	};
-
-	PageElementWriter.prototype.beginUnbreakableBlock = function(width, height) {
-		if (this.transactionLevel++ === 0) {
-			this.originalX = this.writer.context.x;
-			this.writer.pushContext(width, height);
-		}
-	};
-
-	PageElementWriter.prototype.commitUnbreakableBlock = function(forcedX, forcedY) {
-		if (--this.transactionLevel === 0) {
-			var unbreakableContext = this.writer.context;
-			this.writer.popContext();
-
-			var nbPages = unbreakableContext.pages.length;
-			if(nbPages > 0) {
-				// no support for multi-page unbreakableBlocks
-				var fragment = unbreakableContext.pages[0];
-				fragment.xOffset = forcedX;
-				fragment.yOffset = forcedY;
-
-				//TODO: vectors can influence height in some situations
-				if(nbPages > 1) {
-					// on out-of-context blocs (headers, footers, background) height should be the whole DocumentContext height
-					if (forcedX !== undefined || forcedY !== undefined) {
-						fragment.height = unbreakableContext.getCurrentPage().pageSize.height - unbreakableContext.pageMargins.top - unbreakableContext.pageMargins.bottom;
-					} else {
-						fragment.height = this.writer.context.getCurrentPage().pageSize.height - this.writer.context.pageMargins.top - this.writer.context.pageMargins.bottom;
-						for (var i = 0, l = this.repeatables.length; i < l; i++) {
-							fragment.height -= this.repeatables[i].height;
-						}
-					}
-				} else {
-					fragment.height = unbreakableContext.y;
-				}
-
-				if (forcedX !== undefined || forcedY !== undefined) {
-					this.writer.addFragment(fragment, true, true, true);
-				} else {
-					this.addFragment(fragment);
-				}
-			}
-		}
-	};
-
-	PageElementWriter.prototype.currentBlockToRepeatable = function() {
-		var unbreakableContext = this.writer.context;
-		var rep = { items: [] };
-
-	    unbreakableContext.pages[0].items.forEach(function(item) {
-	        rep.items.push(item);
-	    });
-
-		rep.xOffset = this.originalX;
-
-		//TODO: vectors can influence height in some situations
-		rep.height = unbreakableContext.y;
-
-		return rep;
-	};
-
-	PageElementWriter.prototype.pushToRepeatables = function(rep) {
-		this.repeatables.push(rep);
-	};
-
-	PageElementWriter.prototype.popFromRepeatables = function() {
-		this.repeatables.pop();
-	};
-
-	PageElementWriter.prototype.context = function() {
-		return this.writer.context;
-	};
-
-	module.exports = PageElementWriter;
-
-
-/***/ },
-/* 22 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-	function buildColumnWidths(columns, availableWidth) {
-		var autoColumns = [],
-			autoMin = 0, autoMax = 0,
-			starColumns = [],
-			starMaxMin = 0,
-			starMaxMax = 0,
-			fixedColumns = [],
-			initial_availableWidth = availableWidth;
-
-		columns.forEach(function(column) {
-			if (isAutoColumn(column)) {
-				autoColumns.push(column);
-				autoMin += column._minWidth;
-				autoMax += column._maxWidth;
-			} else if (isStarColumn(column)) {
-				starColumns.push(column);
-				starMaxMin = Math.max(starMaxMin, column._minWidth);
-				starMaxMax = Math.max(starMaxMax, column._maxWidth);
-			} else {
-				fixedColumns.push(column);
-			}
-		});
-
-		fixedColumns.forEach(function(col) {
-			// width specified as %
-			if (typeof col.width === 'string' && /\d+%/.test(col.width) ) {
-				col.width = parseFloat(col.width)*initial_availableWidth/100;
-			}
-			if (col.width < (col._minWidth) && col.elasticWidth) {
-				col._calcWidth = col._minWidth;
-			} else {
-				col._calcWidth = col.width;
-			}
-
-			availableWidth -= col._calcWidth;
-		});
-
-		// http://www.freesoft.org/CIE/RFC/1942/18.htm
-		// http://www.w3.org/TR/CSS2/tables.html#width-layout
-		// http://dev.w3.org/csswg/css3-tables-algorithms/Overview.src.htm
-		var minW = autoMin + starMaxMin * starColumns.length;
-		var maxW = autoMax + starMaxMax * starColumns.length;
-		if (minW >= availableWidth) {
-			// case 1 - there's no way to fit all columns within available width
-			// that's actually pretty bad situation with PDF as we have no horizontal scroll
-			// no easy workaround (unless we decide, in the future, to split single words)
-			// currently we simply use minWidths for all columns
-			autoColumns.forEach(function(col) {
-				col._calcWidth = col._minWidth;
-			});
-
-			starColumns.forEach(function(col) {
-				col._calcWidth = starMaxMin; // starMaxMin already contains padding
-			});
-		} else {
-			if (maxW < availableWidth) {
-				// case 2 - we can fit rest of the table within available space
-				autoColumns.forEach(function(col) {
-					col._calcWidth = col._maxWidth;
-					availableWidth -= col._calcWidth;
-				});
-			} else {
-				// maxW is too large, but minW fits within available width
-				var W = availableWidth - minW;
-				var D = maxW - minW;
-
-				autoColumns.forEach(function(col) {
-					var d = col._maxWidth - col._minWidth;
-					col._calcWidth = col._minWidth + d * W / D;
-					availableWidth -= col._calcWidth;
-				});
-			}
-
-			if (starColumns.length > 0) {
-				var starSize = availableWidth / starColumns.length;
-
-				starColumns.forEach(function(col) {
-					col._calcWidth = starSize;
-				});
-			}
-		}
-	}
-
-	function isAutoColumn(column) {
-		return column.width === 'auto';
-	}
-
-	function isStarColumn(column) {
-		return column.width === null || column.width === undefined || column.width === '*' || column.width === 'star';
-	}
-
-	//TODO: refactor and reuse in measureTable
-	function measureMinMax(columns) {
-		var result = { min: 0, max: 0 };
-
-		var maxStar = { min: 0, max: 0 };
-		var starCount = 0;
-
-		for(var i = 0, l = columns.length; i < l; i++) {
-			var c = columns[i];
-
-			if (isStarColumn(c)) {
-				maxStar.min = Math.max(maxStar.min, c._minWidth);
-				maxStar.max = Math.max(maxStar.max, c._maxWidth);
-				starCount++;
-			} else if (isAutoColumn(c)) {
-				result.min += c._minWidth;
-				result.max += c._maxWidth;
-			} else {
-				result.min += ((c.width !== undefined && c.width) || c._minWidth);
-				result.max += ((c.width  !== undefined && c.width) || c._maxWidth);
-			}
-		}
-
-		if (starCount) {
-			result.min += starCount * maxStar.min;
-			result.max += starCount * maxStar.max;
-		}
-
-		return result;
-	}
-
-	/**
-	* Calculates column widths
-	* @private
-	*/
-	module.exports = {
-		buildColumnWidths: buildColumnWidths,
-		measureMinMax: measureMinMax,
-		isAutoColumn: isAutoColumn,
-		isStarColumn: isStarColumn
-	};
-
-
-/***/ },
-/* 23 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-	var ColumnCalculator = __webpack_require__(22);
-
-	function TableProcessor(tableNode) {
-	  this.tableNode = tableNode;
-	}
-
-	TableProcessor.prototype.beginTable = function(writer) {
-	  var tableNode;
-	  var availableWidth;
-	  var self = this;
-
-	  tableNode = this.tableNode;
-	  this.offsets = tableNode._offsets;
-	  this.layout = tableNode._layout;
-
-	  availableWidth = writer.context().availableWidth - this.offsets.total;
-	  ColumnCalculator.buildColumnWidths(tableNode.table.widths, availableWidth);
-
-	  this.tableWidth = tableNode._offsets.total + getTableInnerContentWidth();
-	  this.rowSpanData = prepareRowSpanData();
-	  this.cleanUpRepeatables = false;
-
-	  this.headerRows = tableNode.table.headerRows || 0;
-	  this.rowsWithoutPageBreak = this.headerRows + (tableNode.table.keepWithHeaderRows || 0);
-	  this.dontBreakRows = tableNode.table.dontBreakRows || false;
-
-	  if (this.rowsWithoutPageBreak) {
-	    writer.beginUnbreakableBlock();
-	  }
-
-	  this.drawHorizontalLine(0, writer);
-
-	  function getTableInnerContentWidth() {
-	    var width = 0;
-
-	    tableNode.table.widths.forEach(function(w) {
-	      width += w._calcWidth;
-	    });
-
-	    return width;
-	  }
-
-	  function prepareRowSpanData() {
-	    var rsd = [];
-	    var x = 0;
-	    var lastWidth = 0;
-
-	    rsd.push({ left: 0, rowSpan: 0 });
-
-	    for(var i = 0, l = self.tableNode.table.body[0].length; i < l; i++) {
-	      var paddings = self.layout.paddingLeft(i, self.tableNode) + self.layout.paddingRight(i, self.tableNode);
-	      var lBorder = self.layout.vLineWidth(i, self.tableNode);
-	      lastWidth = paddings + lBorder + self.tableNode.table.widths[i]._calcWidth;
-	      rsd[rsd.length - 1].width = lastWidth;
-	      x += lastWidth;
-	      rsd.push({ left: x, rowSpan: 0, width: 0 });
-	    }
-
-	    return rsd;
-	  }
-	};
-
-	TableProcessor.prototype.onRowBreak = function(rowIndex, writer) {
-	  var self = this;
-	  return function() {
-	    //console.log('moving by : ', topLineWidth, rowPaddingTop);
-	    var offset = self.rowPaddingTop + (!self.headerRows ? self.topLineWidth : 0);
-	    writer.context().moveDown(offset);
-	  };
-
-	};
-
-	TableProcessor.prototype.beginRow = function(rowIndex, writer) {
-	  this.topLineWidth = this.layout.hLineWidth(rowIndex, this.tableNode);
-	  this.rowPaddingTop = this.layout.paddingTop(rowIndex, this.tableNode);
-	  this.bottomLineWidth = this.layout.hLineWidth(rowIndex+1, this.tableNode);
-	  this.rowPaddingBottom = this.layout.paddingBottom(rowIndex, this.tableNode);
-
-	  this.rowCallback = this.onRowBreak(rowIndex, writer);
-	  writer.tracker.startTracking('pageChanged', this.rowCallback );
-	    if(this.dontBreakRows) {
-	        writer.beginUnbreakableBlock();
-	    }
-	  this.rowTopY = writer.context().y;
-	  this.reservedAtBottom = this.bottomLineWidth + this.rowPaddingBottom;
-
-	  writer.context().availableHeight -= this.reservedAtBottom;
-
-	  writer.context().moveDown(this.rowPaddingTop);
-	};
-
-	TableProcessor.prototype.drawHorizontalLine = function(lineIndex, writer, overrideY) {
-	  var lineWidth = this.layout.hLineWidth(lineIndex, this.tableNode);
-	  if (lineWidth) {
-	    var offset = lineWidth / 2;
-	    var currentLine = null;
-
-	    for(var i = 0, l = this.rowSpanData.length; i < l; i++) {
-	      var data = this.rowSpanData[i];
-	      var shouldDrawLine = !data.rowSpan;
-
-	      if (!currentLine && shouldDrawLine) {
-	        currentLine = { left: data.left, width: 0 };
-	      }
-
-	      if (shouldDrawLine) {
-	        currentLine.width += (data.width || 0);
-	      }
-
-	      var y = (overrideY || 0) + offset;
-
-	      if (!shouldDrawLine || i === l - 1) {
-	        if (currentLine) {
-	          writer.addVector({
-	            type: 'line',
-	            x1: currentLine.left,
-	            x2: currentLine.left + currentLine.width,
-	            y1: y,
-	            y2: y,
-	            lineWidth: lineWidth,
-	            lineColor: typeof this.layout.hLineColor === 'function' ? this.layout.hLineColor(lineIndex, this.tableNode) : this.layout.hLineColor
-	          }, false, overrideY);
-	          currentLine = null;
-	        }
-	      }
-	    }
-
-	    writer.context().moveDown(lineWidth);
-	  }
-	};
-
-	TableProcessor.prototype.drawVerticalLine = function(x, y0, y1, vLineIndex, writer) {
-	  var width = this.layout.vLineWidth(vLineIndex, this.tableNode);
-	  if (width === 0) return;
-	  writer.addVector({
-	    type: 'line',
-	    x1: x + width/2,
-	    x2: x + width/2,
-	    y1: y0,
-	    y2: y1,
-	    lineWidth: width,
-	    lineColor: typeof this.layout.vLineColor === 'function' ? this.layout.vLineColor(vLineIndex, this.tableNode) : this.layout.vLineColor
-	  }, false, true);
-	};
-
-	TableProcessor.prototype.endTable = function(writer) {
-	  if (this.cleanUpRepeatables) {
-	    writer.popFromRepeatables();
-	  }
-	};
-
-	TableProcessor.prototype.endRow = function(rowIndex, writer, pageBreaks) {
-	    var l, i;
-	    var self = this;
-	    writer.tracker.stopTracking('pageChanged', this.rowCallback);
-	    writer.context().moveDown(this.layout.paddingBottom(rowIndex, this.tableNode));
-	    writer.context().availableHeight += this.reservedAtBottom;
-
-	    var endingPage = writer.context().page;
-	    var endingY = writer.context().y;
-
-	    var xs = getLineXs();
-
-	    var ys = [];
-
-	    var hasBreaks = pageBreaks && pageBreaks.length > 0;
-
-	    ys.push({
-	      y0: this.rowTopY,
-	      page: hasBreaks ? pageBreaks[0].prevPage : endingPage
-	    });
-
-	    if (hasBreaks) {
-	      for(i = 0, l = pageBreaks.length; i < l; i++) {
-	        var pageBreak = pageBreaks[i];
-	        ys[ys.length - 1].y1 = pageBreak.prevY;
-
-	        ys.push({y0: pageBreak.y, page: pageBreak.prevPage + 1});
-	      }
-	    }
-
-	    ys[ys.length - 1].y1 = endingY;
-
-	    var skipOrphanePadding = (ys[0].y1 - ys[0].y0 === this.rowPaddingTop);
-	    for(var yi = (skipOrphanePadding ? 1 : 0), yl = ys.length; yi < yl; yi++) {
-	      var willBreak = yi < ys.length - 1;
-	      var rowBreakWithoutHeader = (yi > 0 && !this.headerRows);
-	      var hzLineOffset =  rowBreakWithoutHeader ? 0 : this.topLineWidth;
-	      var y1 = ys[yi].y0;
-	      var y2 = ys[yi].y1;
-
-				if(willBreak) {
-					y2 = y2 + this.rowPaddingBottom;
-				}
-
-	      if (writer.context().page != ys[yi].page) {
-	        writer.context().page = ys[yi].page;
-
-	        //TODO: buggy, availableHeight should be updated on every pageChanged event
-	        // TableProcessor should be pageChanged listener, instead of processRow
-	        this.reservedAtBottom = 0;
-	      }
-
-	      for(i = 0, l = xs.length; i < l; i++) {
-	        this.drawVerticalLine(xs[i].x, y1 - hzLineOffset, y2 + this.bottomLineWidth, xs[i].index, writer);
-	        if(i < l-1) {
-	          var colIndex = xs[i].index;
-	          var fillColor=  this.tableNode.table.body[rowIndex][colIndex].fillColor;
-	          if(fillColor ) {
-	            var wBorder = this.layout.vLineWidth(colIndex, this.tableNode);
-	            var xf = xs[i].x+wBorder;
-	            var yf = y1 - hzLineOffset;
-	            writer.addVector({
-	              type: 'rect',
-	              x: xf,
-	              y: yf,
-	              w: xs[i+1].x-xf,
-	              h: y2+this.bottomLineWidth-yf,
-	              lineWidth: 0,
-	              color: fillColor
-	            }, false, true, 0);
-	          }
-	        }
-	      }
-
-	      if (willBreak && this.layout.hLineWhenBroken !== false) {
-	        this.drawHorizontalLine(rowIndex + 1, writer, y2);
-	      }
-	      if(rowBreakWithoutHeader && this.layout.hLineWhenBroken !== false) {
-	        this.drawHorizontalLine(rowIndex, writer, y1);
-	      }
-	    }
-
-	    writer.context().page = endingPage;
-	    writer.context().y = endingY;
-
-	    var row = this.tableNode.table.body[rowIndex];
-	    for(i = 0, l = row.length; i < l; i++) {
-	      if (row[i].rowSpan) {
-	        this.rowSpanData[i].rowSpan = row[i].rowSpan;
-
-	        // fix colSpans
-	        if (row[i].colSpan && row[i].colSpan > 1) {
-	          for(var j = 1; j < row[i].rowSpan; j++) {
-	            this.tableNode.table.body[rowIndex + j][i]._colSpan = row[i].colSpan;
-	          }
-	        }
-	      }
-
-	      if(this.rowSpanData[i].rowSpan > 0) {
-	        this.rowSpanData[i].rowSpan--;
-	      }
-	    }
-
-	    this.drawHorizontalLine(rowIndex + 1, writer);
-
-	    if(this.headerRows && rowIndex === this.headerRows - 1) {
-	      this.headerRepeatable = writer.currentBlockToRepeatable();
-	    }
-
-	    if(this.dontBreakRows) {
-	      writer.tracker.auto('pageChanged',
-	        function() {
-	          self.drawHorizontalLine(rowIndex, writer);
-	        },
-	        function() {
-	          writer.commitUnbreakableBlock();
-	          self.drawHorizontalLine(rowIndex, writer);
-	        }
-	      );
-	    }
-
-	    if(this.headerRepeatable && (rowIndex === (this.rowsWithoutPageBreak - 1) || rowIndex === this.tableNode.table.body.length - 1)) {
-	      writer.commitUnbreakableBlock();
-	      writer.pushToRepeatables(this.headerRepeatable);
-	      this.cleanUpRepeatables = true;
-	      this.headerRepeatable = null;
-	    }
-
-	    function getLineXs() {
-	      var result = [];
-	      var cols = 0;
-
-	      for(var i = 0, l = self.tableNode.table.body[rowIndex].length; i < l; i++) {
-	        if (!cols) {
-	          result.push({ x: self.rowSpanData[i].left, index: i});
-
-	          var item = self.tableNode.table.body[rowIndex][i];
-	          cols = (item._colSpan || item.colSpan || 0);
-	        }
-	        if (cols > 0) {
-	          cols--;
-	        }
-	      }
-
-	      result.push({ x: self.rowSpanData[self.rowSpanData.length - 1].left, index: self.rowSpanData.length - 1});
-
-	      return result;
-	    }
-	};
-
-	module.exports = TableProcessor;
-
-
-/***/ },
-/* 24 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-	/**
-	* Creates an instance of Line
-	*
-	* @constructor
-	* @this {Line}
-	* @param {Number} Maximum width this line can have
-	*/
-	function Line(maxWidth) {
-		this.maxWidth = maxWidth;
-		this.leadingCut = 0;
-		this.trailingCut = 0;
-		this.inlineWidths = 0;
-		this.inlines = [];
-	}
-
-	Line.prototype.getAscenderHeight = function() {
-		var y = 0;
-
-		this.inlines.forEach(function(inline) {
-			y = Math.max(y, inline.font.ascender / 1000 * inline.fontSize);
-		});
-		return y;
-	};
-
-	Line.prototype.hasEnoughSpaceForInline = function(inline) {
-		if (this.inlines.length === 0) return true;
-		if (this.newLineForced) return false;
-
-		return this.inlineWidths + inline.width - this.leadingCut - (inline.trailingCut || 0) <= this.maxWidth;
-	};
-
-	Line.prototype.addInline = function(inline) {
-		if (this.inlines.length === 0) {
-			this.leadingCut = inline.leadingCut || 0;
-		}
-		this.trailingCut = inline.trailingCut || 0;
-
-		inline.x = this.inlineWidths - this.leadingCut;
-
-		this.inlines.push(inline);
-		this.inlineWidths += inline.width;
-
-		if (inline.lineEnd) {
-			this.newLineForced = true;
-		}
-	};
-
-	Line.prototype.getWidth = function() {
-		return this.inlineWidths - this.leadingCut - this.trailingCut;
-	};
-
-	/**
-	* Returns line height
-	* @return {Number}
-	*/
-	Line.prototype.getHeight = function() {
-		var max = 0;
-
-		this.inlines.forEach(function(item) {
-			max = Math.max(max, item.height || 0);
-		});
-
-		return max;
-	};
-
-	module.exports = Line;
-
-
-/***/ },
-/* 25 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* jslint node: true */
-	'use strict';
-
-	function pack() {
-		var result = {};
-
-		for(var i = 0, l = arguments.length; i < l; i++) {
-			var obj = arguments[i];
-
-			if (obj) {
-				for(var key in obj) {
-					if (obj.hasOwnProperty(key)) {
-						result[key] = obj[key];
-					}
-				}
-			}
-		}
-
-		return result;
-	}
-
-	function offsetVector(vector, x, y) {
-		switch(vector.type) {
-		case 'ellipse':
-		case 'rect':
-			vector.x += x;
-			vector.y += y;
-			break;
-		case 'line':
-			vector.x1 += x;
-			vector.x2 += x;
-			vector.y1 += y;
-			vector.y2 += y;
-			break;
-		case 'polyline':
-			for(var i = 0, l = vector.points.length; i < l; i++) {
-				vector.points[i].x += x;
-				vector.points[i].y += y;
-			}
-			break;
-		}
-	}
-
-	function fontStringify(key, val) {
-		if (key === 'font') {
-			return 'font';
-		}
-		return val;
-	}
-
-	function isFunction(functionToCheck) {
-		var getType = {};
-		return functionToCheck && getType.toString.call(functionToCheck) === '[object Function]';
-	}
-
-
-	module.exports = {
-		pack: pack,
-		fontStringify: fontStringify,
-		offsetVector: offsetVector,
-		isFunction: isFunction
-	};
-
-
-/***/ },
-/* 26 */
-/***/ function(module, exports, __webpack_require__) {
+/* 14 */
+/***/ function(module, exports) {
 
 	/* jslint node: true */
 	'use strict';
@@ -15931,11 +14564,12 @@
 	}
 
 	/**
-	* Converts an array of strings (or inline-definition-objects) into a set of inlines
+	 * Converts an array of strings (or inline-definition-objects) into a collection
+	 * of inlines and calculated minWidth/maxWidth.
 	* and their min/max widths
 	* @param  {Object} textArray - an array of inline-definition-objects (or strings)
-	* @param  {Number} maxWidth - max width a single Line should have
-	* @return {Array} an array of Lines
+	* @param  {Object} styleContextStack current style stack
+	* @return {Object}                   collection of inlines, minWidth, maxWidth
 	*/
 	TextTools.prototype.buildInlines = function(textArray, styleContextStack) {
 		var measured = measure(this.fontProvider, textArray, styleContextStack);
@@ -16173,8 +14807,8 @@
 
 
 /***/ },
-/* 27 */
-/***/ function(module, exports, __webpack_require__) {
+/* 15 */
+/***/ function(module, exports) {
 
 	/* jslint node: true */
 	'use strict';
@@ -16346,630 +14980,217 @@
 
 
 /***/ },
-/* 28 */
-/***/ function(module, exports, __webpack_require__) {
+/* 16 */
+/***/ function(module, exports) {
 
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+	/* jslint node: true */
+	'use strict';
 
-	/*
-	PDFDocument - represents an entire PDF document
-	By Devon Govett
-	 */
+	function buildColumnWidths(columns, availableWidth) {
+		var autoColumns = [],
+			autoMin = 0, autoMax = 0,
+			starColumns = [],
+			starMaxMin = 0,
+			starMaxMax = 0,
+			fixedColumns = [],
+			initial_availableWidth = availableWidth;
 
-	(function() {
-	  var PDFDocument, PDFObject, PDFPage, PDFReference, fs, stream,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+		columns.forEach(function(column) {
+			if (isAutoColumn(column)) {
+				autoColumns.push(column);
+				autoMin += column._minWidth;
+				autoMax += column._maxWidth;
+			} else if (isStarColumn(column)) {
+				starColumns.push(column);
+				starMaxMin = Math.max(starMaxMin, column._minWidth);
+				starMaxMax = Math.max(starMaxMax, column._maxWidth);
+			} else {
+				fixedColumns.push(column);
+			}
+		});
 
-	  stream = __webpack_require__(46);
+		fixedColumns.forEach(function(col) {
+			// width specified as %
+			if (typeof col.width === 'string' && /\d+%/.test(col.width) ) {
+				col.width = parseFloat(col.width)*initial_availableWidth/100;
+			}
+			if (col.width < (col._minWidth) && col.elasticWidth) {
+				col._calcWidth = col._minWidth;
+			} else {
+				col._calcWidth = col.width;
+			}
 
-	  fs = __webpack_require__(10);
+			availableWidth -= col._calcWidth;
+		});
 
-	  PDFObject = __webpack_require__(32);
+		// http://www.freesoft.org/CIE/RFC/1942/18.htm
+		// http://www.w3.org/TR/CSS2/tables.html#width-layout
+		// http://dev.w3.org/csswg/css3-tables-algorithms/Overview.src.htm
+		var minW = autoMin + starMaxMin * starColumns.length;
+		var maxW = autoMax + starMaxMax * starColumns.length;
+		if (minW >= availableWidth) {
+			// case 1 - there's no way to fit all columns within available width
+			// that's actually pretty bad situation with PDF as we have no horizontal scroll
+			// no easy workaround (unless we decide, in the future, to split single words)
+			// currently we simply use minWidths for all columns
+			autoColumns.forEach(function(col) {
+				col._calcWidth = col._minWidth;
+			});
 
-	  PDFReference = __webpack_require__(12);
+			starColumns.forEach(function(col) {
+				col._calcWidth = starMaxMin; // starMaxMin already contains padding
+			});
+		} else {
+			if (maxW < availableWidth) {
+				// case 2 - we can fit rest of the table within available space
+				autoColumns.forEach(function(col) {
+					col._calcWidth = col._maxWidth;
+					availableWidth -= col._calcWidth;
+				});
+			} else {
+				// maxW is too large, but minW fits within available width
+				var W = availableWidth - minW;
+				var D = maxW - minW;
 
-	  PDFPage = __webpack_require__(38);
+				autoColumns.forEach(function(col) {
+					var d = col._maxWidth - col._minWidth;
+					col._calcWidth = col._minWidth + d * W / D;
+					availableWidth -= col._calcWidth;
+				});
+			}
 
-	  PDFDocument = (function(_super) {
-	    var mixin;
+			if (starColumns.length > 0) {
+				var starSize = availableWidth / starColumns.length;
 
-	    __extends(PDFDocument, _super);
+				starColumns.forEach(function(col) {
+					col._calcWidth = starSize;
+				});
+			}
+		}
+	}
 
-	    function PDFDocument(options) {
-	      var key, val, _ref, _ref1;
-	      this.options = options != null ? options : {};
-	      PDFDocument.__super__.constructor.apply(this, arguments);
-	      this.version = 1.3;
-	      this.compress = (_ref = this.options.compress) != null ? _ref : true;
-	      this._pageBuffer = [];
-	      this._pageBufferStart = 0;
-	      this._offsets = [];
-	      this._waiting = 0;
-	      this._ended = false;
-	      this._offset = 0;
-	      this._root = this.ref({
-	        Type: 'Catalog',
-	        Pages: this.ref({
-	          Type: 'Pages',
-	          Count: 0,
-	          Kids: []
-	        })
-	      });
-	      this.page = null;
-	      this.initColor();
-	      this.initVector();
-	      this.initFonts();
-	      this.initText();
-	      this.initImages();
-	      this.info = {
-	        Producer: 'PDFKit',
-	        Creator: 'PDFKit',
-	        CreationDate: new Date()
-	      };
-	      if (this.options.info) {
-	        _ref1 = this.options.info;
-	        for (key in _ref1) {
-	          val = _ref1[key];
-	          this.info[key] = val;
-	        }
-	      }
-	      this._write("%PDF-" + this.version);
-	      this._write("%\xFF\xFF\xFF\xFF");
-	      this.addPage();
-	    }
+	function isAutoColumn(column) {
+		return column.width === 'auto';
+	}
 
-	    mixin = function(methods) {
-	      var method, name, _results;
-	      _results = [];
-	      for (name in methods) {
-	        method = methods[name];
-	        _results.push(PDFDocument.prototype[name] = method);
-	      }
-	      return _results;
-	    };
+	function isStarColumn(column) {
+		return column.width === null || column.width === undefined || column.width === '*' || column.width === 'star';
+	}
 
-	    mixin(__webpack_require__(41));
+	//TODO: refactor and reuse in measureTable
+	function measureMinMax(columns) {
+		var result = { min: 0, max: 0 };
 
-	    mixin(__webpack_require__(39));
+		var maxStar = { min: 0, max: 0 };
+		var starCount = 0;
 
-	    mixin(__webpack_require__(44));
+		for(var i = 0, l = columns.length; i < l; i++) {
+			var c = columns[i];
 
-	    mixin(__webpack_require__(40));
+			if (isStarColumn(c)) {
+				maxStar.min = Math.max(maxStar.min, c._minWidth);
+				maxStar.max = Math.max(maxStar.max, c._maxWidth);
+				starCount++;
+			} else if (isAutoColumn(c)) {
+				result.min += c._minWidth;
+				result.max += c._maxWidth;
+			} else {
+				result.min += ((c.width !== undefined && c.width) || c._minWidth);
+				result.max += ((c.width  !== undefined && c.width) || c._maxWidth);
+			}
+		}
 
-	    mixin(__webpack_require__(42));
+		if (starCount) {
+			result.min += starCount * maxStar.min;
+			result.max += starCount * maxStar.max;
+		}
 
-	    mixin(__webpack_require__(43));
+		return result;
+	}
 
-	    PDFDocument.prototype.addPage = function(options) {
-	      var pages;
-	      if (options == null) {
-	        options = this.options;
-	      }
-	      if (!this.options.bufferPages) {
-	        this.flushPages();
-	      }
-	      this.page = new PDFPage(this, options);
-	      this._pageBuffer.push(this.page);
-	      pages = this._root.data.Pages.data;
-	      pages.Kids.push(this.page.dictionary);
-	      pages.Count++;
-	      this.x = this.page.margins.left;
-	      this.y = this.page.margins.top;
-	      this._ctm = [1, 0, 0, 1, 0, 0];
-	      this.transform(1, 0, 0, -1, 0, this.page.height);
-	      return this;
-	    };
-
-	    PDFDocument.prototype.bufferedPageRange = function() {
-	      return {
-	        start: this._pageBufferStart,
-	        count: this._pageBuffer.length
-	      };
-	    };
-
-	    PDFDocument.prototype.switchToPage = function(n) {
-	      var page;
-	      if (!(page = this._pageBuffer[n - this._pageBufferStart])) {
-	        throw new Error("switchToPage(" + n + ") out of bounds, current buffer covers pages " + this._pageBufferStart + " to " + (this._pageBufferStart + this._pageBuffer.length - 1));
-	      }
-	      return this.page = page;
-	    };
-
-	    PDFDocument.prototype.flushPages = function() {
-	      var page, pages, _i, _len;
-	      pages = this._pageBuffer;
-	      this._pageBuffer = [];
-	      this._pageBufferStart += pages.length;
-	      for (_i = 0, _len = pages.length; _i < _len; _i++) {
-	        page = pages[_i];
-	        page.end();
-	      }
-	    };
-
-	    PDFDocument.prototype.ref = function(data) {
-	      var ref;
-	      ref = new PDFReference(this, this._offsets.length + 1, data);
-	      this._offsets.push(null);
-	      this._waiting++;
-	      return ref;
-	    };
-
-	    PDFDocument.prototype._read = function() {};
-
-	    PDFDocument.prototype._write = function(data) {
-	      if (!Buffer.isBuffer(data)) {
-	        data = new Buffer(data + '\n', 'binary');
-	      }
-	      this.push(data);
-	      return this._offset += data.length;
-	    };
-
-	    PDFDocument.prototype.addContent = function(data) {
-	      this.page.write(data);
-	      return this;
-	    };
-
-	    PDFDocument.prototype._refEnd = function(ref) {
-	      this._offsets[ref.id - 1] = ref.offset;
-	      if (--this._waiting === 0 && this._ended) {
-	        this._finalize();
-	        return this._ended = false;
-	      }
-	    };
-
-	    PDFDocument.prototype.write = function(filename, fn) {
-	      var err;
-	      err = new Error('PDFDocument#write is deprecated, and will be removed in a future version of PDFKit. Please pipe the document into a Node stream.');
-	      console.warn(err.stack);
-	      this.pipe(fs.createWriteStream(filename));
-	      this.end();
-	      return this.once('end', fn);
-	    };
-
-	    PDFDocument.prototype.output = function(fn) {
-	      throw new Error('PDFDocument#output is deprecated, and has been removed from PDFKit. Please pipe the document into a Node stream.');
-	    };
-
-	    PDFDocument.prototype.end = function() {
-	      var font, key, name, val, _ref, _ref1;
-	      this.flushPages();
-	      this._info = this.ref();
-	      _ref = this.info;
-	      for (key in _ref) {
-	        val = _ref[key];
-	        if (typeof val === 'string') {
-	          val = new String(val);
-	        }
-	        this._info.data[key] = val;
-	      }
-	      this._info.end();
-	      _ref1 = this._fontFamilies;
-	      for (name in _ref1) {
-	        font = _ref1[name];
-	        font.embed();
-	      }
-	      this._root.end();
-	      this._root.data.Pages.end();
-	      if (this._waiting === 0) {
-	        return this._finalize();
-	      } else {
-	        return this._ended = true;
-	      }
-	    };
-
-	    PDFDocument.prototype._finalize = function(fn) {
-	      var offset, xRefOffset, _i, _len, _ref;
-	      xRefOffset = this._offset;
-	      this._write("xref");
-	      this._write("0 " + (this._offsets.length + 1));
-	      this._write("0000000000 65535 f ");
-	      _ref = this._offsets;
-	      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	        offset = _ref[_i];
-	        offset = ('0000000000' + offset).slice(-10);
-	        this._write(offset + ' 00000 n ');
-	      }
-	      this._write('trailer');
-	      this._write(PDFObject.convert({
-	        Size: this._offsets.length + 1,
-	        Root: this._root,
-	        Info: this._info
-	      }));
-	      this._write('startxref');
-	      this._write("" + xRefOffset);
-	      this._write('%%EOF');
-	      return this.push(null);
-	    };
-
-	    PDFDocument.prototype.toString = function() {
-	      return "[object PDFDocument]";
-	    };
-
-	    return PDFDocument;
-
-	  })(stream.Readable);
-
-	  module.exports = PDFDocument;
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 29 */
-/***/ function(module, exports, __webpack_require__) {
-
-	exports.read = function(buffer, offset, isLE, mLen, nBytes) {
-	  var e, m,
-	      eLen = nBytes * 8 - mLen - 1,
-	      eMax = (1 << eLen) - 1,
-	      eBias = eMax >> 1,
-	      nBits = -7,
-	      i = isLE ? (nBytes - 1) : 0,
-	      d = isLE ? -1 : 1,
-	      s = buffer[offset + i];
-
-	  i += d;
-
-	  e = s & ((1 << (-nBits)) - 1);
-	  s >>= (-nBits);
-	  nBits += eLen;
-	  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
-
-	  m = e & ((1 << (-nBits)) - 1);
-	  e >>= (-nBits);
-	  nBits += mLen;
-	  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
-
-	  if (e === 0) {
-	    e = 1 - eBias;
-	  } else if (e === eMax) {
-	    return m ? NaN : ((s ? -1 : 1) * Infinity);
-	  } else {
-	    m = m + Math.pow(2, mLen);
-	    e = e - eBias;
-	  }
-	  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
-	};
-
-	exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
-	  var e, m, c,
-	      eLen = nBytes * 8 - mLen - 1,
-	      eMax = (1 << eLen) - 1,
-	      eBias = eMax >> 1,
-	      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
-	      i = isLE ? 0 : (nBytes - 1),
-	      d = isLE ? 1 : -1,
-	      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
-
-	  value = Math.abs(value);
-
-	  if (isNaN(value) || value === Infinity) {
-	    m = isNaN(value) ? 1 : 0;
-	    e = eMax;
-	  } else {
-	    e = Math.floor(Math.log(value) / Math.LN2);
-	    if (value * (c = Math.pow(2, -e)) < 1) {
-	      e--;
-	      c *= 2;
-	    }
-	    if (e + eBias >= 1) {
-	      value += rt / c;
-	    } else {
-	      value += rt * Math.pow(2, 1 - eBias);
-	    }
-	    if (value * c >= 2) {
-	      e++;
-	      c /= 2;
-	    }
-
-	    if (e + eBias >= eMax) {
-	      m = 0;
-	      e = eMax;
-	    } else if (e + eBias >= 1) {
-	      m = (value * c - 1) * Math.pow(2, mLen);
-	      e = e + eBias;
-	    } else {
-	      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
-	      e = 0;
-	    }
-	  }
-
-	  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
-
-	  e = (e << mLen) | m;
-	  eLen += mLen;
-	  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
-
-	  buffer[offset + i - d] |= s * 128;
+	/**
+	* Calculates column widths
+	* @private
+	*/
+	module.exports = {
+		buildColumnWidths: buildColumnWidths,
+		measureMinMax: measureMinMax,
+		isAutoColumn: isAutoColumn,
+		isStarColumn: isStarColumn
 	};
 
 
 /***/ },
-/* 30 */
-/***/ function(module, exports, __webpack_require__) {
+/* 17 */
+/***/ function(module, exports) {
 
-	
-	/**
-	 * isArray
-	 */
+	/* jslint node: true */
+	'use strict';
 
-	var isArray = Array.isArray;
+	function pack() {
+		var result = {};
 
-	/**
-	 * toString
-	 */
+		for(var i = 0, l = arguments.length; i < l; i++) {
+			var obj = arguments[i];
 
-	var str = Object.prototype.toString;
+			if (obj) {
+				for(var key in obj) {
+					if (obj.hasOwnProperty(key)) {
+						result[key] = obj[key];
+					}
+				}
+			}
+		}
 
-	/**
-	 * Whether or not the given `val`
-	 * is an array.
-	 *
-	 * example:
-	 *
-	 *        isArray([]);
-	 *        // > true
-	 *        isArray(arguments);
-	 *        // > false
-	 *        isArray('');
-	 *        // > false
-	 *
-	 * @param {mixed} val
-	 * @return {bool}
-	 */
+		return result;
+	}
 
-	module.exports = isArray || function (val) {
-	  return !! val && '[object Array]' == str.call(val);
+	function offsetVector(vector, x, y) {
+		switch(vector.type) {
+		case 'ellipse':
+		case 'rect':
+			vector.x += x;
+			vector.y += y;
+			break;
+		case 'line':
+			vector.x1 += x;
+			vector.x2 += x;
+			vector.y1 += y;
+			vector.y2 += y;
+			break;
+		case 'polyline':
+			for(var i = 0, l = vector.points.length; i < l; i++) {
+				vector.points[i].x += x;
+				vector.points[i].y += y;
+			}
+			break;
+		}
+	}
+
+	function fontStringify(key, val) {
+		if (key === 'font') {
+			return 'font';
+		}
+		return val;
+	}
+
+	function isFunction(functionToCheck) {
+		var getType = {};
+		return functionToCheck && getType.toString.call(functionToCheck) === '[object Function]';
+	}
+
+
+	module.exports = {
+		pack: pack,
+		fontStringify: fontStringify,
+		offsetVector: offsetVector,
+		isFunction: isFunction
 	};
 
 
 /***/ },
-/* 31 */
-/***/ function(module, exports, __webpack_require__) {
-
-	var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-	;(function (exports) {
-		'use strict';
-
-	  var Arr = (typeof Uint8Array !== 'undefined')
-	    ? Uint8Array
-	    : Array
-
-		var PLUS   = '+'.charCodeAt(0)
-		var SLASH  = '/'.charCodeAt(0)
-		var NUMBER = '0'.charCodeAt(0)
-		var LOWER  = 'a'.charCodeAt(0)
-		var UPPER  = 'A'.charCodeAt(0)
-		var PLUS_URL_SAFE = '-'.charCodeAt(0)
-		var SLASH_URL_SAFE = '_'.charCodeAt(0)
-
-		function decode (elt) {
-			var code = elt.charCodeAt(0)
-			if (code === PLUS ||
-			    code === PLUS_URL_SAFE)
-				return 62 // '+'
-			if (code === SLASH ||
-			    code === SLASH_URL_SAFE)
-				return 63 // '/'
-			if (code < NUMBER)
-				return -1 //no match
-			if (code < NUMBER + 10)
-				return code - NUMBER + 26 + 26
-			if (code < UPPER + 26)
-				return code - UPPER
-			if (code < LOWER + 26)
-				return code - LOWER + 26
-		}
-
-		function b64ToByteArray (b64) {
-			var i, j, l, tmp, placeHolders, arr
-
-			if (b64.length % 4 > 0) {
-				throw new Error('Invalid string. Length must be a multiple of 4')
-			}
-
-			// the number of equal signs (place holders)
-			// if there are two placeholders, than the two characters before it
-			// represent one byte
-			// if there is only one, then the three characters before it represent 2 bytes
-			// this is just a cheap hack to not do indexOf twice
-			var len = b64.length
-			placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
-
-			// base64 is 4/3 + up to two characters of the original data
-			arr = new Arr(b64.length * 3 / 4 - placeHolders)
-
-			// if there are placeholders, only get up to the last complete 4 chars
-			l = placeHolders > 0 ? b64.length - 4 : b64.length
-
-			var L = 0
-
-			function push (v) {
-				arr[L++] = v
-			}
-
-			for (i = 0, j = 0; i < l; i += 4, j += 3) {
-				tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
-				push((tmp & 0xFF0000) >> 16)
-				push((tmp & 0xFF00) >> 8)
-				push(tmp & 0xFF)
-			}
-
-			if (placeHolders === 2) {
-				tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
-				push(tmp & 0xFF)
-			} else if (placeHolders === 1) {
-				tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
-				push((tmp >> 8) & 0xFF)
-				push(tmp & 0xFF)
-			}
-
-			return arr
-		}
-
-		function uint8ToBase64 (uint8) {
-			var i,
-				extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
-				output = "",
-				temp, length
-
-			function encode (num) {
-				return lookup.charAt(num)
-			}
-
-			function tripletToBase64 (num) {
-				return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
-			}
-
-			// go through the array every three bytes, we'll deal with trailing stuff later
-			for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
-				temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
-				output += tripletToBase64(temp)
-			}
-
-			// pad the end with zeros, but make sure to not forget the extra bytes
-			switch (extraBytes) {
-				case 1:
-					temp = uint8[uint8.length - 1]
-					output += encode(temp >> 2)
-					output += encode((temp << 4) & 0x3F)
-					output += '=='
-					break
-				case 2:
-					temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
-					output += encode(temp >> 10)
-					output += encode((temp >> 4) & 0x3F)
-					output += encode((temp << 2) & 0x3F)
-					output += '='
-					break
-			}
-
-			return output
-		}
-
-		exports.toByteArray = b64ToByteArray
-		exports.fromByteArray = uint8ToBase64
-	}(false ? (this.base64js = {}) : exports))
-
-
-/***/ },
-/* 32 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
-
-	/*
-	PDFObject - converts JavaScript types into their corrisponding PDF types.
-	By Devon Govett
-	 */
-
-	(function() {
-	  var PDFObject, PDFReference;
-
-	  PDFObject = (function() {
-	    var escapable, escapableRe, pad, swapBytes;
-
-	    function PDFObject() {}
-
-	    pad = function(str, length) {
-	      return (Array(length + 1).join('0') + str).slice(-length);
-	    };
-
-	    escapableRe = /[\n\r\t\b\f\(\)\\]/g;
-
-	    escapable = {
-	      '\n': '\\n',
-	      '\r': '\\r',
-	      '\t': '\\t',
-	      '\b': '\\b',
-	      '\f': '\\f',
-	      '\\': '\\\\',
-	      '(': '\\(',
-	      ')': '\\)'
-	    };
-
-	    swapBytes = function(buff) {
-	      var a, i, l, _i, _ref;
-	      l = buff.length;
-	      if (l & 0x01) {
-	        throw new Error("Buffer length must be even");
-	      } else {
-	        for (i = _i = 0, _ref = l - 1; _i < _ref; i = _i += 2) {
-	          a = buff[i];
-	          buff[i] = buff[i + 1];
-	          buff[i + 1] = a;
-	        }
-	      }
-	      return buff;
-	    };
-
-	    PDFObject.convert = function(object) {
-	      var e, i, isUnicode, items, key, out, string, val, _i, _ref;
-	      if (typeof object === 'string') {
-	        return '/' + object;
-	      } else if (object instanceof String) {
-	        string = object.replace(escapableRe, function(c) {
-	          return escapable[c];
-	        });
-	        isUnicode = false;
-	        for (i = _i = 0, _ref = string.length; _i < _ref; i = _i += 1) {
-	          if (string.charCodeAt(i) > 0x7f) {
-	            isUnicode = true;
-	            break;
-	          }
-	        }
-	        if (isUnicode) {
-	          string = swapBytes(new Buffer('\ufeff' + string, 'utf16le')).toString('binary');
-	        }
-	        return '(' + string + ')';
-	      } else if (Buffer.isBuffer(object)) {
-	        return '<' + object.toString('hex') + '>';
-	      } else if (object instanceof PDFReference) {
-	        return object.toString();
-	      } else if (object instanceof Date) {
-	        return '(D:' + pad(object.getUTCFullYear(), 4) + pad(object.getUTCMonth(), 2) + pad(object.getUTCDate(), 2) + pad(object.getUTCHours(), 2) + pad(object.getUTCMinutes(), 2) + pad(object.getUTCSeconds(), 2) + 'Z)';
-	      } else if (Array.isArray(object)) {
-	        items = ((function() {
-	          var _j, _len, _results;
-	          _results = [];
-	          for (_j = 0, _len = object.length; _j < _len; _j++) {
-	            e = object[_j];
-	            _results.push(PDFObject.convert(e));
-	          }
-	          return _results;
-	        })()).join(' ');
-	        return '[' + items + ']';
-	      } else if ({}.toString.call(object) === '[object Object]') {
-	        out = ['<<'];
-	        for (key in object) {
-	          val = object[key];
-	          out.push('/' + key + ' ' + PDFObject.convert(val));
-	        }
-	        out.push('>>');
-	        return out.join('\n');
-	      } else {
-	        return '' + object;
-	      }
-	    };
-
-	    return PDFObject;
-
-	  })();
-
-	  module.exports = PDFObject;
-
-	  PDFReference = __webpack_require__(12);
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 33 */
-/***/ function(module, exports, __webpack_require__) {
+/* 18 */
+/***/ function(module, exports) {
 
 	/* jslint node: true */
 	'use strict';
@@ -17714,463 +15935,451 @@
 	};
 
 /***/ },
-/* 34 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data;
-
-	  Data = (function() {
-	    function Data(data) {
-	      this.data = data != null ? data : [];
-	      this.pos = 0;
-	      this.length = this.data.length;
-	    }
-
-	    Data.prototype.readByte = function() {
-	      return this.data[this.pos++];
-	    };
-
-	    Data.prototype.writeByte = function(byte) {
-	      return this.data[this.pos++] = byte;
-	    };
-
-	    Data.prototype.byteAt = function(index) {
-	      return this.data[index];
-	    };
-
-	    Data.prototype.readBool = function() {
-	      return !!this.readByte();
-	    };
-
-	    Data.prototype.writeBool = function(val) {
-	      return this.writeByte(val ? 1 : 0);
-	    };
-
-	    Data.prototype.readUInt32 = function() {
-	      var b1, b2, b3, b4;
-	      b1 = this.readByte() * 0x1000000;
-	      b2 = this.readByte() << 16;
-	      b3 = this.readByte() << 8;
-	      b4 = this.readByte();
-	      return b1 + b2 + b3 + b4;
-	    };
-
-	    Data.prototype.writeUInt32 = function(val) {
-	      this.writeByte((val >>> 24) & 0xff);
-	      this.writeByte((val >> 16) & 0xff);
-	      this.writeByte((val >> 8) & 0xff);
-	      return this.writeByte(val & 0xff);
-	    };
-
-	    Data.prototype.readInt32 = function() {
-	      var int;
-	      int = this.readUInt32();
-	      if (int >= 0x80000000) {
-	        return int - 0x100000000;
-	      } else {
-	        return int;
-	      }
-	    };
-
-	    Data.prototype.writeInt32 = function(val) {
-	      if (val < 0) {
-	        val += 0x100000000;
-	      }
-	      return this.writeUInt32(val);
-	    };
-
-	    Data.prototype.readUInt16 = function() {
-	      var b1, b2;
-	      b1 = this.readByte() << 8;
-	      b2 = this.readByte();
-	      return b1 | b2;
-	    };
-
-	    Data.prototype.writeUInt16 = function(val) {
-	      this.writeByte((val >> 8) & 0xff);
-	      return this.writeByte(val & 0xff);
-	    };
-
-	    Data.prototype.readInt16 = function() {
-	      var int;
-	      int = this.readUInt16();
-	      if (int >= 0x8000) {
-	        return int - 0x10000;
-	      } else {
-	        return int;
-	      }
-	    };
-
-	    Data.prototype.writeInt16 = function(val) {
-	      if (val < 0) {
-	        val += 0x10000;
-	      }
-	      return this.writeUInt16(val);
-	    };
-
-	    Data.prototype.readString = function(length) {
-	      var i, ret, _i;
-	      ret = [];
-	      for (i = _i = 0; 0 <= length ? _i < length : _i > length; i = 0 <= length ? ++_i : --_i) {
-	        ret[i] = String.fromCharCode(this.readByte());
-	      }
-	      return ret.join('');
-	    };
-
-	    Data.prototype.writeString = function(val) {
-	      var i, _i, _ref, _results;
-	      _results = [];
-	      for (i = _i = 0, _ref = val.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        _results.push(this.writeByte(val.charCodeAt(i)));
-	      }
-	      return _results;
-	    };
-
-	    Data.prototype.stringAt = function(pos, length) {
-	      this.pos = pos;
-	      return this.readString(length);
-	    };
-
-	    Data.prototype.readShort = function() {
-	      return this.readInt16();
-	    };
-
-	    Data.prototype.writeShort = function(val) {
-	      return this.writeInt16(val);
-	    };
-
-	    Data.prototype.readLongLong = function() {
-	      var b1, b2, b3, b4, b5, b6, b7, b8;
-	      b1 = this.readByte();
-	      b2 = this.readByte();
-	      b3 = this.readByte();
-	      b4 = this.readByte();
-	      b5 = this.readByte();
-	      b6 = this.readByte();
-	      b7 = this.readByte();
-	      b8 = this.readByte();
-	      if (b1 & 0x80) {
-	        return ((b1 ^ 0xff) * 0x100000000000000 + (b2 ^ 0xff) * 0x1000000000000 + (b3 ^ 0xff) * 0x10000000000 + (b4 ^ 0xff) * 0x100000000 + (b5 ^ 0xff) * 0x1000000 + (b6 ^ 0xff) * 0x10000 + (b7 ^ 0xff) * 0x100 + (b8 ^ 0xff) + 1) * -1;
-	      }
-	      return b1 * 0x100000000000000 + b2 * 0x1000000000000 + b3 * 0x10000000000 + b4 * 0x100000000 + b5 * 0x1000000 + b6 * 0x10000 + b7 * 0x100 + b8;
-	    };
-
-	    Data.prototype.writeLongLong = function(val) {
-	      var high, low;
-	      high = Math.floor(val / 0x100000000);
-	      low = val & 0xffffffff;
-	      this.writeByte((high >> 24) & 0xff);
-	      this.writeByte((high >> 16) & 0xff);
-	      this.writeByte((high >> 8) & 0xff);
-	      this.writeByte(high & 0xff);
-	      this.writeByte((low >> 24) & 0xff);
-	      this.writeByte((low >> 16) & 0xff);
-	      this.writeByte((low >> 8) & 0xff);
-	      return this.writeByte(low & 0xff);
-	    };
-
-	    Data.prototype.readInt = function() {
-	      return this.readInt32();
-	    };
-
-	    Data.prototype.writeInt = function(val) {
-	      return this.writeInt32(val);
-	    };
-
-	    Data.prototype.slice = function(start, end) {
-	      return this.data.slice(start, end);
-	    };
-
-	    Data.prototype.read = function(bytes) {
-	      var buf, i, _i;
-	      buf = [];
-	      for (i = _i = 0; 0 <= bytes ? _i < bytes : _i > bytes; i = 0 <= bytes ? ++_i : --_i) {
-	        buf.push(this.readByte());
-	      }
-	      return buf;
-	    };
-
-	    Data.prototype.write = function(bytes) {
-	      var byte, _i, _len, _results;
-	      _results = [];
-	      for (_i = 0, _len = bytes.length; _i < _len; _i++) {
-	        byte = bytes[_i];
-	        _results.push(this.writeByte(byte));
-	      }
-	      return _results;
-	    };
-
-	    return Data;
-
-	  })();
-
-	  module.exports = Data;
-
-	}).call(this);
-
-
-/***/ },
-/* 35 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var JPEG, fs,
-	    __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
-
-	  fs = __webpack_require__(10);
-
-	  JPEG = (function() {
-	    var MARKERS;
-
-	    MARKERS = [0xFFC0, 0xFFC1, 0xFFC2, 0xFFC3, 0xFFC5, 0xFFC6, 0xFFC7, 0xFFC8, 0xFFC9, 0xFFCA, 0xFFCB, 0xFFCC, 0xFFCD, 0xFFCE, 0xFFCF];
-
-	    function JPEG(data, label) {
-	      var channels, marker, pos;
-	      this.data = data;
-	      this.label = label;
-	      if (this.data.readUInt16BE(0) !== 0xFFD8) {
-	        throw "SOI not found in JPEG";
-	      }
-	      pos = 2;
-	      while (pos < this.data.length) {
-	        marker = this.data.readUInt16BE(pos);
-	        pos += 2;
-	        if (__indexOf.call(MARKERS, marker) >= 0) {
-	          break;
-	        }
-	        pos += this.data.readUInt16BE(pos);
-	      }
-	      if (__indexOf.call(MARKERS, marker) < 0) {
-	        throw "Invalid JPEG.";
-	      }
-	      pos += 2;
-	      this.bits = this.data[pos++];
-	      this.height = this.data.readUInt16BE(pos);
-	      pos += 2;
-	      this.width = this.data.readUInt16BE(pos);
-	      pos += 2;
-	      channels = this.data[pos++];
-	      this.colorSpace = (function() {
-	        switch (channels) {
-	          case 1:
-	            return 'DeviceGray';
-	          case 3:
-	            return 'DeviceRGB';
-	          case 4:
-	            return 'DeviceCMYK';
-	        }
-	      })();
-	      this.obj = null;
-	    }
-
-	    JPEG.prototype.embed = function(document) {
-	      if (this.obj) {
-	        return;
-	      }
-	      this.obj = document.ref({
-	        Type: 'XObject',
-	        Subtype: 'Image',
-	        BitsPerComponent: this.bits,
-	        Width: this.width,
-	        Height: this.height,
-	        ColorSpace: this.colorSpace,
-	        Filter: 'DCTDecode'
-	      });
-	      if (this.colorSpace === 'DeviceCMYK') {
-	        this.obj.data['Decode'] = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
-	      }
-	      this.obj.end(this.data);
-	      return this.data = null;
-	    };
-
-	    return JPEG;
-
-	  })();
-
-	  module.exports = JPEG;
-
-	}).call(this);
-
-
-/***/ },
-/* 36 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var PNG, PNGImage, zlib;
-
-	  zlib = __webpack_require__(45);
-
-	  PNG = __webpack_require__(51);
-
-	  PNGImage = (function() {
-	    function PNGImage(data, label) {
-	      this.label = label;
-	      this.image = new PNG(data);
-	      this.width = this.image.width;
-	      this.height = this.image.height;
-	      this.imgData = this.image.imgData;
-	      this.obj = null;
-	    }
-
-	    PNGImage.prototype.embed = function(document) {
-	      var mask, palette, params, rgb, val, x, _i, _len;
-	      this.document = document;
-	      if (this.obj) {
-	        return;
-	      }
-	      this.obj = document.ref({
-	        Type: 'XObject',
-	        Subtype: 'Image',
-	        BitsPerComponent: this.image.bits,
-	        Width: this.width,
-	        Height: this.height,
-	        Filter: 'FlateDecode'
-	      });
-	      if (!this.image.hasAlphaChannel) {
-	        params = document.ref({
-	          Predictor: 15,
-	          Colors: this.image.colors,
-	          BitsPerComponent: this.image.bits,
-	          Columns: this.width
-	        });
-	        this.obj.data['DecodeParms'] = params;
-	        params.end();
-	      }
-	      if (this.image.palette.length === 0) {
-	        this.obj.data['ColorSpace'] = this.image.colorSpace;
-	      } else {
-	        palette = document.ref();
-	        palette.end(new Buffer(this.image.palette));
-	        this.obj.data['ColorSpace'] = ['Indexed', 'DeviceRGB', (this.image.palette.length / 3) - 1, palette];
-	      }
-	      if (this.image.transparency.grayscale) {
-	        val = this.image.transparency.greyscale;
-	        return this.obj.data['Mask'] = [val, val];
-	      } else if (this.image.transparency.rgb) {
-	        rgb = this.image.transparency.rgb;
-	        mask = [];
-	        for (_i = 0, _len = rgb.length; _i < _len; _i++) {
-	          x = rgb[_i];
-	          mask.push(x, x);
-	        }
-	        return this.obj.data['Mask'] = mask;
-	      } else if (this.image.transparency.indexed) {
-	        return this.loadIndexedAlphaChannel();
-	      } else if (this.image.hasAlphaChannel) {
-	        return this.splitAlphaChannel();
-	      } else {
-	        return this.finalize();
-	      }
-	    };
-
-	    PNGImage.prototype.finalize = function() {
-	      var sMask;
-	      if (this.alphaChannel) {
-	        sMask = this.document.ref({
-	          Type: 'XObject',
-	          Subtype: 'Image',
-	          Height: this.height,
-	          Width: this.width,
-	          BitsPerComponent: 8,
-	          Filter: 'FlateDecode',
-	          ColorSpace: 'DeviceGray',
-	          Decode: [0, 1]
-	        });
-	        sMask.end(this.alphaChannel);
-	        this.obj.data['SMask'] = sMask;
-	      }
-	      this.obj.end(this.imgData);
-	      this.image = null;
-	      return this.imgData = null;
-	    };
-
-	    PNGImage.prototype.splitAlphaChannel = function() {
-	      return this.image.decodePixels((function(_this) {
-	        return function(pixels) {
-	          var a, alphaChannel, colorByteSize, done, i, imgData, len, p, pixelCount;
-	          colorByteSize = _this.image.colors * _this.image.bits / 8;
-	          pixelCount = _this.width * _this.height;
-	          imgData = new Buffer(pixelCount * colorByteSize);
-	          alphaChannel = new Buffer(pixelCount);
-	          i = p = a = 0;
-	          len = pixels.length;
-	          while (i < len) {
-	            imgData[p++] = pixels[i++];
-	            imgData[p++] = pixels[i++];
-	            imgData[p++] = pixels[i++];
-	            alphaChannel[a++] = pixels[i++];
-	          }
-	          done = 0;
-	          zlib.deflate(imgData, function(err, imgData) {
-	            _this.imgData = imgData;
-	            if (err) {
-	              throw err;
-	            }
-	            if (++done === 2) {
-	              return _this.finalize();
-	            }
-	          });
-	          return zlib.deflate(alphaChannel, function(err, alphaChannel) {
-	            _this.alphaChannel = alphaChannel;
-	            if (err) {
-	              throw err;
-	            }
-	            if (++done === 2) {
-	              return _this.finalize();
-	            }
-	          });
-	        };
-	      })(this));
-	    };
-
-	    PNGImage.prototype.loadIndexedAlphaChannel = function(fn) {
-	      var transparency;
-	      transparency = this.image.transparency.indexed;
-	      return this.image.decodePixels((function(_this) {
-	        return function(pixels) {
-	          var alphaChannel, i, j, _i, _ref;
-	          alphaChannel = new Buffer(_this.width * _this.height);
-	          i = 0;
-	          for (j = _i = 0, _ref = pixels.length; _i < _ref; j = _i += 1) {
-	            alphaChannel[i++] = transparency[pixels[j]];
-	          }
-	          return zlib.deflate(alphaChannel, function(err, alphaChannel) {
-	            _this.alphaChannel = alphaChannel;
-	            if (err) {
-	              throw err;
-	            }
-	            return _this.finalize();
-	          });
-	        };
-	      })(this));
-	    };
-
-	    return PNGImage;
-
-	  })();
-
-	  module.exports = PNGImage;
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 37 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/* jslint node: true */
 	'use strict';
 
-	var Line = __webpack_require__(24);
-	var pack = __webpack_require__(25).pack;
-	var offsetVector = __webpack_require__(25).offsetVector;
-	var DocumentContext = __webpack_require__(20);
+	var TraversalTracker = __webpack_require__(12);
+
+	/**
+	* Creates an instance of DocumentContext - a store for current x, y positions and available width/height.
+	* It facilitates column divisions and vertical sync
+	*/
+	function DocumentContext(pageSize, pageMargins) {
+		this.pages = [];
+
+		this.pageMargins = pageMargins;
+
+		this.x = pageMargins.left;
+		this.availableWidth = pageSize.width - pageMargins.left - pageMargins.right;
+		this.availableHeight = 0;
+		this.page = -1;
+
+		this.snapshots = [];
+
+		this.endingCell = null;
+
+	  this.tracker = new TraversalTracker();
+
+		this.addPage(pageSize);
+	}
+
+	DocumentContext.prototype.beginColumnGroup = function() {
+		this.snapshots.push({
+			x: this.x,
+			y: this.y,
+			availableHeight: this.availableHeight,
+			availableWidth: this.availableWidth,
+			page: this.page,
+			bottomMost: { y: this.y, page: this.page },
+			endingCell: this.endingCell,
+			lastColumnWidth: this.lastColumnWidth
+		});
+
+		this.lastColumnWidth = 0;
+	};
+
+	DocumentContext.prototype.beginColumn = function(width, offset, endingCell) {
+		var saved = this.snapshots[this.snapshots.length - 1];
+
+		this.calculateBottomMost(saved);
+
+	  this.endingCell = endingCell;
+		this.page = saved.page;
+		this.x = this.x + this.lastColumnWidth + (offset || 0);
+		this.y = saved.y;
+		this.availableWidth = width;	//saved.availableWidth - offset;
+		this.availableHeight = saved.availableHeight;
+
+		this.lastColumnWidth = width;
+	};
+
+	DocumentContext.prototype.calculateBottomMost = function(destContext) {
+		if (this.endingCell) {
+			this.saveContextInEndingCell(this.endingCell);
+			this.endingCell = null;
+		} else {
+			destContext.bottomMost = bottomMostContext(this, destContext.bottomMost);
+		}
+	};
+
+	DocumentContext.prototype.markEnding = function(endingCell) {
+		this.page = endingCell._columnEndingContext.page;
+		this.x = endingCell._columnEndingContext.x;
+		this.y = endingCell._columnEndingContext.y;
+		this.availableWidth = endingCell._columnEndingContext.availableWidth;
+		this.availableHeight = endingCell._columnEndingContext.availableHeight;
+		this.lastColumnWidth = endingCell._columnEndingContext.lastColumnWidth;
+	};
+
+	DocumentContext.prototype.saveContextInEndingCell = function(endingCell) {
+		endingCell._columnEndingContext = {
+			page: this.page,
+			x: this.x,
+			y: this.y,
+			availableHeight: this.availableHeight,
+			availableWidth: this.availableWidth,
+			lastColumnWidth: this.lastColumnWidth
+		};
+	};
+
+	DocumentContext.prototype.completeColumnGroup = function() {
+		var saved = this.snapshots.pop();
+
+		this.calculateBottomMost(saved);
+
+		this.endingCell = null;
+		this.x = saved.x;
+		this.y = saved.bottomMost.y;
+		this.page = saved.bottomMost.page;
+		this.availableWidth = saved.availableWidth;
+		this.availableHeight = saved.bottomMost.availableHeight;
+		this.lastColumnWidth = saved.lastColumnWidth;
+	};
+
+	DocumentContext.prototype.addMargin = function(left, right) {
+		this.x += left;
+		this.availableWidth -= left + (right || 0);
+	};
+
+	DocumentContext.prototype.moveDown = function(offset) {
+		this.y += offset;
+		this.availableHeight -= offset;
+
+		return this.availableHeight > 0;
+	};
+
+	DocumentContext.prototype.initializePage = function() {
+		this.y = this.pageMargins.top;
+		this.availableHeight = this.getCurrentPage().pageSize.height - this.pageMargins.top - this.pageMargins.bottom;
+		this.pageSnapshot().availableWidth = this.getCurrentPage().pageSize.width - this.pageMargins.left - this.pageMargins.right;
+	};
+
+	DocumentContext.prototype.pageSnapshot = function(){
+	  if(this.snapshots[0]){
+	    return this.snapshots[0];
+	  } else {
+	    return this;
+	  }
+	};
+
+	DocumentContext.prototype.moveTo = function(x,y) {
+		if(x !== undefined && x !== null) {
+			this.x = x;
+			this.availableWidth = this.getCurrentPage().pageSize.width - this.x - this.pageMargins.right;
+		}
+		if(y !== undefined && y !== null){
+			this.y = y;
+			this.availableHeight = this.getCurrentPage().pageSize.height - this.y - this.pageMargins.bottom;
+		}
+	};
+
+	DocumentContext.prototype.beginDetachedBlock = function() {
+		this.snapshots.push({
+			x: this.x,
+			y: this.y,
+			availableHeight: this.availableHeight,
+			availableWidth: this.availableWidth,
+			page: this.page,
+			endingCell: this.endingCell,
+			lastColumnWidth: this.lastColumnWidth
+		});
+	};
+
+	DocumentContext.prototype.endDetachedBlock = function() {
+		var saved = this.snapshots.pop();
+
+		this.x = saved.x;
+		this.y = saved.y;
+		this.availableWidth = saved.availableWidth;
+		this.availableHeight = saved.availableHeight;
+		this.page = saved.page;
+		this.endingCell = saved.endingCell;
+		this.lastColumnWidth = saved.lastColumnWidth;
+	};
+
+	function pageOrientation(pageOrientationString, currentPageOrientation){
+		if(pageOrientationString === undefined) {
+			return currentPageOrientation;
+		} else if(pageOrientationString === 'landscape'){
+			return 'landscape';
+		} else {
+			return 'portrait';
+		}
+	}
+
+	var getPageSize = function (currentPage, newPageOrientation) {
+
+		newPageOrientation = pageOrientation(newPageOrientation, currentPage.pageSize.orientation);
+
+		if(newPageOrientation !== currentPage.pageSize.orientation) {
+			return {
+				orientation: newPageOrientation,
+				width: currentPage.pageSize.height,
+				height: currentPage.pageSize.width
+			};
+		} else {
+			return {
+				orientation: currentPage.pageSize.orientation,
+				width: currentPage.pageSize.width,
+				height: currentPage.pageSize.height
+			};
+		}
+
+	};
+
+
+	DocumentContext.prototype.moveToNextPage = function(pageOrientation) {
+		var nextPageIndex = this.page + 1;
+
+		var prevPage = this.page;
+		var prevY = this.y;
+
+		var createNewPage = nextPageIndex >= this.pages.length;
+		if (createNewPage) {
+			this.addPage(getPageSize(this.getCurrentPage(), pageOrientation));
+		} else {
+			this.page = nextPageIndex;
+			this.initializePage();
+		}
+
+	  return {
+			newPageCreated: createNewPage,
+			prevPage: prevPage,
+			prevY: prevY,
+			y: this.y
+		};
+	};
+
+
+	DocumentContext.prototype.addPage = function(pageSize) {
+		var page = { items: [], pageSize: pageSize };
+		this.pages.push(page);
+		this.page = this.pages.length - 1;
+		this.initializePage();
+
+		this.tracker.emit('pageAdded');
+
+		return page;
+	};
+
+	DocumentContext.prototype.getCurrentPage = function() {
+		if (this.page < 0 || this.page >= this.pages.length) return null;
+
+		return this.pages[this.page];
+	};
+
+	DocumentContext.prototype.getCurrentPosition = function() {
+	  var pageSize = this.getCurrentPage().pageSize;
+	  var innerHeight = pageSize.height - this.pageMargins.top - this.pageMargins.bottom;
+	  var innerWidth = pageSize.width - this.pageMargins.left - this.pageMargins.right;
+
+	  return {
+	    pageNumber: this.page + 1,
+	    pageOrientation: pageSize.orientation,
+	    pageInnerHeight: innerHeight,
+	    pageInnerWidth: innerWidth,
+	    left: this.x,
+	    top: this.y,
+	    verticalRatio: ((this.y - this.pageMargins.top) / innerHeight),
+	    horizontalRatio: ((this.x - this.pageMargins.left) / innerWidth)
+	  };
+	};
+
+	function bottomMostContext(c1, c2) {
+		var r;
+
+		if (c1.page > c2.page) r = c1;
+		else if (c2.page > c1.page) r = c2;
+		else r = (c1.y > c2.y) ? c1 : c2;
+
+		return {
+			page: r.page,
+			x: r.x,
+			y: r.y,
+			availableHeight: r.availableHeight,
+			availableWidth: r.availableWidth
+		};
+	}
+
+	/****TESTS**** (add a leading '/' to uncomment)
+	DocumentContext.bottomMostContext = bottomMostContext;
+	// */
+
+	module.exports = DocumentContext;
+
+
+/***/ },
+/* 20 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* jslint node: true */
+	'use strict';
+
+	var ElementWriter = __webpack_require__(21);
+
+	/**
+	* Creates an instance of PageElementWriter - an extended ElementWriter
+	* which can handle:
+	* - page-breaks (it adds new pages when there's not enough space left),
+	* - repeatable fragments (like table-headers, which are repeated everytime
+	*                         a page-break occurs)
+	* - transactions (used for unbreakable-blocks when we want to make sure
+	*                 whole block will be rendered on the same page)
+	*/
+	function PageElementWriter(context, tracker) {
+		this.transactionLevel = 0;
+		this.repeatables = [];
+		this.tracker = tracker;
+		this.writer = new ElementWriter(context, tracker);
+	}
+
+	function fitOnPage(self, addFct){
+	  var position = addFct(self);
+	  if (!position) {
+	    self.moveToNextPage();
+	    position = addFct(self);
+	  }
+	  return position;
+	}
+
+	PageElementWriter.prototype.addLine = function(line, dontUpdateContextPosition, index) {
+	  return fitOnPage(this, function(self){
+	    return self.writer.addLine(line, dontUpdateContextPosition, index);
+	  });
+	};
+
+	PageElementWriter.prototype.addImage = function(image, index) {
+	  return fitOnPage(this, function(self){
+	    return self.writer.addImage(image, index);
+	  });
+	};
+
+	PageElementWriter.prototype.addQr = function(qr, index) {
+	  return fitOnPage(this, function(self){
+			return self.writer.addQr(qr, index);
+		});
+	};
+
+	PageElementWriter.prototype.addVector = function(vector, ignoreContextX, ignoreContextY, index) {
+		return this.writer.addVector(vector, ignoreContextX, ignoreContextY, index);
+	};
+
+	PageElementWriter.prototype.addFragment = function(fragment, useBlockXOffset, useBlockYOffset, dontUpdateContextPosition) {
+		if (!this.writer.addFragment(fragment, useBlockXOffset, useBlockYOffset, dontUpdateContextPosition)) {
+			this.moveToNextPage();
+			this.writer.addFragment(fragment, useBlockXOffset, useBlockYOffset, dontUpdateContextPosition);
+		}
+	};
+
+	PageElementWriter.prototype.moveToNextPage = function(pageOrientation) {
+		
+		var nextPage = this.writer.context.moveToNextPage(pageOrientation);
+		
+	  if (nextPage.newPageCreated) {
+			this.repeatables.forEach(function(rep) {
+				this.writer.addFragment(rep, true);
+			}, this);
+		} else {
+			this.repeatables.forEach(function(rep) {
+				this.writer.context.moveDown(rep.height);
+			}, this);
+		}
+
+		this.writer.tracker.emit('pageChanged', {
+			prevPage: nextPage.prevPage,
+			prevY: nextPage.prevY,
+			y: nextPage.y
+		});
+	};
+
+	PageElementWriter.prototype.beginUnbreakableBlock = function(width, height) {
+		if (this.transactionLevel++ === 0) {
+			this.originalX = this.writer.context.x;
+			this.writer.pushContext(width, height);
+		}
+	};
+
+	PageElementWriter.prototype.commitUnbreakableBlock = function(forcedX, forcedY) {
+		if (--this.transactionLevel === 0) {
+			var unbreakableContext = this.writer.context;
+			this.writer.popContext();
+
+			var nbPages = unbreakableContext.pages.length;
+			if(nbPages > 0) {
+				// no support for multi-page unbreakableBlocks
+				var fragment = unbreakableContext.pages[0];
+				fragment.xOffset = forcedX;
+				fragment.yOffset = forcedY;
+
+				//TODO: vectors can influence height in some situations
+				if(nbPages > 1) {
+					// on out-of-context blocs (headers, footers, background) height should be the whole DocumentContext height
+					if (forcedX !== undefined || forcedY !== undefined) {
+						fragment.height = unbreakableContext.getCurrentPage().pageSize.height - unbreakableContext.pageMargins.top - unbreakableContext.pageMargins.bottom;
+					} else {
+						fragment.height = this.writer.context.getCurrentPage().pageSize.height - this.writer.context.pageMargins.top - this.writer.context.pageMargins.bottom;
+						for (var i = 0, l = this.repeatables.length; i < l; i++) {
+							fragment.height -= this.repeatables[i].height;
+						}
+					}
+				} else {
+					fragment.height = unbreakableContext.y;
+				}
+
+				if (forcedX !== undefined || forcedY !== undefined) {
+					this.writer.addFragment(fragment, true, true, true);
+				} else {
+					this.addFragment(fragment);
+				}
+			}
+		}
+	};
+
+	PageElementWriter.prototype.currentBlockToRepeatable = function() {
+		var unbreakableContext = this.writer.context;
+		var rep = { items: [] };
+
+	    unbreakableContext.pages[0].items.forEach(function(item) {
+	        rep.items.push(item);
+	    });
+
+		rep.xOffset = this.originalX;
+
+		//TODO: vectors can influence height in some situations
+		rep.height = unbreakableContext.y;
+
+		return rep;
+	};
+
+	PageElementWriter.prototype.pushToRepeatables = function(rep) {
+		this.repeatables.push(rep);
+	};
+
+	PageElementWriter.prototype.popFromRepeatables = function() {
+		this.repeatables.pop();
+	};
+
+	PageElementWriter.prototype.context = function() {
+		return this.writer.context;
+	};
+
+	module.exports = PageElementWriter;
+
+
+/***/ },
+/* 21 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* jslint node: true */
+	'use strict';
+
+	var Line = __webpack_require__(22);
+	var pack = __webpack_require__(17).pack;
+	var offsetVector = __webpack_require__(17).offsetVector;
+	var DocumentContext = __webpack_require__(19);
 
 	/**
 	* Creates an instance of ElementWriter - a line/vector writer, which adds
@@ -18428,1989 +16637,644 @@
 
 
 /***/ },
-/* 38 */
+/* 22 */
+/***/ function(module, exports) {
+
+	/* jslint node: true */
+	'use strict';
+
+	/**
+	* Creates an instance of Line
+	*
+	* @constructor
+	* @this {Line}
+	* @param {Number} Maximum width this line can have
+	*/
+	function Line(maxWidth) {
+		this.maxWidth = maxWidth;
+		this.leadingCut = 0;
+		this.trailingCut = 0;
+		this.inlineWidths = 0;
+		this.inlines = [];
+	}
+
+	Line.prototype.getAscenderHeight = function() {
+		var y = 0;
+
+		this.inlines.forEach(function(inline) {
+			y = Math.max(y, inline.font.ascender / 1000 * inline.fontSize);
+		});
+		return y;
+	};
+
+	Line.prototype.hasEnoughSpaceForInline = function(inline) {
+		if (this.inlines.length === 0) return true;
+		if (this.newLineForced) return false;
+
+		return this.inlineWidths + inline.width - this.leadingCut - (inline.trailingCut || 0) <= this.maxWidth;
+	};
+
+	Line.prototype.addInline = function(inline) {
+		if (this.inlines.length === 0) {
+			this.leadingCut = inline.leadingCut || 0;
+		}
+		this.trailingCut = inline.trailingCut || 0;
+
+		inline.x = this.inlineWidths - this.leadingCut;
+
+		this.inlines.push(inline);
+		this.inlineWidths += inline.width;
+
+		if (inline.lineEnd) {
+			this.newLineForced = true;
+		}
+	};
+
+	Line.prototype.getWidth = function() {
+		return this.inlineWidths - this.leadingCut - this.trailingCut;
+	};
+
+	/**
+	* Returns line height
+	* @return {Number}
+	*/
+	Line.prototype.getHeight = function() {
+		var max = 0;
+
+		this.inlines.forEach(function(item) {
+			max = Math.max(max, item.height || 0);
+		});
+
+		return max;
+	};
+
+	module.exports = Line;
+
+
+/***/ },
+/* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
-	// Generated by CoffeeScript 1.7.1
+	/* jslint node: true */
+	'use strict';
+
+	var ColumnCalculator = __webpack_require__(16);
+
+	function TableProcessor(tableNode) {
+	  this.tableNode = tableNode;
+	}
+
+	TableProcessor.prototype.beginTable = function(writer) {
+	  var tableNode;
+	  var availableWidth;
+	  var self = this;
+
+	  tableNode = this.tableNode;
+	  this.offsets = tableNode._offsets;
+	  this.layout = tableNode._layout;
+
+	  availableWidth = writer.context().availableWidth - this.offsets.total;
+	  ColumnCalculator.buildColumnWidths(tableNode.table.widths, availableWidth);
+
+	  this.tableWidth = tableNode._offsets.total + getTableInnerContentWidth();
+	  this.rowSpanData = prepareRowSpanData();
+	  this.cleanUpRepeatables = false;
+
+	  this.headerRows = tableNode.table.headerRows || 0;
+	  this.rowsWithoutPageBreak = this.headerRows + (tableNode.table.keepWithHeaderRows || 0);
+	  this.dontBreakRows = tableNode.table.dontBreakRows || false;
+
+	  if (this.rowsWithoutPageBreak) {
+	    writer.beginUnbreakableBlock();
+	  }
+
+	  this.drawHorizontalLine(0, writer);
+
+	  function getTableInnerContentWidth() {
+	    var width = 0;
+
+	    tableNode.table.widths.forEach(function(w) {
+	      width += w._calcWidth;
+	    });
+
+	    return width;
+	  }
+
+	  function prepareRowSpanData() {
+	    var rsd = [];
+	    var x = 0;
+	    var lastWidth = 0;
+
+	    rsd.push({ left: 0, rowSpan: 0 });
+
+	    for(var i = 0, l = self.tableNode.table.body[0].length; i < l; i++) {
+	      var paddings = self.layout.paddingLeft(i, self.tableNode) + self.layout.paddingRight(i, self.tableNode);
+	      var lBorder = self.layout.vLineWidth(i, self.tableNode);
+	      lastWidth = paddings + lBorder + self.tableNode.table.widths[i]._calcWidth;
+	      rsd[rsd.length - 1].width = lastWidth;
+	      x += lastWidth;
+	      rsd.push({ left: x, rowSpan: 0, width: 0 });
+	    }
+
+	    return rsd;
+	  }
+	};
+
+	TableProcessor.prototype.onRowBreak = function(rowIndex, writer) {
+	  var self = this;
+	  return function() {
+	    //console.log('moving by : ', topLineWidth, rowPaddingTop);
+	    var offset = self.rowPaddingTop + (!self.headerRows ? self.topLineWidth : 0);
+	    writer.context().moveDown(offset);
+	  };
+
+	};
+
+	TableProcessor.prototype.beginRow = function(rowIndex, writer) {
+	  this.topLineWidth = this.layout.hLineWidth(rowIndex, this.tableNode);
+	  this.rowPaddingTop = this.layout.paddingTop(rowIndex, this.tableNode);
+	  this.bottomLineWidth = this.layout.hLineWidth(rowIndex+1, this.tableNode);
+	  this.rowPaddingBottom = this.layout.paddingBottom(rowIndex, this.tableNode);
+
+	  this.rowCallback = this.onRowBreak(rowIndex, writer);
+	  writer.tracker.startTracking('pageChanged', this.rowCallback );
+	    if(this.dontBreakRows) {
+	        writer.beginUnbreakableBlock();
+	    }
+	  this.rowTopY = writer.context().y;
+	  this.reservedAtBottom = this.bottomLineWidth + this.rowPaddingBottom;
+
+	  writer.context().availableHeight -= this.reservedAtBottom;
+
+	  writer.context().moveDown(this.rowPaddingTop);
+	};
+
+	TableProcessor.prototype.drawHorizontalLine = function(lineIndex, writer, overrideY) {
+	  var lineWidth = this.layout.hLineWidth(lineIndex, this.tableNode);
+	  if (lineWidth) {
+	    var offset = lineWidth / 2;
+	    var currentLine = null;
+
+	    for(var i = 0, l = this.rowSpanData.length; i < l; i++) {
+	      var data = this.rowSpanData[i];
+	      var shouldDrawLine = !data.rowSpan;
+
+	      if (!currentLine && shouldDrawLine) {
+	        currentLine = { left: data.left, width: 0 };
+	      }
+
+	      if (shouldDrawLine) {
+	        currentLine.width += (data.width || 0);
+	      }
+
+	      var y = (overrideY || 0) + offset;
+
+	      if (!shouldDrawLine || i === l - 1) {
+	        if (currentLine) {
+	          writer.addVector({
+	            type: 'line',
+	            x1: currentLine.left,
+	            x2: currentLine.left + currentLine.width,
+	            y1: y,
+	            y2: y,
+	            lineWidth: lineWidth,
+	            lineColor: typeof this.layout.hLineColor === 'function' ? this.layout.hLineColor(lineIndex, this.tableNode) : this.layout.hLineColor
+	          }, false, overrideY);
+	          currentLine = null;
+	        }
+	      }
+	    }
+
+	    writer.context().moveDown(lineWidth);
+	  }
+	};
+
+	TableProcessor.prototype.drawVerticalLine = function(x, y0, y1, vLineIndex, writer) {
+	  var width = this.layout.vLineWidth(vLineIndex, this.tableNode);
+	  if (width === 0) return;
+	  writer.addVector({
+	    type: 'line',
+	    x1: x + width/2,
+	    x2: x + width/2,
+	    y1: y0,
+	    y2: y1,
+	    lineWidth: width,
+	    lineColor: typeof this.layout.vLineColor === 'function' ? this.layout.vLineColor(vLineIndex, this.tableNode) : this.layout.vLineColor
+	  }, false, true);
+	};
+
+	TableProcessor.prototype.endTable = function(writer) {
+	  if (this.cleanUpRepeatables) {
+	    writer.popFromRepeatables();
+	  }
+	};
+
+	TableProcessor.prototype.endRow = function(rowIndex, writer, pageBreaks) {
+	    var l, i;
+	    var self = this;
+	    writer.tracker.stopTracking('pageChanged', this.rowCallback);
+	    writer.context().moveDown(this.layout.paddingBottom(rowIndex, this.tableNode));
+	    writer.context().availableHeight += this.reservedAtBottom;
+
+	    var endingPage = writer.context().page;
+	    var endingY = writer.context().y;
+
+	    var xs = getLineXs();
+
+	    var ys = [];
+
+	    var hasBreaks = pageBreaks && pageBreaks.length > 0;
+
+	    ys.push({
+	      y0: this.rowTopY,
+	      page: hasBreaks ? pageBreaks[0].prevPage : endingPage
+	    });
+
+	    if (hasBreaks) {
+	      for(i = 0, l = pageBreaks.length; i < l; i++) {
+	        var pageBreak = pageBreaks[i];
+	        ys[ys.length - 1].y1 = pageBreak.prevY;
+
+	        ys.push({y0: pageBreak.y, page: pageBreak.prevPage + 1});
+	      }
+	    }
+
+	    ys[ys.length - 1].y1 = endingY;
+
+	    var skipOrphanePadding = (ys[0].y1 - ys[0].y0 === this.rowPaddingTop);
+	    for(var yi = (skipOrphanePadding ? 1 : 0), yl = ys.length; yi < yl; yi++) {
+	      var willBreak = yi < ys.length - 1;
+	      var rowBreakWithoutHeader = (yi > 0 && !this.headerRows);
+	      var hzLineOffset =  rowBreakWithoutHeader ? 0 : this.topLineWidth;
+	      var y1 = ys[yi].y0;
+	      var y2 = ys[yi].y1;
+
+				if(willBreak) {
+					y2 = y2 + this.rowPaddingBottom;
+				}
+
+	      if (writer.context().page != ys[yi].page) {
+	        writer.context().page = ys[yi].page;
+
+	        //TODO: buggy, availableHeight should be updated on every pageChanged event
+	        // TableProcessor should be pageChanged listener, instead of processRow
+	        this.reservedAtBottom = 0;
+	      }
+
+	      for(i = 0, l = xs.length; i < l; i++) {
+	        this.drawVerticalLine(xs[i].x, y1 - hzLineOffset, y2 + this.bottomLineWidth, xs[i].index, writer);
+	        if(i < l-1) {
+	          var colIndex = xs[i].index;
+	          var fillColor=  this.tableNode.table.body[rowIndex][colIndex].fillColor;
+	          if(fillColor ) {
+	            var wBorder = this.layout.vLineWidth(colIndex, this.tableNode);
+	            var xf = xs[i].x+wBorder;
+	            var yf = y1 - hzLineOffset;
+	            writer.addVector({
+	              type: 'rect',
+	              x: xf,
+	              y: yf,
+	              w: xs[i+1].x-xf,
+	              h: y2+this.bottomLineWidth-yf,
+	              lineWidth: 0,
+	              color: fillColor
+	            }, false, true, 0);
+	          }
+	        }
+	      }
+
+	      if (willBreak && this.layout.hLineWhenBroken !== false) {
+	        this.drawHorizontalLine(rowIndex + 1, writer, y2);
+	      }
+	      if(rowBreakWithoutHeader && this.layout.hLineWhenBroken !== false) {
+	        this.drawHorizontalLine(rowIndex, writer, y1);
+	      }
+	    }
+
+	    writer.context().page = endingPage;
+	    writer.context().y = endingY;
+
+	    var row = this.tableNode.table.body[rowIndex];
+	    for(i = 0, l = row.length; i < l; i++) {
+	      if (row[i].rowSpan) {
+	        this.rowSpanData[i].rowSpan = row[i].rowSpan;
+
+	        // fix colSpans
+	        if (row[i].colSpan && row[i].colSpan > 1) {
+	          for(var j = 1; j < row[i].rowSpan; j++) {
+	            this.tableNode.table.body[rowIndex + j][i]._colSpan = row[i].colSpan;
+	          }
+	        }
+	      }
+
+	      if(this.rowSpanData[i].rowSpan > 0) {
+	        this.rowSpanData[i].rowSpan--;
+	      }
+	    }
+
+	    this.drawHorizontalLine(rowIndex + 1, writer);
+
+	    if(this.headerRows && rowIndex === this.headerRows - 1) {
+	      this.headerRepeatable = writer.currentBlockToRepeatable();
+	    }
+
+	    if(this.dontBreakRows) {
+	      writer.tracker.auto('pageChanged',
+	        function() {
+	          self.drawHorizontalLine(rowIndex, writer);
+	        },
+	        function() {
+	          writer.commitUnbreakableBlock();
+	          self.drawHorizontalLine(rowIndex, writer);
+	        }
+	      );
+	    }
+
+	    if(this.headerRepeatable && (rowIndex === (this.rowsWithoutPageBreak - 1) || rowIndex === this.tableNode.table.body.length - 1)) {
+	      writer.commitUnbreakableBlock();
+	      writer.pushToRepeatables(this.headerRepeatable);
+	      this.cleanUpRepeatables = true;
+	      this.headerRepeatable = null;
+	    }
+
+	    function getLineXs() {
+	      var result = [];
+	      var cols = 0;
+
+	      for(var i = 0, l = self.tableNode.table.body[rowIndex].length; i < l; i++) {
+	        if (!cols) {
+	          result.push({ x: self.rowSpanData[i].left, index: i});
+
+	          var item = self.tableNode.table.body[rowIndex][i];
+	          cols = (item._colSpan || item.colSpan || 0);
+	        }
+	        if (cols > 0) {
+	          cols--;
+	        }
+	      }
+
+	      result.push({ x: self.rowSpanData[self.rowSpanData.length - 1].left, index: self.rowSpanData.length - 1});
+
+	      return result;
+	    }
+	};
+
+	module.exports = TableProcessor;
+
+
+/***/ },
+/* 24 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
 
 	/*
-	PDFPage - represents a single page in the PDF document
+	PDFDocument - represents an entire PDF document
 	By Devon Govett
 	 */
 
 	(function() {
-	  var PDFPage;
+	  var PDFDocument, PDFObject, PDFPage, PDFReference, fs, stream,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
-	  PDFPage = (function() {
-	    var DEFAULT_MARGINS, SIZES;
+	  stream = __webpack_require__(25);
 
-	    function PDFPage(document, options) {
-	      var dimensions;
-	      this.document = document;
-	      if (options == null) {
-	        options = {};
-	      }
-	      this.size = options.size || 'letter';
-	      this.layout = options.layout || 'portrait';
-	      if (typeof options.margin === 'number') {
-	        this.margins = {
-	          top: options.margin,
-	          left: options.margin,
-	          bottom: options.margin,
-	          right: options.margin
-	        };
-	      } else {
-	        this.margins = options.margins || DEFAULT_MARGINS;
-	      }
-	      dimensions = Array.isArray(this.size) ? this.size : SIZES[this.size.toUpperCase()];
-	      this.width = dimensions[this.layout === 'portrait' ? 0 : 1];
-	      this.height = dimensions[this.layout === 'portrait' ? 1 : 0];
-	      this.content = this.document.ref();
-	      this.resources = this.document.ref({
-	        ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI']
+	  fs = __webpack_require__(44);
+
+	  PDFObject = __webpack_require__(45);
+
+	  PDFReference = __webpack_require__(46);
+
+	  PDFPage = __webpack_require__(64);
+
+	  PDFDocument = (function(_super) {
+	    var mixin;
+
+	    __extends(PDFDocument, _super);
+
+	    function PDFDocument(options) {
+	      var key, val, _ref, _ref1;
+	      this.options = options != null ? options : {};
+	      PDFDocument.__super__.constructor.apply(this, arguments);
+	      this.version = 1.3;
+	      this.compress = (_ref = this.options.compress) != null ? _ref : true;
+	      this._pageBuffer = [];
+	      this._pageBufferStart = 0;
+	      this._offsets = [];
+	      this._waiting = 0;
+	      this._ended = false;
+	      this._offset = 0;
+	      this._root = this.ref({
+	        Type: 'Catalog',
+	        Pages: this.ref({
+	          Type: 'Pages',
+	          Count: 0,
+	          Kids: []
+	        })
 	      });
-	      Object.defineProperties(this, {
-	        fonts: {
-	          get: (function(_this) {
-	            return function() {
-	              var _base;
-	              return (_base = _this.resources.data).Font != null ? _base.Font : _base.Font = {};
-	            };
-	          })(this)
-	        },
-	        xobjects: {
-	          get: (function(_this) {
-	            return function() {
-	              var _base;
-	              return (_base = _this.resources.data).XObject != null ? _base.XObject : _base.XObject = {};
-	            };
-	          })(this)
-	        },
-	        ext_gstates: {
-	          get: (function(_this) {
-	            return function() {
-	              var _base;
-	              return (_base = _this.resources.data).ExtGState != null ? _base.ExtGState : _base.ExtGState = {};
-	            };
-	          })(this)
-	        },
-	        patterns: {
-	          get: (function(_this) {
-	            return function() {
-	              var _base;
-	              return (_base = _this.resources.data).Pattern != null ? _base.Pattern : _base.Pattern = {};
-	            };
-	          })(this)
-	        },
-	        annotations: {
-	          get: (function(_this) {
-	            return function() {
-	              var _base;
-	              return (_base = _this.dictionary.data).Annots != null ? _base.Annots : _base.Annots = [];
-	            };
-	          })(this)
+	      this.page = null;
+	      this.initColor();
+	      this.initVector();
+	      this.initFonts();
+	      this.initText();
+	      this.initImages();
+	      this.info = {
+	        Producer: 'PDFKit',
+	        Creator: 'PDFKit',
+	        CreationDate: new Date()
+	      };
+	      if (this.options.info) {
+	        _ref1 = this.options.info;
+	        for (key in _ref1) {
+	          val = _ref1[key];
+	          this.info[key] = val;
 	        }
-	      });
-	      this.dictionary = this.document.ref({
-	        Type: 'Page',
-	        Parent: this.document._root.data.Pages,
-	        MediaBox: [0, 0, this.width, this.height],
-	        Contents: this.content,
-	        Resources: this.resources
-	      });
+	      }
+	      this._write("%PDF-" + this.version);
+	      this._write("%\xFF\xFF\xFF\xFF");
+	      this.addPage();
 	    }
 
-	    PDFPage.prototype.maxY = function() {
-	      return this.height - this.margins.bottom;
+	    mixin = function(methods) {
+	      var method, name, _results;
+	      _results = [];
+	      for (name in methods) {
+	        method = methods[name];
+	        _results.push(PDFDocument.prototype[name] = method);
+	      }
+	      return _results;
 	    };
 
-	    PDFPage.prototype.write = function(chunk) {
-	      return this.content.write(chunk);
-	    };
+	    mixin(__webpack_require__(65));
 
-	    PDFPage.prototype.end = function() {
-	      this.dictionary.end();
-	      this.resources.end();
-	      return this.content.end();
-	    };
+	    mixin(__webpack_require__(67));
 
-	    DEFAULT_MARGINS = {
-	      top: 72,
-	      left: 72,
-	      bottom: 72,
-	      right: 72
-	    };
+	    mixin(__webpack_require__(69));
 
-	    SIZES = {
-	      '4A0': [4767.87, 6740.79],
-	      '2A0': [3370.39, 4767.87],
-	      A0: [2383.94, 3370.39],
-	      A1: [1683.78, 2383.94],
-	      A2: [1190.55, 1683.78],
-	      A3: [841.89, 1190.55],
-	      A4: [595.28, 841.89],
-	      A5: [419.53, 595.28],
-	      A6: [297.64, 419.53],
-	      A7: [209.76, 297.64],
-	      A8: [147.40, 209.76],
-	      A9: [104.88, 147.40],
-	      A10: [73.70, 104.88],
-	      B0: [2834.65, 4008.19],
-	      B1: [2004.09, 2834.65],
-	      B2: [1417.32, 2004.09],
-	      B3: [1000.63, 1417.32],
-	      B4: [708.66, 1000.63],
-	      B5: [498.90, 708.66],
-	      B6: [354.33, 498.90],
-	      B7: [249.45, 354.33],
-	      B8: [175.75, 249.45],
-	      B9: [124.72, 175.75],
-	      B10: [87.87, 124.72],
-	      C0: [2599.37, 3676.54],
-	      C1: [1836.85, 2599.37],
-	      C2: [1298.27, 1836.85],
-	      C3: [918.43, 1298.27],
-	      C4: [649.13, 918.43],
-	      C5: [459.21, 649.13],
-	      C6: [323.15, 459.21],
-	      C7: [229.61, 323.15],
-	      C8: [161.57, 229.61],
-	      C9: [113.39, 161.57],
-	      C10: [79.37, 113.39],
-	      RA0: [2437.80, 3458.27],
-	      RA1: [1729.13, 2437.80],
-	      RA2: [1218.90, 1729.13],
-	      RA3: [864.57, 1218.90],
-	      RA4: [609.45, 864.57],
-	      SRA0: [2551.18, 3628.35],
-	      SRA1: [1814.17, 2551.18],
-	      SRA2: [1275.59, 1814.17],
-	      SRA3: [907.09, 1275.59],
-	      SRA4: [637.80, 907.09],
-	      EXECUTIVE: [521.86, 756.00],
-	      FOLIO: [612.00, 936.00],
-	      LEGAL: [612.00, 1008.00],
-	      LETTER: [612.00, 792.00],
-	      TABLOID: [792.00, 1224.00]
-	    };
+	    mixin(__webpack_require__(89));
 
-	    return PDFPage;
+	    mixin(__webpack_require__(96));
 
-	  })();
+	    mixin(__webpack_require__(101));
 
-	  module.exports = PDFPage;
-
-	}).call(this);
-
-
-/***/ },
-/* 39 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var KAPPA, SVGPath,
-	    __slice = [].slice;
-
-	  SVGPath = __webpack_require__(47);
-
-	  KAPPA = 4.0 * ((Math.sqrt(2) - 1.0) / 3.0);
-
-	  module.exports = {
-	    initVector: function() {
+	    PDFDocument.prototype.addPage = function(options) {
+	      var pages;
+	      if (options == null) {
+	        options = this.options;
+	      }
+	      if (!this.options.bufferPages) {
+	        this.flushPages();
+	      }
+	      this.page = new PDFPage(this, options);
+	      this._pageBuffer.push(this.page);
+	      pages = this._root.data.Pages.data;
+	      pages.Kids.push(this.page.dictionary);
+	      pages.Count++;
+	      this.x = this.page.margins.left;
+	      this.y = this.page.margins.top;
 	      this._ctm = [1, 0, 0, 1, 0, 0];
-	      return this._ctmStack = [];
-	    },
-	    save: function() {
-	      this._ctmStack.push(this._ctm.slice());
-	      return this.addContent('q');
-	    },
-	    restore: function() {
-	      this._ctm = this._ctmStack.pop() || [1, 0, 0, 1, 0, 0];
-	      return this.addContent('Q');
-	    },
-	    closePath: function() {
-	      return this.addContent('h');
-	    },
-	    lineWidth: function(w) {
-	      return this.addContent("" + w + " w");
-	    },
-	    _CAP_STYLES: {
-	      BUTT: 0,
-	      ROUND: 1,
-	      SQUARE: 2
-	    },
-	    lineCap: function(c) {
-	      if (typeof c === 'string') {
-	        c = this._CAP_STYLES[c.toUpperCase()];
-	      }
-	      return this.addContent("" + c + " J");
-	    },
-	    _JOIN_STYLES: {
-	      MITER: 0,
-	      ROUND: 1,
-	      BEVEL: 2
-	    },
-	    lineJoin: function(j) {
-	      if (typeof j === 'string') {
-	        j = this._JOIN_STYLES[j.toUpperCase()];
-	      }
-	      return this.addContent("" + j + " j");
-	    },
-	    miterLimit: function(m) {
-	      return this.addContent("" + m + " M");
-	    },
-	    dash: function(length, options) {
-	      var phase, space, _ref;
-	      if (options == null) {
-	        options = {};
-	      }
-	      if (length == null) {
-	        return this;
-	      }
-	      space = (_ref = options.space) != null ? _ref : length;
-	      phase = options.phase || 0;
-	      return this.addContent("[" + length + " " + space + "] " + phase + " d");
-	    },
-	    undash: function() {
-	      return this.addContent("[] 0 d");
-	    },
-	    moveTo: function(x, y) {
-	      return this.addContent("" + x + " " + y + " m");
-	    },
-	    lineTo: function(x, y) {
-	      return this.addContent("" + x + " " + y + " l");
-	    },
-	    bezierCurveTo: function(cp1x, cp1y, cp2x, cp2y, x, y) {
-	      return this.addContent("" + cp1x + " " + cp1y + " " + cp2x + " " + cp2y + " " + x + " " + y + " c");
-	    },
-	    quadraticCurveTo: function(cpx, cpy, x, y) {
-	      return this.addContent("" + cpx + " " + cpy + " " + x + " " + y + " v");
-	    },
-	    rect: function(x, y, w, h) {
-	      return this.addContent("" + x + " " + y + " " + w + " " + h + " re");
-	    },
-	    roundedRect: function(x, y, w, h, r) {
-	      if (r == null) {
-	        r = 0;
-	      }
-	      this.moveTo(x + r, y);
-	      this.lineTo(x + w - r, y);
-	      this.quadraticCurveTo(x + w, y, x + w, y + r);
-	      this.lineTo(x + w, y + h - r);
-	      this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-	      this.lineTo(x + r, y + h);
-	      this.quadraticCurveTo(x, y + h, x, y + h - r);
-	      this.lineTo(x, y + r);
-	      return this.quadraticCurveTo(x, y, x + r, y);
-	    },
-	    ellipse: function(x, y, r1, r2) {
-	      var ox, oy, xe, xm, ye, ym;
-	      if (r2 == null) {
-	        r2 = r1;
-	      }
-	      x -= r1;
-	      y -= r2;
-	      ox = r1 * KAPPA;
-	      oy = r2 * KAPPA;
-	      xe = x + r1 * 2;
-	      ye = y + r2 * 2;
-	      xm = x + r1;
-	      ym = y + r2;
-	      this.moveTo(x, ym);
-	      this.bezierCurveTo(x, ym - oy, xm - ox, y, xm, y);
-	      this.bezierCurveTo(xm + ox, y, xe, ym - oy, xe, ym);
-	      this.bezierCurveTo(xe, ym + oy, xm + ox, ye, xm, ye);
-	      this.bezierCurveTo(xm - ox, ye, x, ym + oy, x, ym);
-	      return this.closePath();
-	    },
-	    circle: function(x, y, radius) {
-	      return this.ellipse(x, y, radius);
-	    },
-	    polygon: function() {
-	      var point, points, _i, _len;
-	      points = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
-	      this.moveTo.apply(this, points.shift());
-	      for (_i = 0, _len = points.length; _i < _len; _i++) {
-	        point = points[_i];
-	        this.lineTo.apply(this, point);
-	      }
-	      return this.closePath();
-	    },
-	    path: function(path) {
-	      SVGPath.apply(this, path);
-	      return this;
-	    },
-	    _windingRule: function(rule) {
-	      if (/even-?odd/.test(rule)) {
-	        return '*';
-	      }
-	      return '';
-	    },
-	    fill: function(color, rule) {
-	      if (/(even-?odd)|(non-?zero)/.test(color)) {
-	        rule = color;
-	        color = null;
-	      }
-	      if (color) {
-	        this.fillColor(color);
-	      }
-	      return this.addContent('f' + this._windingRule(rule));
-	    },
-	    stroke: function(color) {
-	      if (color) {
-	        this.strokeColor(color);
-	      }
-	      return this.addContent('S');
-	    },
-	    fillAndStroke: function(fillColor, strokeColor, rule) {
-	      var isFillRule;
-	      if (strokeColor == null) {
-	        strokeColor = fillColor;
-	      }
-	      isFillRule = /(even-?odd)|(non-?zero)/;
-	      if (isFillRule.test(fillColor)) {
-	        rule = fillColor;
-	        fillColor = null;
-	      }
-	      if (isFillRule.test(strokeColor)) {
-	        rule = strokeColor;
-	        strokeColor = fillColor;
-	      }
-	      if (fillColor) {
-	        this.fillColor(fillColor);
-	        this.strokeColor(strokeColor);
-	      }
-	      return this.addContent('B' + this._windingRule(rule));
-	    },
-	    clip: function(rule) {
-	      return this.addContent('W' + this._windingRule(rule) + ' n');
-	    },
-	    transform: function(m11, m12, m21, m22, dx, dy) {
-	      var m, m0, m1, m2, m3, m4, m5, v, values;
-	      m = this._ctm;
-	      m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5];
-	      m[0] = m0 * m11 + m2 * m12;
-	      m[1] = m1 * m11 + m3 * m12;
-	      m[2] = m0 * m21 + m2 * m22;
-	      m[3] = m1 * m21 + m3 * m22;
-	      m[4] = m0 * dx + m2 * dy + m4;
-	      m[5] = m1 * dx + m3 * dy + m5;
-	      values = ((function() {
-	        var _i, _len, _ref, _results;
-	        _ref = [m11, m12, m21, m22, dx, dy];
-	        _results = [];
-	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	          v = _ref[_i];
-	          _results.push(+v.toFixed(5));
-	        }
-	        return _results;
-	      })()).join(' ');
-	      return this.addContent("" + values + " cm");
-	    },
-	    translate: function(x, y) {
-	      return this.transform(1, 0, 0, 1, x, y);
-	    },
-	    rotate: function(angle, options) {
-	      var cos, rad, sin, x, x1, y, y1, _ref;
-	      if (options == null) {
-	        options = {};
-	      }
-	      rad = angle * Math.PI / 180;
-	      cos = Math.cos(rad);
-	      sin = Math.sin(rad);
-	      x = y = 0;
-	      if (options.origin != null) {
-	        _ref = options.origin, x = _ref[0], y = _ref[1];
-	        x1 = x * cos - y * sin;
-	        y1 = x * sin + y * cos;
-	        x -= x1;
-	        y -= y1;
-	      }
-	      return this.transform(cos, sin, -sin, cos, x, y);
-	    },
-	    scale: function(xFactor, yFactor, options) {
-	      var x, y, _ref;
-	      if (yFactor == null) {
-	        yFactor = xFactor;
-	      }
-	      if (options == null) {
-	        options = {};
-	      }
-	      if (arguments.length === 2) {
-	        yFactor = xFactor;
-	        options = yFactor;
-	      }
-	      x = y = 0;
-	      if (options.origin != null) {
-	        _ref = options.origin, x = _ref[0], y = _ref[1];
-	        x -= xFactor * x;
-	        y -= yFactor * y;
-	      }
-	      return this.transform(xFactor, 0, 0, yFactor, x, y);
-	    }
-	  };
-
-	}).call(this);
-
-
-/***/ },
-/* 40 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var LineWrapper;
-
-	  LineWrapper = __webpack_require__(48);
-
-	  module.exports = {
-	    initText: function() {
-	      this.x = 0;
-	      this.y = 0;
-	      return this._lineGap = 0;
-	    },
-	    lineGap: function(_lineGap) {
-	      this._lineGap = _lineGap;
-	      return this;
-	    },
-	    moveDown: function(lines) {
-	      if (lines == null) {
-	        lines = 1;
-	      }
-	      this.y += this.currentLineHeight(true) * lines + this._lineGap;
-	      return this;
-	    },
-	    moveUp: function(lines) {
-	      if (lines == null) {
-	        lines = 1;
-	      }
-	      this.y -= this.currentLineHeight(true) * lines + this._lineGap;
-	      return this;
-	    },
-	    _text: function(text, x, y, options, lineCallback) {
-	      var line, wrapper, _i, _len, _ref;
-	      options = this._initOptions(x, y, options);
-	      text = '' + text;
-	      if (options.wordSpacing) {
-	        text = text.replace(/\s{2,}/g, ' ');
-	      }
-	      if (options.width) {
-	        wrapper = this._wrapper;
-	        if (!wrapper) {
-	          wrapper = new LineWrapper(this, options);
-	          wrapper.on('line', lineCallback);
-	        }
-	        this._wrapper = options.continued ? wrapper : null;
-	        this._textOptions = options.continued ? options : null;
-	        wrapper.wrap(text, options);
-	      } else {
-	        _ref = text.split('\n');
-	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	          line = _ref[_i];
-	          lineCallback(line, options);
-	        }
-	      }
-	      return this;
-	    },
-	    text: function(text, x, y, options) {
-	      return this._text(text, x, y, options, this._line.bind(this));
-	    },
-	    widthOfString: function(string, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      return this._font.widthOfString(string, this._fontSize) + (options.characterSpacing || 0) * (string.length - 1);
-	    },
-	    heightOfString: function(text, options) {
-	      var height, lineGap, x, y;
-	      if (options == null) {
-	        options = {};
-	      }
-	      x = this.x, y = this.y;
-	      options = this._initOptions(options);
-	      options.height = Infinity;
-	      lineGap = options.lineGap || this._lineGap || 0;
-	      this._text(text, this.x, this.y, options, (function(_this) {
-	        return function(line, options) {
-	          return _this.y += _this.currentLineHeight(true) + lineGap;
-	        };
-	      })(this));
-	      height = this.y - y;
-	      this.x = x;
-	      this.y = y;
-	      return height;
-	    },
-	    list: function(list, x, y, options, wrapper) {
-	      var flatten, i, indent, itemIndent, items, level, levels, r;
-	      options = this._initOptions(x, y, options);
-	      r = Math.round((this._font.ascender / 1000 * this._fontSize) / 3);
-	      indent = options.textIndent || r * 5;
-	      itemIndent = options.bulletIndent || r * 8;
-	      level = 1;
-	      items = [];
-	      levels = [];
-	      flatten = function(list) {
-	        var i, item, _i, _len, _results;
-	        _results = [];
-	        for (i = _i = 0, _len = list.length; _i < _len; i = ++_i) {
-	          item = list[i];
-	          if (Array.isArray(item)) {
-	            level++;
-	            flatten(item);
-	            _results.push(level--);
-	          } else {
-	            items.push(item);
-	            _results.push(levels.push(level));
-	          }
-	        }
-	        return _results;
-	      };
-	      flatten(list);
-	      wrapper = new LineWrapper(this, options);
-	      wrapper.on('line', this._line.bind(this));
-	      level = 1;
-	      i = 0;
-	      wrapper.on('firstLine', (function(_this) {
-	        return function() {
-	          var diff, l;
-	          if ((l = levels[i++]) !== level) {
-	            diff = itemIndent * (l - level);
-	            _this.x += diff;
-	            wrapper.lineWidth -= diff;
-	            level = l;
-	          }
-	          _this.circle(_this.x - indent + r, _this.y + r + (r / 2), r);
-	          return _this.fill();
-	        };
-	      })(this));
-	      wrapper.on('sectionStart', (function(_this) {
-	        return function() {
-	          var pos;
-	          pos = indent + itemIndent * (level - 1);
-	          _this.x += pos;
-	          return wrapper.lineWidth -= pos;
-	        };
-	      })(this));
-	      wrapper.on('sectionEnd', (function(_this) {
-	        return function() {
-	          var pos;
-	          pos = indent + itemIndent * (level - 1);
-	          _this.x -= pos;
-	          return wrapper.lineWidth += pos;
-	        };
-	      })(this));
-	      wrapper.wrap(items.join('\n'), options);
-	      return this;
-	    },
-	    _initOptions: function(x, y, options) {
-	      var key, margins, val, _ref;
-	      if (x == null) {
-	        x = {};
-	      }
-	      if (options == null) {
-	        options = {};
-	      }
-	      if (typeof x === 'object') {
-	        options = x;
-	        x = null;
-	      }
-	      options = (function() {
-	        var k, opts, v;
-	        opts = {};
-	        for (k in options) {
-	          v = options[k];
-	          opts[k] = v;
-	        }
-	        return opts;
-	      })();
-	      if (this._textOptions) {
-	        _ref = this._textOptions;
-	        for (key in _ref) {
-	          val = _ref[key];
-	          if (key !== 'continued') {
-	            if (options[key] == null) {
-	              options[key] = val;
-	            }
-	          }
-	        }
-	      }
-	      if (x != null) {
-	        this.x = x;
-	      }
-	      if (y != null) {
-	        this.y = y;
-	      }
-	      if (options.lineBreak !== false) {
-	        margins = this.page.margins;
-	        if (options.width == null) {
-	          options.width = this.page.width - this.x - margins.right;
-	        }
-	      }
-	      options.columns || (options.columns = 0);
-	      if (options.columnGap == null) {
-	        options.columnGap = 18;
-	      }
-	      return options;
-	    },
-	    _line: function(text, options, wrapper) {
-	      var lineGap;
-	      if (options == null) {
-	        options = {};
-	      }
-	      this._fragment(text, this.x, this.y, options);
-	      lineGap = options.lineGap || this._lineGap || 0;
-	      if (!wrapper) {
-	        return this.x += this.widthOfString(text);
-	      } else {
-	        return this.y += this.currentLineHeight(true) + lineGap;
-	      }
-	    },
-	    _fragment: function(text, x, y, options) {
-	      var align, characterSpacing, commands, d, encoded, i, lineWidth, lineY, mode, renderedWidth, spaceWidth, textWidth, word, wordSpacing, words, _base, _i, _len, _name;
-	      text = '' + text;
-	      if (text.length === 0) {
-	        return;
-	      }
-	      align = options.align || 'left';
-	      wordSpacing = options.wordSpacing || 0;
-	      characterSpacing = options.characterSpacing || 0;
-	      if (options.width) {
-	        switch (align) {
-	          case 'right':
-	            textWidth = this.widthOfString(text.replace(/\s+$/, ''), options);
-	            x += options.lineWidth - textWidth;
-	            break;
-	          case 'center':
-	            x += options.lineWidth / 2 - options.textWidth / 2;
-	            break;
-	          case 'justify':
-	            words = text.trim().split(/\s+/);
-	            textWidth = this.widthOfString(text.replace(/\s+/g, ''), options);
-	            spaceWidth = this.widthOfString(' ') + characterSpacing;
-	            wordSpacing = Math.max(0, (options.lineWidth - textWidth) / Math.max(1, words.length - 1) - spaceWidth);
-	        }
-	      }
-	      renderedWidth = options.textWidth + (wordSpacing * (options.wordCount - 1)) + (characterSpacing * (text.length - 1));
-	      if (options.link) {
-	        this.link(x, y, renderedWidth, this.currentLineHeight(), options.link);
-	      }
-	      if (options.underline || options.strike) {
-	        this.save();
-	        if (!options.stroke) {
-	          this.strokeColor.apply(this, this._fillColor);
-	        }
-	        lineWidth = this._fontSize < 10 ? 0.5 : Math.floor(this._fontSize / 10);
-	        this.lineWidth(lineWidth);
-	        d = options.underline ? 1 : 2;
-	        lineY = y + this.currentLineHeight() / d;
-	        if (options.underline) {
-	          lineY -= lineWidth;
-	        }
-	        this.moveTo(x, lineY);
-	        this.lineTo(x + renderedWidth, lineY);
-	        this.stroke();
-	        this.restore();
-	      }
-	      this.save();
 	      this.transform(1, 0, 0, -1, 0, this.page.height);
-	      y = this.page.height - y - (this._font.ascender / 1000 * this._fontSize);
-	      if ((_base = this.page.fonts)[_name = this._font.id] == null) {
-	        _base[_name] = this._font.ref();
-	      }
-	      this._font.use(text);
-	      this.addContent("BT");
-	      this.addContent("" + x + " " + y + " Td");
-	      this.addContent("/" + this._font.id + " " + this._fontSize + " Tf");
-	      mode = options.fill && options.stroke ? 2 : options.stroke ? 1 : 0;
-	      if (mode) {
-	        this.addContent("" + mode + " Tr");
-	      }
-	      if (characterSpacing) {
-	        this.addContent("" + characterSpacing + " Tc");
-	      }
-	      if (wordSpacing) {
-	        words = text.trim().split(/\s+/);
-	        wordSpacing += this.widthOfString(' ') + characterSpacing;
-	        wordSpacing *= 1000 / this._fontSize;
-	        commands = [];
-	        for (_i = 0, _len = words.length; _i < _len; _i++) {
-	          word = words[_i];
-	          encoded = this._font.encode(word);
-	          encoded = ((function() {
-	            var _j, _ref, _results;
-	            _results = [];
-	            for (i = _j = 0, _ref = encoded.length; _j < _ref; i = _j += 1) {
-	              _results.push(encoded.charCodeAt(i).toString(16));
-	            }
-	            return _results;
-	          })()).join('');
-	          commands.push("<" + encoded + "> " + (-wordSpacing));
-	        }
-	        this.addContent("[" + (commands.join(' ')) + "] TJ");
-	      } else {
-	        encoded = this._font.encode(text);
-	        encoded = ((function() {
-	          var _j, _ref, _results;
-	          _results = [];
-	          for (i = _j = 0, _ref = encoded.length; _j < _ref; i = _j += 1) {
-	            _results.push(encoded.charCodeAt(i).toString(16));
-	          }
-	          return _results;
-	        })()).join('');
-	        this.addContent("<" + encoded + "> Tj");
-	      }
-	      this.addContent("ET");
-	      return this.restore();
-	    }
-	  };
-
-	}).call(this);
-
-
-/***/ },
-/* 41 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var PDFGradient, PDFLinearGradient, PDFRadialGradient, namedColors, _ref;
-
-	  _ref = __webpack_require__(49), PDFGradient = _ref.PDFGradient, PDFLinearGradient = _ref.PDFLinearGradient, PDFRadialGradient = _ref.PDFRadialGradient;
-
-	  module.exports = {
-	    initColor: function() {
-	      this._opacityRegistry = {};
-	      this._opacityCount = 0;
-	      return this._gradCount = 0;
-	    },
-	    _normalizeColor: function(color) {
-	      var hex, part;
-	      if (color instanceof PDFGradient) {
-	        return color;
-	      }
-	      if (typeof color === 'string') {
-	        if (color.charAt(0) === '#') {
-	          if (color.length === 4) {
-	            color = color.replace(/#([0-9A-F])([0-9A-F])([0-9A-F])/i, "#$1$1$2$2$3$3");
-	          }
-	          hex = parseInt(color.slice(1), 16);
-	          color = [hex >> 16, hex >> 8 & 0xff, hex & 0xff];
-	        } else if (namedColors[color]) {
-	          color = namedColors[color];
-	        }
-	      }
-	      if (Array.isArray(color)) {
-	        if (color.length === 3) {
-	          color = (function() {
-	            var _i, _len, _results;
-	            _results = [];
-	            for (_i = 0, _len = color.length; _i < _len; _i++) {
-	              part = color[_i];
-	              _results.push(part / 255);
-	            }
-	            return _results;
-	          })();
-	        } else if (color.length === 4) {
-	          color = (function() {
-	            var _i, _len, _results;
-	            _results = [];
-	            for (_i = 0, _len = color.length; _i < _len; _i++) {
-	              part = color[_i];
-	              _results.push(part / 100);
-	            }
-	            return _results;
-	          })();
-	        }
-	        return color;
-	      }
-	      return null;
-	    },
-	    _setColor: function(color, stroke) {
-	      var gstate, name, op, space;
-	      color = this._normalizeColor(color);
-	      if (!color) {
-	        return false;
-	      }
-	      if (this._sMasked) {
-	        gstate = this.ref({
-	          Type: 'ExtGState',
-	          SMask: 'None'
-	        });
-	        gstate.end();
-	        name = "Gs" + (++this._opacityCount);
-	        this.page.ext_gstates[name] = gstate;
-	        this.addContent("/" + name + " gs");
-	        this._sMasked = false;
-	      }
-	      op = stroke ? 'SCN' : 'scn';
-	      if (color instanceof PDFGradient) {
-	        this._setColorSpace('Pattern', stroke);
-	        color.apply(op);
-	      } else {
-	        space = color.length === 4 ? 'DeviceCMYK' : 'DeviceRGB';
-	        this._setColorSpace(space, stroke);
-	        color = color.join(' ');
-	        this.addContent("" + color + " " + op);
-	      }
-	      return true;
-	    },
-	    _setColorSpace: function(space, stroke) {
-	      var op;
-	      op = stroke ? 'CS' : 'cs';
-	      return this.addContent("/" + space + " " + op);
-	    },
-	    fillColor: function(color, opacity) {
-	      var set;
-	      if (opacity == null) {
-	        opacity = 1;
-	      }
-	      set = this._setColor(color, false);
-	      if (set) {
-	        this.fillOpacity(opacity);
-	      }
-	      this._fillColor = [color, opacity];
 	      return this;
-	    },
-	    strokeColor: function(color, opacity) {
-	      var set;
-	      if (opacity == null) {
-	        opacity = 1;
-	      }
-	      set = this._setColor(color, true);
-	      if (set) {
-	        this.strokeOpacity(opacity);
-	      }
-	      return this;
-	    },
-	    opacity: function(opacity) {
-	      this._doOpacity(opacity, opacity);
-	      return this;
-	    },
-	    fillOpacity: function(opacity) {
-	      this._doOpacity(opacity, null);
-	      return this;
-	    },
-	    strokeOpacity: function(opacity) {
-	      this._doOpacity(null, opacity);
-	      return this;
-	    },
-	    _doOpacity: function(fillOpacity, strokeOpacity) {
-	      var dictionary, id, key, name, _ref1;
-	      if (!((fillOpacity != null) || (strokeOpacity != null))) {
-	        return;
-	      }
-	      if (fillOpacity != null) {
-	        fillOpacity = Math.max(0, Math.min(1, fillOpacity));
-	      }
-	      if (strokeOpacity != null) {
-	        strokeOpacity = Math.max(0, Math.min(1, strokeOpacity));
-	      }
-	      key = "" + fillOpacity + "_" + strokeOpacity;
-	      if (this._opacityRegistry[key]) {
-	        _ref1 = this._opacityRegistry[key], dictionary = _ref1[0], name = _ref1[1];
-	      } else {
-	        dictionary = {
-	          Type: 'ExtGState'
-	        };
-	        if (fillOpacity != null) {
-	          dictionary.ca = fillOpacity;
-	        }
-	        if (strokeOpacity != null) {
-	          dictionary.CA = strokeOpacity;
-	        }
-	        dictionary = this.ref(dictionary);
-	        dictionary.end();
-	        id = ++this._opacityCount;
-	        name = "Gs" + id;
-	        this._opacityRegistry[key] = [dictionary, name];
-	      }
-	      this.page.ext_gstates[name] = dictionary;
-	      return this.addContent("/" + name + " gs");
-	    },
-	    linearGradient: function(x1, y1, x2, y2) {
-	      return new PDFLinearGradient(this, x1, y1, x2, y2);
-	    },
-	    radialGradient: function(x1, y1, r1, x2, y2, r2) {
-	      return new PDFRadialGradient(this, x1, y1, r1, x2, y2, r2);
-	    }
-	  };
+	    };
 
-	  namedColors = {
-	    aliceblue: [240, 248, 255],
-	    antiquewhite: [250, 235, 215],
-	    aqua: [0, 255, 255],
-	    aquamarine: [127, 255, 212],
-	    azure: [240, 255, 255],
-	    beige: [245, 245, 220],
-	    bisque: [255, 228, 196],
-	    black: [0, 0, 0],
-	    blanchedalmond: [255, 235, 205],
-	    blue: [0, 0, 255],
-	    blueviolet: [138, 43, 226],
-	    brown: [165, 42, 42],
-	    burlywood: [222, 184, 135],
-	    cadetblue: [95, 158, 160],
-	    chartreuse: [127, 255, 0],
-	    chocolate: [210, 105, 30],
-	    coral: [255, 127, 80],
-	    cornflowerblue: [100, 149, 237],
-	    cornsilk: [255, 248, 220],
-	    crimson: [220, 20, 60],
-	    cyan: [0, 255, 255],
-	    darkblue: [0, 0, 139],
-	    darkcyan: [0, 139, 139],
-	    darkgoldenrod: [184, 134, 11],
-	    darkgray: [169, 169, 169],
-	    darkgreen: [0, 100, 0],
-	    darkgrey: [169, 169, 169],
-	    darkkhaki: [189, 183, 107],
-	    darkmagenta: [139, 0, 139],
-	    darkolivegreen: [85, 107, 47],
-	    darkorange: [255, 140, 0],
-	    darkorchid: [153, 50, 204],
-	    darkred: [139, 0, 0],
-	    darksalmon: [233, 150, 122],
-	    darkseagreen: [143, 188, 143],
-	    darkslateblue: [72, 61, 139],
-	    darkslategray: [47, 79, 79],
-	    darkslategrey: [47, 79, 79],
-	    darkturquoise: [0, 206, 209],
-	    darkviolet: [148, 0, 211],
-	    deeppink: [255, 20, 147],
-	    deepskyblue: [0, 191, 255],
-	    dimgray: [105, 105, 105],
-	    dimgrey: [105, 105, 105],
-	    dodgerblue: [30, 144, 255],
-	    firebrick: [178, 34, 34],
-	    floralwhite: [255, 250, 240],
-	    forestgreen: [34, 139, 34],
-	    fuchsia: [255, 0, 255],
-	    gainsboro: [220, 220, 220],
-	    ghostwhite: [248, 248, 255],
-	    gold: [255, 215, 0],
-	    goldenrod: [218, 165, 32],
-	    gray: [128, 128, 128],
-	    grey: [128, 128, 128],
-	    green: [0, 128, 0],
-	    greenyellow: [173, 255, 47],
-	    honeydew: [240, 255, 240],
-	    hotpink: [255, 105, 180],
-	    indianred: [205, 92, 92],
-	    indigo: [75, 0, 130],
-	    ivory: [255, 255, 240],
-	    khaki: [240, 230, 140],
-	    lavender: [230, 230, 250],
-	    lavenderblush: [255, 240, 245],
-	    lawngreen: [124, 252, 0],
-	    lemonchiffon: [255, 250, 205],
-	    lightblue: [173, 216, 230],
-	    lightcoral: [240, 128, 128],
-	    lightcyan: [224, 255, 255],
-	    lightgoldenrodyellow: [250, 250, 210],
-	    lightgray: [211, 211, 211],
-	    lightgreen: [144, 238, 144],
-	    lightgrey: [211, 211, 211],
-	    lightpink: [255, 182, 193],
-	    lightsalmon: [255, 160, 122],
-	    lightseagreen: [32, 178, 170],
-	    lightskyblue: [135, 206, 250],
-	    lightslategray: [119, 136, 153],
-	    lightslategrey: [119, 136, 153],
-	    lightsteelblue: [176, 196, 222],
-	    lightyellow: [255, 255, 224],
-	    lime: [0, 255, 0],
-	    limegreen: [50, 205, 50],
-	    linen: [250, 240, 230],
-	    magenta: [255, 0, 255],
-	    maroon: [128, 0, 0],
-	    mediumaquamarine: [102, 205, 170],
-	    mediumblue: [0, 0, 205],
-	    mediumorchid: [186, 85, 211],
-	    mediumpurple: [147, 112, 219],
-	    mediumseagreen: [60, 179, 113],
-	    mediumslateblue: [123, 104, 238],
-	    mediumspringgreen: [0, 250, 154],
-	    mediumturquoise: [72, 209, 204],
-	    mediumvioletred: [199, 21, 133],
-	    midnightblue: [25, 25, 112],
-	    mintcream: [245, 255, 250],
-	    mistyrose: [255, 228, 225],
-	    moccasin: [255, 228, 181],
-	    navajowhite: [255, 222, 173],
-	    navy: [0, 0, 128],
-	    oldlace: [253, 245, 230],
-	    olive: [128, 128, 0],
-	    olivedrab: [107, 142, 35],
-	    orange: [255, 165, 0],
-	    orangered: [255, 69, 0],
-	    orchid: [218, 112, 214],
-	    palegoldenrod: [238, 232, 170],
-	    palegreen: [152, 251, 152],
-	    paleturquoise: [175, 238, 238],
-	    palevioletred: [219, 112, 147],
-	    papayawhip: [255, 239, 213],
-	    peachpuff: [255, 218, 185],
-	    peru: [205, 133, 63],
-	    pink: [255, 192, 203],
-	    plum: [221, 160, 221],
-	    powderblue: [176, 224, 230],
-	    purple: [128, 0, 128],
-	    red: [255, 0, 0],
-	    rosybrown: [188, 143, 143],
-	    royalblue: [65, 105, 225],
-	    saddlebrown: [139, 69, 19],
-	    salmon: [250, 128, 114],
-	    sandybrown: [244, 164, 96],
-	    seagreen: [46, 139, 87],
-	    seashell: [255, 245, 238],
-	    sienna: [160, 82, 45],
-	    silver: [192, 192, 192],
-	    skyblue: [135, 206, 235],
-	    slateblue: [106, 90, 205],
-	    slategray: [112, 128, 144],
-	    slategrey: [112, 128, 144],
-	    snow: [255, 250, 250],
-	    springgreen: [0, 255, 127],
-	    steelblue: [70, 130, 180],
-	    tan: [210, 180, 140],
-	    teal: [0, 128, 128],
-	    thistle: [216, 191, 216],
-	    tomato: [255, 99, 71],
-	    turquoise: [64, 224, 208],
-	    violet: [238, 130, 238],
-	    wheat: [245, 222, 179],
-	    white: [255, 255, 255],
-	    whitesmoke: [245, 245, 245],
-	    yellow: [255, 255, 0],
-	    yellowgreen: [154, 205, 50]
-	  };
-
-	}).call(this);
-
-
-/***/ },
-/* 42 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var PDFImage;
-
-	  PDFImage = __webpack_require__(17);
-
-	  module.exports = {
-	    initImages: function() {
-	      this._imageRegistry = {};
-	      return this._imageCount = 0;
-	    },
-	    image: function(src, x, y, options) {
-	      var bh, bp, bw, h, hp, image, ip, w, wp, _base, _name, _ref, _ref1, _ref2;
-	      if (options == null) {
-	        options = {};
-	      }
-	      if (typeof x === 'object') {
-	        options = x;
-	        x = null;
-	      }
-	      x = (_ref = x != null ? x : options.x) != null ? _ref : this.x;
-	      y = (_ref1 = y != null ? y : options.y) != null ? _ref1 : this.y;
-	      if (!Buffer.isBuffer(src)) {
-	        image = this._imageRegistry[src];
-	      }
-	      if (!image) {
-	        image = PDFImage.open(src, 'I' + (++this._imageCount));
-	        image.embed(this);
-	        if (!Buffer.isBuffer(src)) {
-	          this._imageRegistry[src] = image;
-	        }
-	      }
-	      if ((_base = this.page.xobjects)[_name = image.label] == null) {
-	        _base[_name] = image.obj;
-	      }
-	      w = options.width || image.width;
-	      h = options.height || image.height;
-	      if (options.width && !options.height) {
-	        wp = w / image.width;
-	        w = image.width * wp;
-	        h = image.height * wp;
-	      } else if (options.height && !options.width) {
-	        hp = h / image.height;
-	        w = image.width * hp;
-	        h = image.height * hp;
-	      } else if (options.scale) {
-	        w = image.width * options.scale;
-	        h = image.height * options.scale;
-	      } else if (options.fit) {
-	        _ref2 = options.fit, bw = _ref2[0], bh = _ref2[1];
-	        bp = bw / bh;
-	        ip = image.width / image.height;
-	        if (ip > bp) {
-	          w = bw;
-	          h = bw / ip;
-	        } else {
-	          h = bh;
-	          w = bh * ip;
-	        }
-	        if (options.align === 'center') {
-	          x = x + bw / 2 - w / 2;
-	        } else if (options.align === 'right') {
-	          x = x + bw - w;
-	        }
-	        if (options.valign === 'center') {
-	          y = y + bh / 2 - h / 2;
-	        } else if (options.valign === 'bottom') {
-	          y = y + bh - h;
-	        }
-	      }
-	      if (this.y === y) {
-	        this.y += h;
-	      }
-	      this.save();
-	      this.transform(w, 0, 0, -h, x, y + h);
-	      this.addContent("/" + image.label + " Do");
-	      this.restore();
-	      return this;
-	    }
-	  };
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 43 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  module.exports = {
-	    annotate: function(x, y, w, h, options) {
-	      var key, ref, val;
-	      options.Type = 'Annot';
-	      options.Rect = this._convertRect(x, y, w, h);
-	      options.Border = [0, 0, 0];
-	      if (options.Subtype !== 'Link') {
-	        if (options.C == null) {
-	          options.C = this._normalizeColor(options.color || [0, 0, 0]);
-	        }
-	      }
-	      delete options.color;
-	      if (typeof options.Dest === 'string') {
-	        options.Dest = new String(options.Dest);
-	      }
-	      for (key in options) {
-	        val = options[key];
-	        options[key[0].toUpperCase() + key.slice(1)] = val;
-	      }
-	      ref = this.ref(options);
-	      this.page.annotations.push(ref);
-	      ref.end();
-	      return this;
-	    },
-	    note: function(x, y, w, h, contents, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Text';
-	      options.Contents = new String(contents);
-	      options.Name = 'Comment';
-	      if (options.color == null) {
-	        options.color = [243, 223, 92];
-	      }
-	      return this.annotate(x, y, w, h, options);
-	    },
-	    link: function(x, y, w, h, url, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Link';
-	      options.A = this.ref({
-	        S: 'URI',
-	        URI: new String(url)
-	      });
-	      options.A.end();
-	      return this.annotate(x, y, w, h, options);
-	    },
-	    _markup: function(x, y, w, h, options) {
-	      var x1, x2, y1, y2, _ref;
-	      if (options == null) {
-	        options = {};
-	      }
-	      _ref = this._convertRect(x, y, w, h), x1 = _ref[0], y1 = _ref[1], x2 = _ref[2], y2 = _ref[3];
-	      options.QuadPoints = [x1, y2, x2, y2, x1, y1, x2, y1];
-	      options.Contents = new String;
-	      return this.annotate(x, y, w, h, options);
-	    },
-	    highlight: function(x, y, w, h, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Highlight';
-	      if (options.color == null) {
-	        options.color = [241, 238, 148];
-	      }
-	      return this._markup(x, y, w, h, options);
-	    },
-	    underline: function(x, y, w, h, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Underline';
-	      return this._markup(x, y, w, h, options);
-	    },
-	    strike: function(x, y, w, h, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'StrikeOut';
-	      return this._markup(x, y, w, h, options);
-	    },
-	    lineAnnotation: function(x1, y1, x2, y2, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Line';
-	      options.Contents = new String;
-	      options.L = [x1, this.page.height - y1, x2, this.page.height - y2];
-	      return this.annotate(x1, y1, x2, y2, options);
-	    },
-	    rectAnnotation: function(x, y, w, h, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Square';
-	      options.Contents = new String;
-	      return this.annotate(x, y, w, h, options);
-	    },
-	    ellipseAnnotation: function(x, y, w, h, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'Circle';
-	      options.Contents = new String;
-	      return this.annotate(x, y, w, h, options);
-	    },
-	    textAnnotation: function(x, y, w, h, text, options) {
-	      if (options == null) {
-	        options = {};
-	      }
-	      options.Subtype = 'FreeText';
-	      options.Contents = new String(text);
-	      options.DA = new String;
-	      return this.annotate(x, y, w, h, options);
-	    },
-	    _convertRect: function(x1, y1, w, h) {
-	      var m0, m1, m2, m3, m4, m5, x2, y2, _ref;
-	      y2 = y1;
-	      y1 += h;
-	      x2 = x1 + w;
-	      _ref = this._ctm, m0 = _ref[0], m1 = _ref[1], m2 = _ref[2], m3 = _ref[3], m4 = _ref[4], m5 = _ref[5];
-	      x1 = m0 * x1 + m2 * y1 + m4;
-	      y1 = m1 * x1 + m3 * y1 + m5;
-	      x2 = m0 * x2 + m2 * y2 + m4;
-	      y2 = m1 * x2 + m3 * y2 + m5;
-	      return [x1, y1, x2, y2];
-	    }
-	  };
-
-	}).call(this);
-
-
-/***/ },
-/* 44 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var PDFFont;
-
-	  PDFFont = __webpack_require__(52);
-
-	  module.exports = {
-	    initFonts: function() {
-	      this._fontFamilies = {};
-	      this._fontCount = 0;
-	      this._fontSize = 12;
-	      this._font = null;
-	      this._registeredFonts = {};
-	      
-	    },
-	    font: function(src, family, size) {
-	      var cacheKey, font, id, _ref;
-	      if (typeof family === 'number') {
-	        size = family;
-	        family = null;
-	      }
-	      if (typeof src === 'string' && this._registeredFonts[src]) {
-	        cacheKey = src;
-	        _ref = this._registeredFonts[src], src = _ref.src, family = _ref.family;
-	      } else {
-	        cacheKey = family || src;
-	        if (typeof cacheKey !== 'string') {
-	          cacheKey = null;
-	        }
-	      }
-	      if (size != null) {
-	        this.fontSize(size);
-	      }
-	      if (font = this._fontFamilies[cacheKey]) {
-	        this._font = font;
-	        return this;
-	      }
-	      id = 'F' + (++this._fontCount);
-	      this._font = new PDFFont(this, src, family, id);
-	      if (font = this._fontFamilies[this._font.name]) {
-	        this._font = font;
-	        return this;
-	      }
-	      if (cacheKey) {
-	        this._fontFamilies[cacheKey] = this._font;
-	      }
-	      this._fontFamilies[this._font.name] = this._font;
-	      return this;
-	    },
-	    fontSize: function(_fontSize) {
-	      this._fontSize = _fontSize;
-	      return this;
-	    },
-	    currentLineHeight: function(includeGap) {
-	      if (includeGap == null) {
-	        includeGap = false;
-	      }
-	      return this._font.lineHeight(this._fontSize, includeGap);
-	    },
-	    registerFont: function(name, src, family) {
-	      this._registeredFonts[name] = {
-	        src: src,
-	        family: family
+	    PDFDocument.prototype.bufferedPageRange = function() {
+	      return {
+	        start: this._pageBufferStart,
+	        count: this._pageBuffer.length
 	      };
+	    };
+
+	    PDFDocument.prototype.switchToPage = function(n) {
+	      var page;
+	      if (!(page = this._pageBuffer[n - this._pageBufferStart])) {
+	        throw new Error("switchToPage(" + n + ") out of bounds, current buffer covers pages " + this._pageBufferStart + " to " + (this._pageBufferStart + this._pageBuffer.length - 1));
+	      }
+	      return this.page = page;
+	    };
+
+	    PDFDocument.prototype.flushPages = function() {
+	      var page, pages, _i, _len;
+	      pages = this._pageBuffer;
+	      this._pageBuffer = [];
+	      this._pageBufferStart += pages.length;
+	      for (_i = 0, _len = pages.length; _i < _len; _i++) {
+	        page = pages[_i];
+	        page.end();
+	      }
+	    };
+
+	    PDFDocument.prototype.ref = function(data) {
+	      var ref;
+	      ref = new PDFReference(this, this._offsets.length + 1, data);
+	      this._offsets.push(null);
+	      this._waiting++;
+	      return ref;
+	    };
+
+	    PDFDocument.prototype._read = function() {};
+
+	    PDFDocument.prototype._write = function(data) {
+	      if (!Buffer.isBuffer(data)) {
+	        data = new Buffer(data + '\n', 'binary');
+	      }
+	      this.push(data);
+	      return this._offset += data.length;
+	    };
+
+	    PDFDocument.prototype.addContent = function(data) {
+	      this.page.write(data);
 	      return this;
-	    }
-	  };
+	    };
+
+	    PDFDocument.prototype._refEnd = function(ref) {
+	      this._offsets[ref.id - 1] = ref.offset;
+	      if (--this._waiting === 0 && this._ended) {
+	        this._finalize();
+	        return this._ended = false;
+	      }
+	    };
+
+	    PDFDocument.prototype.write = function(filename, fn) {
+	      var err;
+	      err = new Error('PDFDocument#write is deprecated, and will be removed in a future version of PDFKit. Please pipe the document into a Node stream.');
+	      console.warn(err.stack);
+	      this.pipe(fs.createWriteStream(filename));
+	      this.end();
+	      return this.once('end', fn);
+	    };
+
+	    PDFDocument.prototype.output = function(fn) {
+	      throw new Error('PDFDocument#output is deprecated, and has been removed from PDFKit. Please pipe the document into a Node stream.');
+	    };
+
+	    PDFDocument.prototype.end = function() {
+	      var font, key, name, val, _ref, _ref1;
+	      this.flushPages();
+	      this._info = this.ref();
+	      _ref = this.info;
+	      for (key in _ref) {
+	        val = _ref[key];
+	        if (typeof val === 'string') {
+	          val = new String(val);
+	        }
+	        this._info.data[key] = val;
+	      }
+	      this._info.end();
+	      _ref1 = this._fontFamilies;
+	      for (name in _ref1) {
+	        font = _ref1[name];
+	        font.embed();
+	      }
+	      this._root.end();
+	      this._root.data.Pages.end();
+	      if (this._waiting === 0) {
+	        return this._finalize();
+	      } else {
+	        return this._ended = true;
+	      }
+	    };
+
+	    PDFDocument.prototype._finalize = function(fn) {
+	      var offset, xRefOffset, _i, _len, _ref;
+	      xRefOffset = this._offset;
+	      this._write("xref");
+	      this._write("0 " + (this._offsets.length + 1));
+	      this._write("0000000000 65535 f ");
+	      _ref = this._offsets;
+	      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	        offset = _ref[_i];
+	        offset = ('0000000000' + offset).slice(-10);
+	        this._write(offset + ' 00000 n ');
+	      }
+	      this._write('trailer');
+	      this._write(PDFObject.convert({
+	        Size: this._offsets.length + 1,
+	        Root: this._root,
+	        Info: this._info
+	      }));
+	      this._write('startxref');
+	      this._write("" + xRefOffset);
+	      this._write('%%EOF');
+	      return this.push(null);
+	    };
+
+	    PDFDocument.prototype.toString = function() {
+	      return "[object PDFDocument]";
+	    };
+
+	    return PDFDocument;
+
+	  })(stream.Readable);
+
+	  module.exports = PDFDocument;
 
 	}).call(this);
 
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
 
 /***/ },
-/* 45 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer, process) {// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	var Transform = __webpack_require__(55);
-
-	var binding = __webpack_require__(50);
-	var util = __webpack_require__(60);
-	var assert = __webpack_require__(53).ok;
-
-	// zlib doesn't provide these, so kludge them in following the same
-	// const naming scheme zlib uses.
-	binding.Z_MIN_WINDOWBITS = 8;
-	binding.Z_MAX_WINDOWBITS = 15;
-	binding.Z_DEFAULT_WINDOWBITS = 15;
-
-	// fewer than 64 bytes per chunk is stupid.
-	// technically it could work with as few as 8, but even 64 bytes
-	// is absurdly low.  Usually a MB or more is best.
-	binding.Z_MIN_CHUNK = 64;
-	binding.Z_MAX_CHUNK = Infinity;
-	binding.Z_DEFAULT_CHUNK = (16 * 1024);
-
-	binding.Z_MIN_MEMLEVEL = 1;
-	binding.Z_MAX_MEMLEVEL = 9;
-	binding.Z_DEFAULT_MEMLEVEL = 8;
-
-	binding.Z_MIN_LEVEL = -1;
-	binding.Z_MAX_LEVEL = 9;
-	binding.Z_DEFAULT_LEVEL = binding.Z_DEFAULT_COMPRESSION;
-
-	// expose all the zlib constants
-	Object.keys(binding).forEach(function(k) {
-	  if (k.match(/^Z/)) exports[k] = binding[k];
-	});
-
-	// translation table for return codes.
-	exports.codes = {
-	  Z_OK: binding.Z_OK,
-	  Z_STREAM_END: binding.Z_STREAM_END,
-	  Z_NEED_DICT: binding.Z_NEED_DICT,
-	  Z_ERRNO: binding.Z_ERRNO,
-	  Z_STREAM_ERROR: binding.Z_STREAM_ERROR,
-	  Z_DATA_ERROR: binding.Z_DATA_ERROR,
-	  Z_MEM_ERROR: binding.Z_MEM_ERROR,
-	  Z_BUF_ERROR: binding.Z_BUF_ERROR,
-	  Z_VERSION_ERROR: binding.Z_VERSION_ERROR
-	};
-
-	Object.keys(exports.codes).forEach(function(k) {
-	  exports.codes[exports.codes[k]] = k;
-	});
-
-	exports.Deflate = Deflate;
-	exports.Inflate = Inflate;
-	exports.Gzip = Gzip;
-	exports.Gunzip = Gunzip;
-	exports.DeflateRaw = DeflateRaw;
-	exports.InflateRaw = InflateRaw;
-	exports.Unzip = Unzip;
-
-	exports.createDeflate = function(o) {
-	  return new Deflate(o);
-	};
-
-	exports.createInflate = function(o) {
-	  return new Inflate(o);
-	};
-
-	exports.createDeflateRaw = function(o) {
-	  return new DeflateRaw(o);
-	};
-
-	exports.createInflateRaw = function(o) {
-	  return new InflateRaw(o);
-	};
-
-	exports.createGzip = function(o) {
-	  return new Gzip(o);
-	};
-
-	exports.createGunzip = function(o) {
-	  return new Gunzip(o);
-	};
-
-	exports.createUnzip = function(o) {
-	  return new Unzip(o);
-	};
-
-
-	// Convenience methods.
-	// compress/decompress a string or buffer in one step.
-	exports.deflate = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new Deflate(opts), buffer, callback);
-	};
-
-	exports.deflateSync = function(buffer, opts) {
-	  return zlibBufferSync(new Deflate(opts), buffer);
-	};
-
-	exports.gzip = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new Gzip(opts), buffer, callback);
-	};
-
-	exports.gzipSync = function(buffer, opts) {
-	  return zlibBufferSync(new Gzip(opts), buffer);
-	};
-
-	exports.deflateRaw = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new DeflateRaw(opts), buffer, callback);
-	};
-
-	exports.deflateRawSync = function(buffer, opts) {
-	  return zlibBufferSync(new DeflateRaw(opts), buffer);
-	};
-
-	exports.unzip = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new Unzip(opts), buffer, callback);
-	};
-
-	exports.unzipSync = function(buffer, opts) {
-	  return zlibBufferSync(new Unzip(opts), buffer);
-	};
-
-	exports.inflate = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new Inflate(opts), buffer, callback);
-	};
-
-	exports.inflateSync = function(buffer, opts) {
-	  return zlibBufferSync(new Inflate(opts), buffer);
-	};
-
-	exports.gunzip = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new Gunzip(opts), buffer, callback);
-	};
-
-	exports.gunzipSync = function(buffer, opts) {
-	  return zlibBufferSync(new Gunzip(opts), buffer);
-	};
-
-	exports.inflateRaw = function(buffer, opts, callback) {
-	  if (typeof opts === 'function') {
-	    callback = opts;
-	    opts = {};
-	  }
-	  return zlibBuffer(new InflateRaw(opts), buffer, callback);
-	};
-
-	exports.inflateRawSync = function(buffer, opts) {
-	  return zlibBufferSync(new InflateRaw(opts), buffer);
-	};
-
-	function zlibBuffer(engine, buffer, callback) {
-	  var buffers = [];
-	  var nread = 0;
-
-	  engine.on('error', onError);
-	  engine.on('end', onEnd);
-
-	  engine.end(buffer);
-	  flow();
-
-	  function flow() {
-	    var chunk;
-	    while (null !== (chunk = engine.read())) {
-	      buffers.push(chunk);
-	      nread += chunk.length;
-	    }
-	    engine.once('readable', flow);
-	  }
-
-	  function onError(err) {
-	    engine.removeListener('end', onEnd);
-	    engine.removeListener('readable', flow);
-	    callback(err);
-	  }
-
-	  function onEnd() {
-	    var buf = Buffer.concat(buffers, nread);
-	    buffers = [];
-	    callback(null, buf);
-	    engine.close();
-	  }
-	}
-
-	function zlibBufferSync(engine, buffer) {
-	  if (typeof buffer === 'string')
-	    buffer = new Buffer(buffer);
-	  if (!Buffer.isBuffer(buffer))
-	    throw new TypeError('Not a string or buffer');
-
-	  var flushFlag = binding.Z_FINISH;
-
-	  return engine._processChunk(buffer, flushFlag);
-	}
-
-	// generic zlib
-	// minimal 2-byte header
-	function Deflate(opts) {
-	  if (!(this instanceof Deflate)) return new Deflate(opts);
-	  Zlib.call(this, opts, binding.DEFLATE);
-	}
-
-	function Inflate(opts) {
-	  if (!(this instanceof Inflate)) return new Inflate(opts);
-	  Zlib.call(this, opts, binding.INFLATE);
-	}
-
-
-
-	// gzip - bigger header, same deflate compression
-	function Gzip(opts) {
-	  if (!(this instanceof Gzip)) return new Gzip(opts);
-	  Zlib.call(this, opts, binding.GZIP);
-	}
-
-	function Gunzip(opts) {
-	  if (!(this instanceof Gunzip)) return new Gunzip(opts);
-	  Zlib.call(this, opts, binding.GUNZIP);
-	}
-
-
-
-	// raw - no header
-	function DeflateRaw(opts) {
-	  if (!(this instanceof DeflateRaw)) return new DeflateRaw(opts);
-	  Zlib.call(this, opts, binding.DEFLATERAW);
-	}
-
-	function InflateRaw(opts) {
-	  if (!(this instanceof InflateRaw)) return new InflateRaw(opts);
-	  Zlib.call(this, opts, binding.INFLATERAW);
-	}
-
-
-	// auto-detect header.
-	function Unzip(opts) {
-	  if (!(this instanceof Unzip)) return new Unzip(opts);
-	  Zlib.call(this, opts, binding.UNZIP);
-	}
-
-
-	// the Zlib class they all inherit from
-	// This thing manages the queue of requests, and returns
-	// true or false if there is anything in the queue when
-	// you call the .write() method.
-
-	function Zlib(opts, mode) {
-	  this._opts = opts = opts || {};
-	  this._chunkSize = opts.chunkSize || exports.Z_DEFAULT_CHUNK;
-
-	  Transform.call(this, opts);
-
-	  if (opts.flush) {
-	    if (opts.flush !== binding.Z_NO_FLUSH &&
-	        opts.flush !== binding.Z_PARTIAL_FLUSH &&
-	        opts.flush !== binding.Z_SYNC_FLUSH &&
-	        opts.flush !== binding.Z_FULL_FLUSH &&
-	        opts.flush !== binding.Z_FINISH &&
-	        opts.flush !== binding.Z_BLOCK) {
-	      throw new Error('Invalid flush flag: ' + opts.flush);
-	    }
-	  }
-	  this._flushFlag = opts.flush || binding.Z_NO_FLUSH;
-
-	  if (opts.chunkSize) {
-	    if (opts.chunkSize < exports.Z_MIN_CHUNK ||
-	        opts.chunkSize > exports.Z_MAX_CHUNK) {
-	      throw new Error('Invalid chunk size: ' + opts.chunkSize);
-	    }
-	  }
-
-	  if (opts.windowBits) {
-	    if (opts.windowBits < exports.Z_MIN_WINDOWBITS ||
-	        opts.windowBits > exports.Z_MAX_WINDOWBITS) {
-	      throw new Error('Invalid windowBits: ' + opts.windowBits);
-	    }
-	  }
-
-	  if (opts.level) {
-	    if (opts.level < exports.Z_MIN_LEVEL ||
-	        opts.level > exports.Z_MAX_LEVEL) {
-	      throw new Error('Invalid compression level: ' + opts.level);
-	    }
-	  }
-
-	  if (opts.memLevel) {
-	    if (opts.memLevel < exports.Z_MIN_MEMLEVEL ||
-	        opts.memLevel > exports.Z_MAX_MEMLEVEL) {
-	      throw new Error('Invalid memLevel: ' + opts.memLevel);
-	    }
-	  }
-
-	  if (opts.strategy) {
-	    if (opts.strategy != exports.Z_FILTERED &&
-	        opts.strategy != exports.Z_HUFFMAN_ONLY &&
-	        opts.strategy != exports.Z_RLE &&
-	        opts.strategy != exports.Z_FIXED &&
-	        opts.strategy != exports.Z_DEFAULT_STRATEGY) {
-	      throw new Error('Invalid strategy: ' + opts.strategy);
-	    }
-	  }
-
-	  if (opts.dictionary) {
-	    if (!Buffer.isBuffer(opts.dictionary)) {
-	      throw new Error('Invalid dictionary: it should be a Buffer instance');
-	    }
-	  }
-
-	  this._binding = new binding.Zlib(mode);
-
-	  var self = this;
-	  this._hadError = false;
-	  this._binding.onerror = function(message, errno) {
-	    // there is no way to cleanly recover.
-	    // continuing only obscures problems.
-	    self._binding = null;
-	    self._hadError = true;
-
-	    var error = new Error(message);
-	    error.errno = errno;
-	    error.code = exports.codes[errno];
-	    self.emit('error', error);
-	  };
-
-	  var level = exports.Z_DEFAULT_COMPRESSION;
-	  if (typeof opts.level === 'number') level = opts.level;
-
-	  var strategy = exports.Z_DEFAULT_STRATEGY;
-	  if (typeof opts.strategy === 'number') strategy = opts.strategy;
-
-	  this._binding.init(opts.windowBits || exports.Z_DEFAULT_WINDOWBITS,
-	                     level,
-	                     opts.memLevel || exports.Z_DEFAULT_MEMLEVEL,
-	                     strategy,
-	                     opts.dictionary);
-
-	  this._buffer = new Buffer(this._chunkSize);
-	  this._offset = 0;
-	  this._closed = false;
-	  this._level = level;
-	  this._strategy = strategy;
-
-	  this.once('end', this.close);
-	}
-
-	util.inherits(Zlib, Transform);
-
-	Zlib.prototype.params = function(level, strategy, callback) {
-	  if (level < exports.Z_MIN_LEVEL ||
-	      level > exports.Z_MAX_LEVEL) {
-	    throw new RangeError('Invalid compression level: ' + level);
-	  }
-	  if (strategy != exports.Z_FILTERED &&
-	      strategy != exports.Z_HUFFMAN_ONLY &&
-	      strategy != exports.Z_RLE &&
-	      strategy != exports.Z_FIXED &&
-	      strategy != exports.Z_DEFAULT_STRATEGY) {
-	    throw new TypeError('Invalid strategy: ' + strategy);
-	  }
-
-	  if (this._level !== level || this._strategy !== strategy) {
-	    var self = this;
-	    this.flush(binding.Z_SYNC_FLUSH, function() {
-	      self._binding.params(level, strategy);
-	      if (!self._hadError) {
-	        self._level = level;
-	        self._strategy = strategy;
-	        if (callback) callback();
-	      }
-	    });
-	  } else {
-	    process.nextTick(callback);
-	  }
-	};
-
-	Zlib.prototype.reset = function() {
-	  return this._binding.reset();
-	};
-
-	// This is the _flush function called by the transform class,
-	// internally, when the last chunk has been written.
-	Zlib.prototype._flush = function(callback) {
-	  this._transform(new Buffer(0), '', callback);
-	};
-
-	Zlib.prototype.flush = function(kind, callback) {
-	  var ws = this._writableState;
-
-	  if (typeof kind === 'function' || (kind === void 0 && !callback)) {
-	    callback = kind;
-	    kind = binding.Z_FULL_FLUSH;
-	  }
-
-	  if (ws.ended) {
-	    if (callback)
-	      process.nextTick(callback);
-	  } else if (ws.ending) {
-	    if (callback)
-	      this.once('end', callback);
-	  } else if (ws.needDrain) {
-	    var self = this;
-	    this.once('drain', function() {
-	      self.flush(callback);
-	    });
-	  } else {
-	    this._flushFlag = kind;
-	    this.write(new Buffer(0), '', callback);
-	  }
-	};
-
-	Zlib.prototype.close = function(callback) {
-	  if (callback)
-	    process.nextTick(callback);
-
-	  if (this._closed)
-	    return;
-
-	  this._closed = true;
-
-	  this._binding.close();
-
-	  var self = this;
-	  process.nextTick(function() {
-	    self.emit('close');
-	  });
-	};
-
-	Zlib.prototype._transform = function(chunk, encoding, cb) {
-	  var flushFlag;
-	  var ws = this._writableState;
-	  var ending = ws.ending || ws.ended;
-	  var last = ending && (!chunk || ws.length === chunk.length);
-
-	  if (!chunk === null && !Buffer.isBuffer(chunk))
-	    return cb(new Error('invalid input'));
-
-	  // If it's the last chunk, or a final flush, we use the Z_FINISH flush flag.
-	  // If it's explicitly flushing at some other time, then we use
-	  // Z_FULL_FLUSH. Otherwise, use Z_NO_FLUSH for maximum compression
-	  // goodness.
-	  if (last)
-	    flushFlag = binding.Z_FINISH;
-	  else {
-	    flushFlag = this._flushFlag;
-	    // once we've flushed the last of the queue, stop flushing and
-	    // go back to the normal behavior.
-	    if (chunk.length >= ws.length) {
-	      this._flushFlag = this._opts.flush || binding.Z_NO_FLUSH;
-	    }
-	  }
-
-	  var self = this;
-	  this._processChunk(chunk, flushFlag, cb);
-	};
-
-	Zlib.prototype._processChunk = function(chunk, flushFlag, cb) {
-	  var availInBefore = chunk && chunk.length;
-	  var availOutBefore = this._chunkSize - this._offset;
-	  var inOff = 0;
-
-	  var self = this;
-
-	  var async = typeof cb === 'function';
-
-	  if (!async) {
-	    var buffers = [];
-	    var nread = 0;
-
-	    var error;
-	    this.on('error', function(er) {
-	      error = er;
-	    });
-
-	    do {
-	      var res = this._binding.writeSync(flushFlag,
-	                                        chunk, // in
-	                                        inOff, // in_off
-	                                        availInBefore, // in_len
-	                                        this._buffer, // out
-	                                        this._offset, //out_off
-	                                        availOutBefore); // out_len
-	    } while (!this._hadError && callback(res[0], res[1]));
-
-	    if (this._hadError) {
-	      throw error;
-	    }
-
-	    var buf = Buffer.concat(buffers, nread);
-	    this.close();
-
-	    return buf;
-	  }
-
-	  var req = this._binding.write(flushFlag,
-	                                chunk, // in
-	                                inOff, // in_off
-	                                availInBefore, // in_len
-	                                this._buffer, // out
-	                                this._offset, //out_off
-	                                availOutBefore); // out_len
-
-	  req.buffer = chunk;
-	  req.callback = callback;
-
-	  function callback(availInAfter, availOutAfter) {
-	    if (self._hadError)
-	      return;
-
-	    var have = availOutBefore - availOutAfter;
-	    assert(have >= 0, 'have should not go down');
-
-	    if (have > 0) {
-	      var out = self._buffer.slice(self._offset, self._offset + have);
-	      self._offset += have;
-	      // serve some output to the consumer.
-	      if (async) {
-	        self.push(out);
-	      } else {
-	        buffers.push(out);
-	        nread += out.length;
-	      }
-	    }
-
-	    // exhausted the output buffer, or used all the input create a new one.
-	    if (availOutAfter === 0 || self._offset >= self._chunkSize) {
-	      availOutBefore = self._chunkSize;
-	      self._offset = 0;
-	      self._buffer = new Buffer(self._chunkSize);
-	    }
-
-	    if (availOutAfter === 0) {
-	      // Not actually done.  Need to reprocess.
-	      // Also, update the availInBefore to the availInAfter value,
-	      // so that if we have to hit it a third (fourth, etc.) time,
-	      // it'll have the correct byte counts.
-	      inOff += (availInBefore - availInAfter);
-	      availInBefore = availInAfter;
-
-	      if (!async)
-	        return true;
-
-	      var newReq = self._binding.write(flushFlag,
-	                                       chunk,
-	                                       inOff,
-	                                       availInBefore,
-	                                       self._buffer,
-	                                       self._offset,
-	                                       self._chunkSize);
-	      newReq.callback = callback; // this same function
-	      newReq.buffer = chunk;
-	      return;
-	    }
-
-	    if (!async)
-	      return false;
-
-	    // finished with the chunk.
-	    cb();
-	  }
-	};
-
-	util.inherits(Deflate, Zlib);
-	util.inherits(Inflate, Zlib);
-	util.inherits(Gzip, Zlib);
-	util.inherits(Gunzip, Zlib);
-	util.inherits(DeflateRaw, Zlib);
-	util.inherits(InflateRaw, Zlib);
-	util.inherits(Unzip, Zlib);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer, __webpack_require__(61)))
-
-/***/ },
-/* 46 */
+/* 25 */
 /***/ function(module, exports, __webpack_require__) {
 
 	// Copyright Joyent, Inc. and other Node contributors.
@@ -20436,15 +17300,15 @@
 
 	module.exports = Stream;
 
-	var EE = __webpack_require__(54).EventEmitter;
-	var inherits = __webpack_require__(62);
+	var EE = __webpack_require__(26).EventEmitter;
+	var inherits = __webpack_require__(27);
 
 	inherits(Stream, EE);
-	Stream.Readable = __webpack_require__(56);
-	Stream.Writable = __webpack_require__(57);
-	Stream.Duplex = __webpack_require__(58);
-	Stream.Transform = __webpack_require__(55);
-	Stream.PassThrough = __webpack_require__(59);
+	Stream.Readable = __webpack_require__(28);
+	Stream.Writable = __webpack_require__(40);
+	Stream.Duplex = __webpack_require__(41);
+	Stream.Transform = __webpack_require__(42);
+	Stream.PassThrough = __webpack_require__(43);
 
 	// Backwards-compat with node 0.4.x
 	Stream.Stream = Stream;
@@ -20543,2103 +17407,8 @@
 
 
 /***/ },
-/* 47 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var SVGPath;
-
-	  SVGPath = (function() {
-	    var apply, arcToSegments, cx, cy, parameters, parse, px, py, runners, segmentToBezier, solveArc, sx, sy;
-
-	    function SVGPath() {}
-
-	    SVGPath.apply = function(doc, path) {
-	      var commands;
-	      commands = parse(path);
-	      return apply(commands, doc);
-	    };
-
-	    parameters = {
-	      A: 7,
-	      a: 7,
-	      C: 6,
-	      c: 6,
-	      H: 1,
-	      h: 1,
-	      L: 2,
-	      l: 2,
-	      M: 2,
-	      m: 2,
-	      Q: 4,
-	      q: 4,
-	      S: 4,
-	      s: 4,
-	      T: 2,
-	      t: 2,
-	      V: 1,
-	      v: 1,
-	      Z: 0,
-	      z: 0
-	    };
-
-	    parse = function(path) {
-	      var args, c, cmd, curArg, foundDecimal, params, ret, _i, _len;
-	      ret = [];
-	      args = [];
-	      curArg = "";
-	      foundDecimal = false;
-	      params = 0;
-	      for (_i = 0, _len = path.length; _i < _len; _i++) {
-	        c = path[_i];
-	        if (parameters[c] != null) {
-	          params = parameters[c];
-	          if (cmd) {
-	            if (curArg.length > 0) {
-	              args[args.length] = +curArg;
-	            }
-	            ret[ret.length] = {
-	              cmd: cmd,
-	              args: args
-	            };
-	            args = [];
-	            curArg = "";
-	            foundDecimal = false;
-	          }
-	          cmd = c;
-	        } else if ((c === " " || c === ",") || (c === "-" && curArg.length > 0 && curArg[curArg.length - 1] !== 'e') || (c === "." && foundDecimal)) {
-	          if (curArg.length === 0) {
-	            continue;
-	          }
-	          if (args.length === params) {
-	            ret[ret.length] = {
-	              cmd: cmd,
-	              args: args
-	            };
-	            args = [+curArg];
-	            if (cmd === "M") {
-	              cmd = "L";
-	            }
-	            if (cmd === "m") {
-	              cmd = "l";
-	            }
-	          } else {
-	            args[args.length] = +curArg;
-	          }
-	          foundDecimal = c === ".";
-	          curArg = c === '-' || c === '.' ? c : '';
-	        } else {
-	          curArg += c;
-	          if (c === '.') {
-	            foundDecimal = true;
-	          }
-	        }
-	      }
-	      if (curArg.length > 0) {
-	        if (args.length === params) {
-	          ret[ret.length] = {
-	            cmd: cmd,
-	            args: args
-	          };
-	          args = [+curArg];
-	          if (cmd === "M") {
-	            cmd = "L";
-	          }
-	          if (cmd === "m") {
-	            cmd = "l";
-	          }
-	        } else {
-	          args[args.length] = +curArg;
-	        }
-	      }
-	      ret[ret.length] = {
-	        cmd: cmd,
-	        args: args
-	      };
-	      return ret;
-	    };
-
-	    cx = cy = px = py = sx = sy = 0;
-
-	    apply = function(commands, doc) {
-	      var c, i, _i, _len, _name;
-	      cx = cy = px = py = sx = sy = 0;
-	      for (i = _i = 0, _len = commands.length; _i < _len; i = ++_i) {
-	        c = commands[i];
-	        if (typeof runners[_name = c.cmd] === "function") {
-	          runners[_name](doc, c.args);
-	        }
-	      }
-	      return cx = cy = px = py = 0;
-	    };
-
-	    runners = {
-	      M: function(doc, a) {
-	        cx = a[0];
-	        cy = a[1];
-	        px = py = null;
-	        sx = cx;
-	        sy = cy;
-	        return doc.moveTo(cx, cy);
-	      },
-	      m: function(doc, a) {
-	        cx += a[0];
-	        cy += a[1];
-	        px = py = null;
-	        sx = cx;
-	        sy = cy;
-	        return doc.moveTo(cx, cy);
-	      },
-	      C: function(doc, a) {
-	        cx = a[4];
-	        cy = a[5];
-	        px = a[2];
-	        py = a[3];
-	        return doc.bezierCurveTo.apply(doc, a);
-	      },
-	      c: function(doc, a) {
-	        doc.bezierCurveTo(a[0] + cx, a[1] + cy, a[2] + cx, a[3] + cy, a[4] + cx, a[5] + cy);
-	        px = cx + a[2];
-	        py = cy + a[3];
-	        cx += a[4];
-	        return cy += a[5];
-	      },
-	      S: function(doc, a) {
-	        if (px === null) {
-	          px = cx;
-	          py = cy;
-	        }
-	        doc.bezierCurveTo(cx - (px - cx), cy - (py - cy), a[0], a[1], a[2], a[3]);
-	        px = a[0];
-	        py = a[1];
-	        cx = a[2];
-	        return cy = a[3];
-	      },
-	      s: function(doc, a) {
-	        if (px === null) {
-	          px = cx;
-	          py = cy;
-	        }
-	        doc.bezierCurveTo(cx - (px - cx), cy - (py - cy), cx + a[0], cy + a[1], cx + a[2], cy + a[3]);
-	        px = cx + a[0];
-	        py = cy + a[1];
-	        cx += a[2];
-	        return cy += a[3];
-	      },
-	      Q: function(doc, a) {
-	        px = a[0];
-	        py = a[1];
-	        cx = a[2];
-	        cy = a[3];
-	        return doc.quadraticCurveTo(a[0], a[1], cx, cy);
-	      },
-	      q: function(doc, a) {
-	        doc.quadraticCurveTo(a[0] + cx, a[1] + cy, a[2] + cx, a[3] + cy);
-	        px = cx + a[0];
-	        py = cy + a[1];
-	        cx += a[2];
-	        return cy += a[3];
-	      },
-	      T: function(doc, a) {
-	        if (px === null) {
-	          px = cx;
-	          py = cy;
-	        } else {
-	          px = cx - (px - cx);
-	          py = cy - (py - cy);
-	        }
-	        doc.quadraticCurveTo(px, py, a[0], a[1]);
-	        px = cx - (px - cx);
-	        py = cy - (py - cy);
-	        cx = a[0];
-	        return cy = a[1];
-	      },
-	      t: function(doc, a) {
-	        if (px === null) {
-	          px = cx;
-	          py = cy;
-	        } else {
-	          px = cx - (px - cx);
-	          py = cy - (py - cy);
-	        }
-	        doc.quadraticCurveTo(px, py, cx + a[0], cy + a[1]);
-	        cx += a[0];
-	        return cy += a[1];
-	      },
-	      A: function(doc, a) {
-	        solveArc(doc, cx, cy, a);
-	        cx = a[5];
-	        return cy = a[6];
-	      },
-	      a: function(doc, a) {
-	        a[5] += cx;
-	        a[6] += cy;
-	        solveArc(doc, cx, cy, a);
-	        cx = a[5];
-	        return cy = a[6];
-	      },
-	      L: function(doc, a) {
-	        cx = a[0];
-	        cy = a[1];
-	        px = py = null;
-	        return doc.lineTo(cx, cy);
-	      },
-	      l: function(doc, a) {
-	        cx += a[0];
-	        cy += a[1];
-	        px = py = null;
-	        return doc.lineTo(cx, cy);
-	      },
-	      H: function(doc, a) {
-	        cx = a[0];
-	        px = py = null;
-	        return doc.lineTo(cx, cy);
-	      },
-	      h: function(doc, a) {
-	        cx += a[0];
-	        px = py = null;
-	        return doc.lineTo(cx, cy);
-	      },
-	      V: function(doc, a) {
-	        cy = a[0];
-	        px = py = null;
-	        return doc.lineTo(cx, cy);
-	      },
-	      v: function(doc, a) {
-	        cy += a[0];
-	        px = py = null;
-	        return doc.lineTo(cx, cy);
-	      },
-	      Z: function(doc) {
-	        doc.closePath();
-	        cx = sx;
-	        return cy = sy;
-	      },
-	      z: function(doc) {
-	        doc.closePath();
-	        cx = sx;
-	        return cy = sy;
-	      }
-	    };
-
-	    solveArc = function(doc, x, y, coords) {
-	      var bez, ex, ey, large, rot, rx, ry, seg, segs, sweep, _i, _len, _results;
-	      rx = coords[0], ry = coords[1], rot = coords[2], large = coords[3], sweep = coords[4], ex = coords[5], ey = coords[6];
-	      segs = arcToSegments(ex, ey, rx, ry, large, sweep, rot, x, y);
-	      _results = [];
-	      for (_i = 0, _len = segs.length; _i < _len; _i++) {
-	        seg = segs[_i];
-	        bez = segmentToBezier.apply(null, seg);
-	        _results.push(doc.bezierCurveTo.apply(doc, bez));
-	      }
-	      return _results;
-	    };
-
-	    arcToSegments = function(x, y, rx, ry, large, sweep, rotateX, ox, oy) {
-	      var a00, a01, a10, a11, cos_th, d, i, pl, result, segments, sfactor, sfactor_sq, sin_th, th, th0, th1, th2, th3, th_arc, x0, x1, xc, y0, y1, yc, _i;
-	      th = rotateX * (Math.PI / 180);
-	      sin_th = Math.sin(th);
-	      cos_th = Math.cos(th);
-	      rx = Math.abs(rx);
-	      ry = Math.abs(ry);
-	      px = cos_th * (ox - x) * 0.5 + sin_th * (oy - y) * 0.5;
-	      py = cos_th * (oy - y) * 0.5 - sin_th * (ox - x) * 0.5;
-	      pl = (px * px) / (rx * rx) + (py * py) / (ry * ry);
-	      if (pl > 1) {
-	        pl = Math.sqrt(pl);
-	        rx *= pl;
-	        ry *= pl;
-	      }
-	      a00 = cos_th / rx;
-	      a01 = sin_th / rx;
-	      a10 = (-sin_th) / ry;
-	      a11 = cos_th / ry;
-	      x0 = a00 * ox + a01 * oy;
-	      y0 = a10 * ox + a11 * oy;
-	      x1 = a00 * x + a01 * y;
-	      y1 = a10 * x + a11 * y;
-	      d = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
-	      sfactor_sq = 1 / d - 0.25;
-	      if (sfactor_sq < 0) {
-	        sfactor_sq = 0;
-	      }
-	      sfactor = Math.sqrt(sfactor_sq);
-	      if (sweep === large) {
-	        sfactor = -sfactor;
-	      }
-	      xc = 0.5 * (x0 + x1) - sfactor * (y1 - y0);
-	      yc = 0.5 * (y0 + y1) + sfactor * (x1 - x0);
-	      th0 = Math.atan2(y0 - yc, x0 - xc);
-	      th1 = Math.atan2(y1 - yc, x1 - xc);
-	      th_arc = th1 - th0;
-	      if (th_arc < 0 && sweep === 1) {
-	        th_arc += 2 * Math.PI;
-	      } else if (th_arc > 0 && sweep === 0) {
-	        th_arc -= 2 * Math.PI;
-	      }
-	      segments = Math.ceil(Math.abs(th_arc / (Math.PI * 0.5 + 0.001)));
-	      result = [];
-	      for (i = _i = 0; 0 <= segments ? _i < segments : _i > segments; i = 0 <= segments ? ++_i : --_i) {
-	        th2 = th0 + i * th_arc / segments;
-	        th3 = th0 + (i + 1) * th_arc / segments;
-	        result[i] = [xc, yc, th2, th3, rx, ry, sin_th, cos_th];
-	      }
-	      return result;
-	    };
-
-	    segmentToBezier = function(cx, cy, th0, th1, rx, ry, sin_th, cos_th) {
-	      var a00, a01, a10, a11, t, th_half, x1, x2, x3, y1, y2, y3;
-	      a00 = cos_th * rx;
-	      a01 = -sin_th * ry;
-	      a10 = sin_th * rx;
-	      a11 = cos_th * ry;
-	      th_half = 0.5 * (th1 - th0);
-	      t = (8 / 3) * Math.sin(th_half * 0.5) * Math.sin(th_half * 0.5) / Math.sin(th_half);
-	      x1 = cx + Math.cos(th0) - t * Math.sin(th0);
-	      y1 = cy + Math.sin(th0) + t * Math.cos(th0);
-	      x3 = cx + Math.cos(th1);
-	      y3 = cy + Math.sin(th1);
-	      x2 = x3 + t * Math.sin(th1);
-	      y2 = y3 - t * Math.cos(th1);
-	      return [a00 * x1 + a01 * y1, a10 * x1 + a11 * y1, a00 * x2 + a01 * y2, a10 * x2 + a11 * y2, a00 * x3 + a01 * y3, a10 * x3 + a11 * y3];
-	    };
-
-	    return SVGPath;
-
-	  })();
-
-	  module.exports = SVGPath;
-
-	}).call(this);
-
-
-/***/ },
-/* 48 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var EventEmitter, LineBreaker, LineWrapper,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  EventEmitter = __webpack_require__(54).EventEmitter;
-
-	  LineBreaker = __webpack_require__(66);
-
-	  LineWrapper = (function(_super) {
-	    __extends(LineWrapper, _super);
-
-	    function LineWrapper(document, options) {
-	      var _ref;
-	      this.document = document;
-	      this.indent = options.indent || 0;
-	      this.characterSpacing = options.characterSpacing || 0;
-	      this.wordSpacing = options.wordSpacing === 0;
-	      this.columns = options.columns || 1;
-	      this.columnGap = (_ref = options.columnGap) != null ? _ref : 18;
-	      this.lineWidth = (options.width - (this.columnGap * (this.columns - 1))) / this.columns;
-	      this.spaceLeft = this.lineWidth;
-	      this.startX = this.document.x;
-	      this.startY = this.document.y;
-	      this.column = 1;
-	      this.ellipsis = options.ellipsis;
-	      this.continuedX = 0;
-	      if (options.height != null) {
-	        this.height = options.height;
-	        this.maxY = this.startY + options.height;
-	      } else {
-	        this.maxY = this.document.page.maxY();
-	      }
-	      this.on('firstLine', (function(_this) {
-	        return function(options) {
-	          var indent;
-	          indent = _this.continuedX || _this.indent;
-	          _this.document.x += indent;
-	          _this.lineWidth -= indent;
-	          return _this.once('line', function() {
-	            _this.document.x -= indent;
-	            _this.lineWidth += indent;
-	            if (options.continued && !_this.continuedX) {
-	              _this.continuedX = _this.indent;
-	            }
-	            if (!options.continued) {
-	              return _this.continuedX = 0;
-	            }
-	          });
-	        };
-	      })(this));
-	      this.on('lastLine', (function(_this) {
-	        return function(options) {
-	          var align;
-	          align = options.align;
-	          if (align === 'justify') {
-	            options.align = 'left';
-	          }
-	          _this.lastLine = true;
-	          return _this.once('line', function() {
-	            _this.document.y += options.paragraphGap || 0;
-	            options.align = align;
-	            return _this.lastLine = false;
-	          });
-	        };
-	      })(this));
-	    }
-
-	    LineWrapper.prototype.wordWidth = function(word) {
-	      return this.document.widthOfString(word, this) + this.characterSpacing + this.wordSpacing;
-	    };
-
-	    LineWrapper.prototype.eachWord = function(text, fn) {
-	      var bk, breaker, fbk, l, last, lbk, shouldContinue, w, word, wordWidths;
-	      breaker = new LineBreaker(text);
-	      last = null;
-	      wordWidths = {};
-	      while (bk = breaker.nextBreak()) {
-	        word = text.slice((last != null ? last.position : void 0) || 0, bk.position);
-	        w = wordWidths[word] != null ? wordWidths[word] : wordWidths[word] = this.wordWidth(word);
-	        if (w > this.lineWidth + this.continuedX) {
-	          lbk = last;
-	          fbk = {};
-	          while (word.length) {
-	            l = word.length;
-	            while (w > this.spaceLeft) {
-	              w = this.wordWidth(word.slice(0, --l));
-	            }
-	            fbk.required = l < word.length;
-	            shouldContinue = fn(word.slice(0, l), w, fbk, lbk);
-	            lbk = {
-	              required: false
-	            };
-	            word = word.slice(l);
-	            w = this.wordWidth(word);
-	            if (shouldContinue === false) {
-	              break;
-	            }
-	          }
-	        } else {
-	          shouldContinue = fn(word, w, bk, last);
-	        }
-	        if (shouldContinue === false) {
-	          break;
-	        }
-	        last = bk;
-	      }
-	    };
-
-	    LineWrapper.prototype.wrap = function(text, options) {
-	      var buffer, emitLine, lc, nextY, textWidth, wc, y;
-	      if (options.indent != null) {
-	        this.indent = options.indent;
-	      }
-	      if (options.characterSpacing != null) {
-	        this.characterSpacing = options.characterSpacing;
-	      }
-	      if (options.wordSpacing != null) {
-	        this.wordSpacing = options.wordSpacing;
-	      }
-	      if (options.ellipsis != null) {
-	        this.ellipsis = options.ellipsis;
-	      }
-	      nextY = this.document.y + this.document.currentLineHeight(true);
-	      if (this.document.y > this.maxY || nextY > this.maxY) {
-	        this.nextSection();
-	      }
-	      buffer = '';
-	      textWidth = 0;
-	      wc = 0;
-	      lc = 0;
-	      y = this.document.y;
-	      emitLine = (function(_this) {
-	        return function() {
-	          options.textWidth = textWidth + _this.wordSpacing * (wc - 1);
-	          options.wordCount = wc;
-	          options.lineWidth = _this.lineWidth;
-	          y = _this.document.y;
-	          _this.emit('line', buffer, options, _this);
-	          return lc++;
-	        };
-	      })(this);
-	      this.emit('sectionStart', options, this);
-	      this.eachWord(text, (function(_this) {
-	        return function(word, w, bk, last) {
-	          var lh, shouldContinue;
-	          if ((last == null) || last.required) {
-	            _this.emit('firstLine', options, _this);
-	            _this.spaceLeft = _this.lineWidth;
-	          }
-	          if (w <= _this.spaceLeft) {
-	            buffer += word;
-	            textWidth += w;
-	            wc++;
-	          }
-	          if (bk.required || w > _this.spaceLeft) {
-	            if (bk.required) {
-	              _this.emit('lastLine', options, _this);
-	            }
-	            lh = _this.document.currentLineHeight(true);
-	            if ((_this.height != null) && _this.ellipsis && _this.document.y + lh * 2 > _this.maxY && _this.column >= _this.columns) {
-	              if (_this.ellipsis === true) {
-	                _this.ellipsis = '…';
-	              }
-	              buffer = buffer.replace(/\s+$/, '');
-	              textWidth = _this.wordWidth(buffer + _this.ellipsis);
-	              while (textWidth > _this.lineWidth) {
-	                buffer = buffer.slice(0, -1).replace(/\s+$/, '');
-	                textWidth = _this.wordWidth(buffer + _this.ellipsis);
-	              }
-	              buffer = buffer + _this.ellipsis;
-	            }
-	            emitLine();
-	            if (_this.document.y + lh > _this.maxY) {
-	              shouldContinue = _this.nextSection();
-	              if (!shouldContinue) {
-	                wc = 0;
-	                buffer = '';
-	                return false;
-	              }
-	            }
-	            if (bk.required) {
-	              if (w > _this.spaceLeft) {
-	                buffer = word;
-	                textWidth = w;
-	                wc = 1;
-	                emitLine();
-	              }
-	              _this.spaceLeft = _this.lineWidth;
-	              buffer = '';
-	              textWidth = 0;
-	              return wc = 0;
-	            } else {
-	              _this.spaceLeft = _this.lineWidth - w;
-	              buffer = word;
-	              textWidth = w;
-	              return wc = 1;
-	            }
-	          } else {
-	            return _this.spaceLeft -= w;
-	          }
-	        };
-	      })(this));
-	      if (wc > 0) {
-	        this.emit('lastLine', options, this);
-	        emitLine();
-	      }
-	      this.emit('sectionEnd', options, this);
-	      if (options.continued === true) {
-	        if (lc > 1) {
-	          this.continuedX = 0;
-	        }
-	        this.continuedX += options.textWidth;
-	        return this.document.y = y;
-	      } else {
-	        return this.document.x = this.startX;
-	      }
-	    };
-
-	    LineWrapper.prototype.nextSection = function(options) {
-	      var _ref;
-	      this.emit('sectionEnd', options, this);
-	      if (++this.column > this.columns) {
-	        if (this.height != null) {
-	          return false;
-	        }
-	        this.document.addPage();
-	        this.column = 1;
-	        this.startY = this.document.page.margins.top;
-	        this.maxY = this.document.page.maxY();
-	        this.document.x = this.startX;
-	        if (this.document._fillColor) {
-	          (_ref = this.document).fillColor.apply(_ref, this.document._fillColor);
-	        }
-	        this.emit('pageBreak', options, this);
-	      } else {
-	        this.document.x += this.lineWidth + this.columnGap;
-	        this.document.y = this.startY;
-	        this.emit('columnBreak', options, this);
-	      }
-	      this.emit('sectionStart', options, this);
-	      return true;
-	    };
-
-	    return LineWrapper;
-
-	  })(EventEmitter);
-
-	  module.exports = LineWrapper;
-
-	}).call(this);
-
-
-/***/ },
-/* 49 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var PDFGradient, PDFLinearGradient, PDFRadialGradient,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  PDFGradient = (function() {
-	    function PDFGradient(doc) {
-	      this.doc = doc;
-	      this.stops = [];
-	      this.embedded = false;
-	      this.transform = [1, 0, 0, 1, 0, 0];
-	      this._colorSpace = 'DeviceRGB';
-	    }
-
-	    PDFGradient.prototype.stop = function(pos, color, opacity) {
-	      if (opacity == null) {
-	        opacity = 1;
-	      }
-	      opacity = Math.max(0, Math.min(1, opacity));
-	      this.stops.push([pos, this.doc._normalizeColor(color), opacity]);
-	      return this;
-	    };
-
-	    PDFGradient.prototype.embed = function() {
-	      var bounds, dx, dy, encode, fn, form, grad, group, gstate, i, last, m, m0, m1, m11, m12, m2, m21, m22, m3, m4, m5, name, pattern, resources, sMask, shader, stop, stops, v, _i, _j, _len, _ref, _ref1, _ref2;
-	      if (this.embedded || this.stops.length === 0) {
-	        return;
-	      }
-	      this.embedded = true;
-	      last = this.stops[this.stops.length - 1];
-	      if (last[0] < 1) {
-	        this.stops.push([1, last[1], last[2]]);
-	      }
-	      bounds = [];
-	      encode = [];
-	      stops = [];
-	      for (i = _i = 0, _ref = this.stops.length - 1; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        encode.push(0, 1);
-	        if (i + 2 !== this.stops.length) {
-	          bounds.push(this.stops[i + 1][0]);
-	        }
-	        fn = this.doc.ref({
-	          FunctionType: 2,
-	          Domain: [0, 1],
-	          C0: this.stops[i + 0][1],
-	          C1: this.stops[i + 1][1],
-	          N: 1
-	        });
-	        stops.push(fn);
-	        fn.end();
-	      }
-	      if (stops.length === 1) {
-	        fn = stops[0];
-	      } else {
-	        fn = this.doc.ref({
-	          FunctionType: 3,
-	          Domain: [0, 1],
-	          Functions: stops,
-	          Bounds: bounds,
-	          Encode: encode
-	        });
-	        fn.end();
-	      }
-	      this.id = 'Sh' + (++this.doc._gradCount);
-	      m = this.doc._ctm.slice();
-	      m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5];
-	      _ref1 = this.transform, m11 = _ref1[0], m12 = _ref1[1], m21 = _ref1[2], m22 = _ref1[3], dx = _ref1[4], dy = _ref1[5];
-	      m[0] = m0 * m11 + m2 * m12;
-	      m[1] = m1 * m11 + m3 * m12;
-	      m[2] = m0 * m21 + m2 * m22;
-	      m[3] = m1 * m21 + m3 * m22;
-	      m[4] = m0 * dx + m2 * dy + m4;
-	      m[5] = m1 * dx + m3 * dy + m5;
-	      shader = this.shader(fn);
-	      shader.end();
-	      pattern = this.doc.ref({
-	        Type: 'Pattern',
-	        PatternType: 2,
-	        Shading: shader,
-	        Matrix: (function() {
-	          var _j, _len, _results;
-	          _results = [];
-	          for (_j = 0, _len = m.length; _j < _len; _j++) {
-	            v = m[_j];
-	            _results.push(+v.toFixed(5));
-	          }
-	          return _results;
-	        })()
-	      });
-	      this.doc.page.patterns[this.id] = pattern;
-	      pattern.end();
-	      if (this.stops.some(function(stop) {
-	        return stop[2] < 1;
-	      })) {
-	        grad = this.opacityGradient();
-	        grad._colorSpace = 'DeviceGray';
-	        _ref2 = this.stops;
-	        for (_j = 0, _len = _ref2.length; _j < _len; _j++) {
-	          stop = _ref2[_j];
-	          grad.stop(stop[0], [stop[2]]);
-	        }
-	        grad = grad.embed();
-	        group = this.doc.ref({
-	          Type: 'Group',
-	          S: 'Transparency',
-	          CS: 'DeviceGray'
-	        });
-	        group.end();
-	        resources = this.doc.ref({
-	          ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
-	          Shading: {
-	            Sh1: grad.data.Shading
-	          }
-	        });
-	        resources.end();
-	        form = this.doc.ref({
-	          Type: 'XObject',
-	          Subtype: 'Form',
-	          FormType: 1,
-	          BBox: [0, 0, this.doc.page.width, this.doc.page.height],
-	          Group: group,
-	          Resources: resources
-	        });
-	        form.end("/Sh1 sh");
-	        sMask = this.doc.ref({
-	          Type: 'Mask',
-	          S: 'Luminosity',
-	          G: form
-	        });
-	        sMask.end();
-	        gstate = this.doc.ref({
-	          Type: 'ExtGState',
-	          SMask: sMask
-	        });
-	        this.opacity_id = ++this.doc._opacityCount;
-	        name = "Gs" + this.opacity_id;
-	        this.doc.page.ext_gstates[name] = gstate;
-	        gstate.end();
-	      }
-	      return pattern;
-	    };
-
-	    PDFGradient.prototype.apply = function(op) {
-	      if (!this.embedded) {
-	        this.embed();
-	      }
-	      this.doc.addContent("/" + this.id + " " + op);
-	      if (this.opacity_id) {
-	        this.doc.addContent("/Gs" + this.opacity_id + " gs");
-	        return this.doc._sMasked = true;
-	      }
-	    };
-
-	    return PDFGradient;
-
-	  })();
-
-	  PDFLinearGradient = (function(_super) {
-	    __extends(PDFLinearGradient, _super);
-
-	    function PDFLinearGradient(doc, x1, y1, x2, y2) {
-	      this.doc = doc;
-	      this.x1 = x1;
-	      this.y1 = y1;
-	      this.x2 = x2;
-	      this.y2 = y2;
-	      PDFLinearGradient.__super__.constructor.apply(this, arguments);
-	    }
-
-	    PDFLinearGradient.prototype.shader = function(fn) {
-	      return this.doc.ref({
-	        ShadingType: 2,
-	        ColorSpace: this._colorSpace,
-	        Coords: [this.x1, this.y1, this.x2, this.y2],
-	        Function: fn,
-	        Extend: [true, true]
-	      });
-	    };
-
-	    PDFLinearGradient.prototype.opacityGradient = function() {
-	      return new PDFLinearGradient(this.doc, this.x1, this.y1, this.x2, this.y2);
-	    };
-
-	    return PDFLinearGradient;
-
-	  })(PDFGradient);
-
-	  PDFRadialGradient = (function(_super) {
-	    __extends(PDFRadialGradient, _super);
-
-	    function PDFRadialGradient(doc, x1, y1, r1, x2, y2, r2) {
-	      this.doc = doc;
-	      this.x1 = x1;
-	      this.y1 = y1;
-	      this.r1 = r1;
-	      this.x2 = x2;
-	      this.y2 = y2;
-	      this.r2 = r2;
-	      PDFRadialGradient.__super__.constructor.apply(this, arguments);
-	    }
-
-	    PDFRadialGradient.prototype.shader = function(fn) {
-	      return this.doc.ref({
-	        ShadingType: 3,
-	        ColorSpace: this._colorSpace,
-	        Coords: [this.x1, this.y1, this.r1, this.x2, this.y2, this.r2],
-	        Function: fn,
-	        Extend: [true, true]
-	      });
-	    };
-
-	    PDFRadialGradient.prototype.opacityGradient = function() {
-	      return new PDFRadialGradient(this.doc, this.x1, this.y1, this.r1, this.x2, this.y2, this.r2);
-	    };
-
-	    return PDFRadialGradient;
-
-	  })(PDFGradient);
-
-	  module.exports = {
-	    PDFGradient: PDFGradient,
-	    PDFLinearGradient: PDFLinearGradient,
-	    PDFRadialGradient: PDFRadialGradient
-	  };
-
-	}).call(this);
-
-
-/***/ },
-/* 50 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(process, Buffer) {var msg = __webpack_require__(73);
-	var zstream = __webpack_require__(77);
-	var zlib_deflate = __webpack_require__(74);
-	var zlib_inflate = __webpack_require__(75);
-	var constants = __webpack_require__(76);
-
-	for (var key in constants) {
-	  exports[key] = constants[key];
-	}
-
-	// zlib modes
-	exports.NONE = 0;
-	exports.DEFLATE = 1;
-	exports.INFLATE = 2;
-	exports.GZIP = 3;
-	exports.GUNZIP = 4;
-	exports.DEFLATERAW = 5;
-	exports.INFLATERAW = 6;
-	exports.UNZIP = 7;
-
-	/**
-	 * Emulate Node's zlib C++ layer for use by the JS layer in index.js
-	 */
-	function Zlib(mode) {
-	  if (mode < exports.DEFLATE || mode > exports.UNZIP)
-	    throw new TypeError("Bad argument");
-	    
-	  this.mode = mode;
-	  this.init_done = false;
-	  this.write_in_progress = false;
-	  this.pending_close = false;
-	  this.windowBits = 0;
-	  this.level = 0;
-	  this.memLevel = 0;
-	  this.strategy = 0;
-	  this.dictionary = null;
-	}
-
-	Zlib.prototype.init = function(windowBits, level, memLevel, strategy, dictionary) {
-	  this.windowBits = windowBits;
-	  this.level = level;
-	  this.memLevel = memLevel;
-	  this.strategy = strategy;
-	  // dictionary not supported.
-	  
-	  if (this.mode === exports.GZIP || this.mode === exports.GUNZIP)
-	    this.windowBits += 16;
-	    
-	  if (this.mode === exports.UNZIP)
-	    this.windowBits += 32;
-	    
-	  if (this.mode === exports.DEFLATERAW || this.mode === exports.INFLATERAW)
-	    this.windowBits = -this.windowBits;
-	    
-	  this.strm = new zstream();
-	  
-	  switch (this.mode) {
-	    case exports.DEFLATE:
-	    case exports.GZIP:
-	    case exports.DEFLATERAW:
-	      var status = zlib_deflate.deflateInit2(
-	        this.strm,
-	        this.level,
-	        exports.Z_DEFLATED,
-	        this.windowBits,
-	        this.memLevel,
-	        this.strategy
-	      );
-	      break;
-	    case exports.INFLATE:
-	    case exports.GUNZIP:
-	    case exports.INFLATERAW:
-	    case exports.UNZIP:
-	      var status  = zlib_inflate.inflateInit2(
-	        this.strm,
-	        this.windowBits
-	      );
-	      break;
-	    default:
-	      throw new Error("Unknown mode " + this.mode);
-	  }
-	  
-	  if (status !== exports.Z_OK) {
-	    this._error(status);
-	    return;
-	  }
-	  
-	  this.write_in_progress = false;
-	  this.init_done = true;
-	};
-
-	Zlib.prototype.params = function() {
-	  throw new Error("deflateParams Not supported");
-	};
-
-	Zlib.prototype._writeCheck = function() {
-	  if (!this.init_done)
-	    throw new Error("write before init");
-	    
-	  if (this.mode === exports.NONE)
-	    throw new Error("already finalized");
-	    
-	  if (this.write_in_progress)
-	    throw new Error("write already in progress");
-	    
-	  if (this.pending_close)
-	    throw new Error("close is pending");
-	};
-
-	Zlib.prototype.write = function(flush, input, in_off, in_len, out, out_off, out_len) {    
-	  this._writeCheck();
-	  this.write_in_progress = true;
-	  
-	  var self = this;
-	  process.nextTick(function() {
-	    self.write_in_progress = false;
-	    var res = self._write(flush, input, in_off, in_len, out, out_off, out_len);
-	    self.callback(res[0], res[1]);
-	    
-	    if (self.pending_close)
-	      self.close();
-	  });
-	  
-	  return this;
-	};
-
-	// set method for Node buffers, used by pako
-	function bufferSet(data, offset) {
-	  for (var i = 0; i < data.length; i++) {
-	    this[offset + i] = data[i];
-	  }
-	}
-
-	Zlib.prototype.writeSync = function(flush, input, in_off, in_len, out, out_off, out_len) {
-	  this._writeCheck();
-	  return this._write(flush, input, in_off, in_len, out, out_off, out_len);
-	};
-
-	Zlib.prototype._write = function(flush, input, in_off, in_len, out, out_off, out_len) {
-	  this.write_in_progress = true;
-	  
-	  if (flush !== exports.Z_NO_FLUSH &&
-	      flush !== exports.Z_PARTIAL_FLUSH &&
-	      flush !== exports.Z_SYNC_FLUSH &&
-	      flush !== exports.Z_FULL_FLUSH &&
-	      flush !== exports.Z_FINISH &&
-	      flush !== exports.Z_BLOCK) {
-	    throw new Error("Invalid flush value");
-	  }
-	  
-	  if (input == null) {
-	    input = new Buffer(0);
-	    in_len = 0;
-	    in_off = 0;
-	  }
-	  
-	  if (out._set)
-	    out.set = out._set;
-	  else
-	    out.set = bufferSet;
-	  
-	  var strm = this.strm;
-	  strm.avail_in = in_len;
-	  strm.input = input;
-	  strm.next_in = in_off;
-	  strm.avail_out = out_len;
-	  strm.output = out;
-	  strm.next_out = out_off;
-	  
-	  switch (this.mode) {
-	    case exports.DEFLATE:
-	    case exports.GZIP:
-	    case exports.DEFLATERAW:
-	      var status = zlib_deflate.deflate(strm, flush);
-	      break;
-	    case exports.UNZIP:
-	    case exports.INFLATE:
-	    case exports.GUNZIP:
-	    case exports.INFLATERAW:
-	      var status = zlib_inflate.inflate(strm, flush);
-	      break;
-	    default:
-	      throw new Error("Unknown mode " + this.mode);
-	  }
-	  
-	  if (status !== exports.Z_STREAM_END && status !== exports.Z_OK) {
-	    this._error(status);
-	  }
-	  
-	  this.write_in_progress = false;
-	  return [strm.avail_in, strm.avail_out];
-	};
-
-	Zlib.prototype.close = function() {
-	  if (this.write_in_progress) {
-	    this.pending_close = true;
-	    return;
-	  }
-	  
-	  this.pending_close = false;
-	  
-	  if (this.mode === exports.DEFLATE || this.mode === exports.GZIP || this.mode === exports.DEFLATERAW) {
-	    zlib_deflate.deflateEnd(this.strm);
-	  } else {
-	    zlib_inflate.inflateEnd(this.strm);
-	  }
-	  
-	  this.mode = exports.NONE;
-	};
-
-	Zlib.prototype.reset = function() {
-	  switch (this.mode) {
-	    case exports.DEFLATE:
-	    case exports.DEFLATERAW:
-	      var status = zlib_deflate.deflateReset(this.strm);
-	      break;
-	    case exports.INFLATE:
-	    case exports.INFLATERAW:
-	      var status = zlib_inflate.inflateReset(this.strm);
-	      break;
-	  }
-	  
-	  if (status !== exports.Z_OK) {
-	    this._error(status);
-	  }
-	};
-
-	Zlib.prototype._error = function(status) {
-	  this.onerror(msg[status] + ': ' + this.strm.msg, status);
-	  
-	  this.write_in_progress = false;
-	  if (this.pending_close)
-	    this.close();
-	};
-
-	exports.Zlib = Zlib;
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(61), __webpack_require__(4).Buffer))
-
-/***/ },
-/* 51 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.4.0
-
-	/*
-	# MIT LICENSE
-	# Copyright (c) 2011 Devon Govett
-	# 
-	# Permission is hereby granted, free of charge, to any person obtaining a copy of this 
-	# software and associated documentation files (the "Software"), to deal in the Software 
-	# without restriction, including without limitation the rights to use, copy, modify, merge, 
-	# publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons 
-	# to whom the Software is furnished to do so, subject to the following conditions:
-	# 
-	# The above copyright notice and this permission notice shall be included in all copies or 
-	# substantial portions of the Software.
-	# 
-	# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING 
-	# BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
-	# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, 
-	# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
-	# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-	*/
-
-
-	(function() {
-	  var PNG, fs, zlib;
-
-	  fs = __webpack_require__(10);
-
-	  zlib = __webpack_require__(45);
-
-	  module.exports = PNG = (function() {
-
-	    PNG.decode = function(path, fn) {
-	      return fs.readFile(path, function(err, file) {
-	        var png;
-	        png = new PNG(file);
-	        return png.decode(function(pixels) {
-	          return fn(pixels);
-	        });
-	      });
-	    };
-
-	    PNG.load = function(path) {
-	      var file;
-	      file = fs.readFileSync(path);
-	      return new PNG(file);
-	    };
-
-	    function PNG(data) {
-	      var chunkSize, colors, i, index, key, section, short, text, _i, _j, _ref;
-	      this.data = data;
-	      this.pos = 8;
-	      this.palette = [];
-	      this.imgData = [];
-	      this.transparency = {};
-	      this.text = {};
-	      while (true) {
-	        chunkSize = this.readUInt32();
-	        section = ((function() {
-	          var _i, _results;
-	          _results = [];
-	          for (i = _i = 0; _i < 4; i = ++_i) {
-	            _results.push(String.fromCharCode(this.data[this.pos++]));
-	          }
-	          return _results;
-	        }).call(this)).join('');
-	        switch (section) {
-	          case 'IHDR':
-	            this.width = this.readUInt32();
-	            this.height = this.readUInt32();
-	            this.bits = this.data[this.pos++];
-	            this.colorType = this.data[this.pos++];
-	            this.compressionMethod = this.data[this.pos++];
-	            this.filterMethod = this.data[this.pos++];
-	            this.interlaceMethod = this.data[this.pos++];
-	            break;
-	          case 'PLTE':
-	            this.palette = this.read(chunkSize);
-	            break;
-	          case 'IDAT':
-	            for (i = _i = 0; _i < chunkSize; i = _i += 1) {
-	              this.imgData.push(this.data[this.pos++]);
-	            }
-	            break;
-	          case 'tRNS':
-	            this.transparency = {};
-	            switch (this.colorType) {
-	              case 3:
-	                this.transparency.indexed = this.read(chunkSize);
-	                short = 255 - this.transparency.indexed.length;
-	                if (short > 0) {
-	                  for (i = _j = 0; 0 <= short ? _j < short : _j > short; i = 0 <= short ? ++_j : --_j) {
-	                    this.transparency.indexed.push(255);
-	                  }
-	                }
-	                break;
-	              case 0:
-	                this.transparency.grayscale = this.read(chunkSize)[0];
-	                break;
-	              case 2:
-	                this.transparency.rgb = this.read(chunkSize);
-	            }
-	            break;
-	          case 'tEXt':
-	            text = this.read(chunkSize);
-	            index = text.indexOf(0);
-	            key = String.fromCharCode.apply(String, text.slice(0, index));
-	            this.text[key] = String.fromCharCode.apply(String, text.slice(index + 1));
-	            break;
-	          case 'IEND':
-	            this.colors = (function() {
-	              switch (this.colorType) {
-	                case 0:
-	                case 3:
-	                case 4:
-	                  return 1;
-	                case 2:
-	                case 6:
-	                  return 3;
-	              }
-	            }).call(this);
-	            this.hasAlphaChannel = (_ref = this.colorType) === 4 || _ref === 6;
-	            colors = this.colors + (this.hasAlphaChannel ? 1 : 0);
-	            this.pixelBitlength = this.bits * colors;
-	            this.colorSpace = (function() {
-	              switch (this.colors) {
-	                case 1:
-	                  return 'DeviceGray';
-	                case 3:
-	                  return 'DeviceRGB';
-	              }
-	            }).call(this);
-	            this.imgData = new Buffer(this.imgData);
-	            return;
-	          default:
-	            this.pos += chunkSize;
-	        }
-	        this.pos += 4;
-	        if (this.pos > this.data.length) {
-	          throw new Error("Incomplete or corrupt PNG file");
-	        }
-	      }
-	      return;
-	    }
-
-	    PNG.prototype.read = function(bytes) {
-	      var i, _i, _results;
-	      _results = [];
-	      for (i = _i = 0; 0 <= bytes ? _i < bytes : _i > bytes; i = 0 <= bytes ? ++_i : --_i) {
-	        _results.push(this.data[this.pos++]);
-	      }
-	      return _results;
-	    };
-
-	    PNG.prototype.readUInt32 = function() {
-	      var b1, b2, b3, b4;
-	      b1 = this.data[this.pos++] << 24;
-	      b2 = this.data[this.pos++] << 16;
-	      b3 = this.data[this.pos++] << 8;
-	      b4 = this.data[this.pos++];
-	      return b1 | b2 | b3 | b4;
-	    };
-
-	    PNG.prototype.readUInt16 = function() {
-	      var b1, b2;
-	      b1 = this.data[this.pos++] << 8;
-	      b2 = this.data[this.pos++];
-	      return b1 | b2;
-	    };
-
-	    PNG.prototype.decodePixels = function(fn) {
-	      var _this = this;
-	      return zlib.inflate(this.imgData, function(err, data) {
-	        var byte, c, col, i, left, length, p, pa, paeth, pb, pc, pixelBytes, pixels, pos, row, scanlineLength, upper, upperLeft, _i, _j, _k, _l, _m;
-	        if (err) {
-	          throw err;
-	        }
-	        pixelBytes = _this.pixelBitlength / 8;
-	        scanlineLength = pixelBytes * _this.width;
-	        pixels = new Buffer(scanlineLength * _this.height);
-	        length = data.length;
-	        row = 0;
-	        pos = 0;
-	        c = 0;
-	        while (pos < length) {
-	          switch (data[pos++]) {
-	            case 0:
-	              for (i = _i = 0; _i < scanlineLength; i = _i += 1) {
-	                pixels[c++] = data[pos++];
-	              }
-	              break;
-	            case 1:
-	              for (i = _j = 0; _j < scanlineLength; i = _j += 1) {
-	                byte = data[pos++];
-	                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
-	                pixels[c++] = (byte + left) % 256;
-	              }
-	              break;
-	            case 2:
-	              for (i = _k = 0; _k < scanlineLength; i = _k += 1) {
-	                byte = data[pos++];
-	                col = (i - (i % pixelBytes)) / pixelBytes;
-	                upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + (i % pixelBytes)];
-	                pixels[c++] = (upper + byte) % 256;
-	              }
-	              break;
-	            case 3:
-	              for (i = _l = 0; _l < scanlineLength; i = _l += 1) {
-	                byte = data[pos++];
-	                col = (i - (i % pixelBytes)) / pixelBytes;
-	                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
-	                upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + (i % pixelBytes)];
-	                pixels[c++] = (byte + Math.floor((left + upper) / 2)) % 256;
-	              }
-	              break;
-	            case 4:
-	              for (i = _m = 0; _m < scanlineLength; i = _m += 1) {
-	                byte = data[pos++];
-	                col = (i - (i % pixelBytes)) / pixelBytes;
-	                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
-	                if (row === 0) {
-	                  upper = upperLeft = 0;
-	                } else {
-	                  upper = pixels[(row - 1) * scanlineLength + col * pixelBytes + (i % pixelBytes)];
-	                  upperLeft = col && pixels[(row - 1) * scanlineLength + (col - 1) * pixelBytes + (i % pixelBytes)];
-	                }
-	                p = left + upper - upperLeft;
-	                pa = Math.abs(p - left);
-	                pb = Math.abs(p - upper);
-	                pc = Math.abs(p - upperLeft);
-	                if (pa <= pb && pa <= pc) {
-	                  paeth = left;
-	                } else if (pb <= pc) {
-	                  paeth = upper;
-	                } else {
-	                  paeth = upperLeft;
-	                }
-	                pixels[c++] = (byte + paeth) % 256;
-	              }
-	              break;
-	            default:
-	              throw new Error("Invalid filter algorithm: " + data[pos - 1]);
-	          }
-	          row++;
-	        }
-	        return fn(pixels);
-	      });
-	    };
-
-	    PNG.prototype.decodePalette = function() {
-	      var c, i, length, palette, pos, ret, transparency, _i, _ref, _ref1;
-	      palette = this.palette;
-	      transparency = this.transparency.indexed || [];
-	      ret = new Buffer(transparency.length + palette.length);
-	      pos = 0;
-	      length = palette.length;
-	      c = 0;
-	      for (i = _i = 0, _ref = palette.length; _i < _ref; i = _i += 3) {
-	        ret[pos++] = palette[i];
-	        ret[pos++] = palette[i + 1];
-	        ret[pos++] = palette[i + 2];
-	        ret[pos++] = (_ref1 = transparency[c++]) != null ? _ref1 : 255;
-	      }
-	      return ret;
-	    };
-
-	    PNG.prototype.copyToImageData = function(imageData, pixels) {
-	      var alpha, colors, data, i, input, j, k, length, palette, v, _ref;
-	      colors = this.colors;
-	      palette = null;
-	      alpha = this.hasAlphaChannel;
-	      if (this.palette.length) {
-	        palette = (_ref = this._decodedPalette) != null ? _ref : this._decodedPalette = this.decodePalette();
-	        colors = 4;
-	        alpha = true;
-	      }
-	      data = (imageData != null ? imageData.data : void 0) || imageData;
-	      length = data.length;
-	      input = palette || pixels;
-	      i = j = 0;
-	      if (colors === 1) {
-	        while (i < length) {
-	          k = palette ? pixels[i / 4] * 4 : j;
-	          v = input[k++];
-	          data[i++] = v;
-	          data[i++] = v;
-	          data[i++] = v;
-	          data[i++] = alpha ? input[k++] : 255;
-	          j = k;
-	        }
-	      } else {
-	        while (i < length) {
-	          k = palette ? pixels[i / 4] * 4 : j;
-	          data[i++] = input[k++];
-	          data[i++] = input[k++];
-	          data[i++] = input[k++];
-	          data[i++] = alpha ? input[k++] : 255;
-	          j = k;
-	        }
-	      }
-	    };
-
-	    PNG.prototype.decode = function(fn) {
-	      var ret,
-	        _this = this;
-	      ret = new Buffer(this.width * this.height * 4);
-	      return this.decodePixels(function(pixels) {
-	        _this.copyToImageData(ret, pixels);
-	        return fn(ret);
-	      });
-	    };
-
-	    return PNG;
-
-	  })();
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 52 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer, __dirname) {// Generated by CoffeeScript 1.7.1
-
-	/*
-	PDFFont - embeds fonts in PDF documents
-	By Devon Govett
-	 */
-
-	(function() {
-	  var AFMFont, PDFFont, Subset, TTFFont, fs;
-
-	  TTFFont = __webpack_require__(64);
-
-	  AFMFont = __webpack_require__(63);
-
-	  Subset = __webpack_require__(65);
-
-	  fs = __webpack_require__(10);
-
-	  PDFFont = (function() {
-	    var STANDARD_FONTS, toUnicodeCmap;
-
-	    function PDFFont(document, src, family, id) {
-	      this.document = document;
-	      this.id = id;
-	      if (typeof src === 'string') {
-	        if (src in STANDARD_FONTS) {
-	          this.isAFM = true;
-	          this.font = new AFMFont(STANDARD_FONTS[src]());
-	          this.registerAFM(src);
-	          return;
-	        } else if (/\.(ttf|ttc)$/i.test(src)) {
-	          this.font = TTFFont.open(src, family);
-	        } else if (/\.dfont$/i.test(src)) {
-	          this.font = TTFFont.fromDFont(src, family);
-	        } else {
-	          throw new Error('Not a supported font format or standard PDF font.');
-	        }
-	      } else if (Buffer.isBuffer(src)) {
-	        this.font = TTFFont.fromBuffer(src, family);
-	      } else if (src instanceof Uint8Array) {
-	        this.font = TTFFont.fromBuffer(new Buffer(src), family);
-	      } else if (src instanceof ArrayBuffer) {
-	        this.font = TTFFont.fromBuffer(new Buffer(new Uint8Array(src)), family);
-	      } else {
-	        throw new Error('Not a supported font format or standard PDF font.');
-	      }
-	      this.subset = new Subset(this.font);
-	      this.registerTTF();
-	    }
-
-	    STANDARD_FONTS = {
-	      "Courier": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Courier.afm", 'utf8');
-	      },
-	      "Courier-Bold": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Courier-Bold.afm", 'utf8');
-	      },
-	      "Courier-Oblique": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Courier-Oblique.afm", 'utf8');
-	      },
-	      "Courier-BoldOblique": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Courier-BoldOblique.afm", 'utf8');
-	      },
-	      "Helvetica": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Helvetica.afm", 'utf8');
-	      },
-	      "Helvetica-Bold": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Helvetica-Bold.afm", 'utf8');
-	      },
-	      "Helvetica-Oblique": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Helvetica-Oblique.afm", 'utf8');
-	      },
-	      "Helvetica-BoldOblique": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Helvetica-BoldOblique.afm", 'utf8');
-	      },
-	      "Times-Roman": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Times-Roman.afm", 'utf8');
-	      },
-	      "Times-Bold": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Times-Bold.afm", 'utf8');
-	      },
-	      "Times-Italic": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Times-Italic.afm", 'utf8');
-	      },
-	      "Times-BoldItalic": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Times-BoldItalic.afm", 'utf8');
-	      },
-	      "Symbol": function() {
-	        return fs.readFileSync(__dirname + "/font/data/Symbol.afm", 'utf8');
-	      },
-	      "ZapfDingbats": function() {
-	        return fs.readFileSync(__dirname + "/font/data/ZapfDingbats.afm", 'utf8');
-	      }
-	    };
-
-	    PDFFont.prototype.use = function(characters) {
-	      var _ref;
-	      return (_ref = this.subset) != null ? _ref.use(characters) : void 0;
-	    };
-
-	    PDFFont.prototype.embed = function() {
-	      if (this.embedded || (this.dictionary == null)) {
-	        return;
-	      }
-	      if (this.isAFM) {
-	        this.embedAFM();
-	      } else {
-	        this.embedTTF();
-	      }
-	      return this.embedded = true;
-	    };
-
-	    PDFFont.prototype.encode = function(text) {
-	      var _ref;
-	      if (this.isAFM) {
-	        return this.font.encodeText(text);
-	      } else {
-	        return ((_ref = this.subset) != null ? _ref.encodeText(text) : void 0) || text;
-	      }
-	    };
-
-	    PDFFont.prototype.ref = function() {
-	      return this.dictionary != null ? this.dictionary : this.dictionary = this.document.ref();
-	    };
-
-	    PDFFont.prototype.registerTTF = function() {
-	      var e, hi, low, raw, _ref;
-	      this.name = this.font.name.postscriptName;
-	      this.scaleFactor = 1000.0 / this.font.head.unitsPerEm;
-	      this.bbox = (function() {
-	        var _i, _len, _ref, _results;
-	        _ref = this.font.bbox;
-	        _results = [];
-	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	          e = _ref[_i];
-	          _results.push(Math.round(e * this.scaleFactor));
-	        }
-	        return _results;
-	      }).call(this);
-	      this.stemV = 0;
-	      if (this.font.post.exists) {
-	        raw = this.font.post.italic_angle;
-	        hi = raw >> 16;
-	        low = raw & 0xFF;
-	        if (hi & 0x8000 !== 0) {
-	          hi = -((hi ^ 0xFFFF) + 1);
-	        }
-	        this.italicAngle = +("" + hi + "." + low);
-	      } else {
-	        this.italicAngle = 0;
-	      }
-	      this.ascender = Math.round(this.font.ascender * this.scaleFactor);
-	      this.decender = Math.round(this.font.decender * this.scaleFactor);
-	      this.lineGap = Math.round(this.font.lineGap * this.scaleFactor);
-	      this.capHeight = (this.font.os2.exists && this.font.os2.capHeight) || this.ascender;
-	      this.xHeight = (this.font.os2.exists && this.font.os2.xHeight) || 0;
-	      this.familyClass = (this.font.os2.exists && this.font.os2.familyClass || 0) >> 8;
-	      this.isSerif = (_ref = this.familyClass) === 1 || _ref === 2 || _ref === 3 || _ref === 4 || _ref === 5 || _ref === 7;
-	      this.isScript = this.familyClass === 10;
-	      this.flags = 0;
-	      if (this.font.post.isFixedPitch) {
-	        this.flags |= 1 << 0;
-	      }
-	      if (this.isSerif) {
-	        this.flags |= 1 << 1;
-	      }
-	      if (this.isScript) {
-	        this.flags |= 1 << 3;
-	      }
-	      if (this.italicAngle !== 0) {
-	        this.flags |= 1 << 6;
-	      }
-	      this.flags |= 1 << 5;
-	      if (!this.font.cmap.unicode) {
-	        throw new Error('No unicode cmap for font');
-	      }
-	    };
-
-	    PDFFont.prototype.embedTTF = function() {
-	      var charWidths, cmap, code, data, descriptor, firstChar, fontfile, glyph;
-	      data = this.subset.encode();
-	      fontfile = this.document.ref();
-	      fontfile.write(data);
-	      fontfile.data.Length1 = fontfile.uncompressedLength;
-	      fontfile.end();
-	      descriptor = this.document.ref({
-	        Type: 'FontDescriptor',
-	        FontName: this.subset.postscriptName,
-	        FontFile2: fontfile,
-	        FontBBox: this.bbox,
-	        Flags: this.flags,
-	        StemV: this.stemV,
-	        ItalicAngle: this.italicAngle,
-	        Ascent: this.ascender,
-	        Descent: this.decender,
-	        CapHeight: this.capHeight,
-	        XHeight: this.xHeight
-	      });
-	      descriptor.end();
-	      firstChar = +Object.keys(this.subset.cmap)[0];
-	      charWidths = (function() {
-	        var _ref, _results;
-	        _ref = this.subset.cmap;
-	        _results = [];
-	        for (code in _ref) {
-	          glyph = _ref[code];
-	          _results.push(Math.round(this.font.widthOfGlyph(glyph)));
-	        }
-	        return _results;
-	      }).call(this);
-	      cmap = this.document.ref();
-	      cmap.end(toUnicodeCmap(this.subset.subset));
-	      this.dictionary.data = {
-	        Type: 'Font',
-	        BaseFont: this.subset.postscriptName,
-	        Subtype: 'TrueType',
-	        FontDescriptor: descriptor,
-	        FirstChar: firstChar,
-	        LastChar: firstChar + charWidths.length - 1,
-	        Widths: charWidths,
-	        Encoding: 'MacRomanEncoding',
-	        ToUnicode: cmap
-	      };
-	      return this.dictionary.end();
-	    };
-
-	    toUnicodeCmap = function(map) {
-	      var code, codes, range, unicode, unicodeMap, _i, _len;
-	      unicodeMap = '/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo <<\n  /Registry (Adobe)\n  /Ordering (UCS)\n  /Supplement 0\n>> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00><ff>\nendcodespacerange';
-	      codes = Object.keys(map).sort(function(a, b) {
-	        return a - b;
-	      });
-	      range = [];
-	      for (_i = 0, _len = codes.length; _i < _len; _i++) {
-	        code = codes[_i];
-	        if (range.length >= 100) {
-	          unicodeMap += "\n" + range.length + " beginbfchar\n" + (range.join('\n')) + "\nendbfchar";
-	          range = [];
-	        }
-	        unicode = ('0000' + map[code].toString(16)).slice(-4);
-	        code = (+code).toString(16);
-	        range.push("<" + code + "><" + unicode + ">");
-	      }
-	      if (range.length) {
-	        unicodeMap += "\n" + range.length + " beginbfchar\n" + (range.join('\n')) + "\nendbfchar\n";
-	      }
-	      return unicodeMap += 'endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend';
-	    };
-
-	    PDFFont.prototype.registerAFM = function(name) {
-	      var _ref;
-	      this.name = name;
-	      return _ref = this.font, this.ascender = _ref.ascender, this.decender = _ref.decender, this.bbox = _ref.bbox, this.lineGap = _ref.lineGap, _ref;
-	    };
-
-	    PDFFont.prototype.embedAFM = function() {
-	      this.dictionary.data = {
-	        Type: 'Font',
-	        BaseFont: this.name,
-	        Subtype: 'Type1',
-	        Encoding: 'WinAnsiEncoding'
-	      };
-	      return this.dictionary.end();
-	    };
-
-	    PDFFont.prototype.widthOfString = function(string, size) {
-	      var charCode, i, scale, width, _i, _ref;
-	      string = '' + string;
-	      width = 0;
-	      for (i = _i = 0, _ref = string.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        charCode = string.charCodeAt(i);
-	        width += this.font.widthOfGlyph(this.font.characterToGlyph(charCode)) || 0;
-	      }
-	      scale = size / 1000;
-	      return width * scale;
-	    };
-
-	    PDFFont.prototype.lineHeight = function(size, includeGap) {
-	      var gap;
-	      if (includeGap == null) {
-	        includeGap = false;
-	      }
-	      gap = includeGap ? this.lineGap : 0;
-	      return (this.ascender + gap - this.decender) / 1000 * size;
-	    };
-
-	    return PDFFont;
-
-	  })();
-
-	  module.exports = PDFFont;
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer, "/"))
-
-/***/ },
-/* 53 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// http://wiki.commonjs.org/wiki/Unit_Testing/1.0
-	//
-	// THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
-	//
-	// Originally from narwhal.js (http://narwhaljs.org)
-	// Copyright (c) 2009 Thomas Robinson <280north.com>
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a copy
-	// of this software and associated documentation files (the 'Software'), to
-	// deal in the Software without restriction, including without limitation the
-	// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-	// sell copies of the Software, and to permit persons to whom the Software is
-	// furnished to do so, subject to the following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included in
-	// all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	// AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-	// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-	// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	// when used in node, this will actually load the util module we depend on
-	// versus loading the builtin util module as happens otherwise
-	// this is a bug in node module loading as far as I am concerned
-	var util = __webpack_require__(60);
-
-	var pSlice = Array.prototype.slice;
-	var hasOwn = Object.prototype.hasOwnProperty;
-
-	// 1. The assert module provides functions that throw
-	// AssertionError's when particular conditions are not met. The
-	// assert module must conform to the following interface.
-
-	var assert = module.exports = ok;
-
-	// 2. The AssertionError is defined in assert.
-	// new assert.AssertionError({ message: message,
-	//                             actual: actual,
-	//                             expected: expected })
-
-	assert.AssertionError = function AssertionError(options) {
-	  this.name = 'AssertionError';
-	  this.actual = options.actual;
-	  this.expected = options.expected;
-	  this.operator = options.operator;
-	  if (options.message) {
-	    this.message = options.message;
-	    this.generatedMessage = false;
-	  } else {
-	    this.message = getMessage(this);
-	    this.generatedMessage = true;
-	  }
-	  var stackStartFunction = options.stackStartFunction || fail;
-
-	  if (Error.captureStackTrace) {
-	    Error.captureStackTrace(this, stackStartFunction);
-	  }
-	  else {
-	    // non v8 browsers so we can have a stacktrace
-	    var err = new Error();
-	    if (err.stack) {
-	      var out = err.stack;
-
-	      // try to strip useless frames
-	      var fn_name = stackStartFunction.name;
-	      var idx = out.indexOf('\n' + fn_name);
-	      if (idx >= 0) {
-	        // once we have located the function frame
-	        // we need to strip out everything before it (and its line)
-	        var next_line = out.indexOf('\n', idx + 1);
-	        out = out.substring(next_line + 1);
-	      }
-
-	      this.stack = out;
-	    }
-	  }
-	};
-
-	// assert.AssertionError instanceof Error
-	util.inherits(assert.AssertionError, Error);
-
-	function replacer(key, value) {
-	  if (util.isUndefined(value)) {
-	    return '' + value;
-	  }
-	  if (util.isNumber(value) && !isFinite(value)) {
-	    return value.toString();
-	  }
-	  if (util.isFunction(value) || util.isRegExp(value)) {
-	    return value.toString();
-	  }
-	  return value;
-	}
-
-	function truncate(s, n) {
-	  if (util.isString(s)) {
-	    return s.length < n ? s : s.slice(0, n);
-	  } else {
-	    return s;
-	  }
-	}
-
-	function getMessage(self) {
-	  return truncate(JSON.stringify(self.actual, replacer), 128) + ' ' +
-	         self.operator + ' ' +
-	         truncate(JSON.stringify(self.expected, replacer), 128);
-	}
-
-	// At present only the three keys mentioned above are used and
-	// understood by the spec. Implementations or sub modules can pass
-	// other keys to the AssertionError's constructor - they will be
-	// ignored.
-
-	// 3. All of the following functions must throw an AssertionError
-	// when a corresponding condition is not met, with a message that
-	// may be undefined if not provided.  All assertion methods provide
-	// both the actual and expected values to the assertion error for
-	// display purposes.
-
-	function fail(actual, expected, message, operator, stackStartFunction) {
-	  throw new assert.AssertionError({
-	    message: message,
-	    actual: actual,
-	    expected: expected,
-	    operator: operator,
-	    stackStartFunction: stackStartFunction
-	  });
-	}
-
-	// EXTENSION! allows for well behaved errors defined elsewhere.
-	assert.fail = fail;
-
-	// 4. Pure assertion tests whether a value is truthy, as determined
-	// by !!guard.
-	// assert.ok(guard, message_opt);
-	// This statement is equivalent to assert.equal(true, !!guard,
-	// message_opt);. To test strictly for the value true, use
-	// assert.strictEqual(true, guard, message_opt);.
-
-	function ok(value, message) {
-	  if (!value) fail(value, true, message, '==', assert.ok);
-	}
-	assert.ok = ok;
-
-	// 5. The equality assertion tests shallow, coercive equality with
-	// ==.
-	// assert.equal(actual, expected, message_opt);
-
-	assert.equal = function equal(actual, expected, message) {
-	  if (actual != expected) fail(actual, expected, message, '==', assert.equal);
-	};
-
-	// 6. The non-equality assertion tests for whether two objects are not equal
-	// with != assert.notEqual(actual, expected, message_opt);
-
-	assert.notEqual = function notEqual(actual, expected, message) {
-	  if (actual == expected) {
-	    fail(actual, expected, message, '!=', assert.notEqual);
-	  }
-	};
-
-	// 7. The equivalence assertion tests a deep equality relation.
-	// assert.deepEqual(actual, expected, message_opt);
-
-	assert.deepEqual = function deepEqual(actual, expected, message) {
-	  if (!_deepEqual(actual, expected)) {
-	    fail(actual, expected, message, 'deepEqual', assert.deepEqual);
-	  }
-	};
-
-	function _deepEqual(actual, expected) {
-	  // 7.1. All identical values are equivalent, as determined by ===.
-	  if (actual === expected) {
-	    return true;
-
-	  } else if (util.isBuffer(actual) && util.isBuffer(expected)) {
-	    if (actual.length != expected.length) return false;
-
-	    for (var i = 0; i < actual.length; i++) {
-	      if (actual[i] !== expected[i]) return false;
-	    }
-
-	    return true;
-
-	  // 7.2. If the expected value is a Date object, the actual value is
-	  // equivalent if it is also a Date object that refers to the same time.
-	  } else if (util.isDate(actual) && util.isDate(expected)) {
-	    return actual.getTime() === expected.getTime();
-
-	  // 7.3 If the expected value is a RegExp object, the actual value is
-	  // equivalent if it is also a RegExp object with the same source and
-	  // properties (`global`, `multiline`, `lastIndex`, `ignoreCase`).
-	  } else if (util.isRegExp(actual) && util.isRegExp(expected)) {
-	    return actual.source === expected.source &&
-	           actual.global === expected.global &&
-	           actual.multiline === expected.multiline &&
-	           actual.lastIndex === expected.lastIndex &&
-	           actual.ignoreCase === expected.ignoreCase;
-
-	  // 7.4. Other pairs that do not both pass typeof value == 'object',
-	  // equivalence is determined by ==.
-	  } else if (!util.isObject(actual) && !util.isObject(expected)) {
-	    return actual == expected;
-
-	  // 7.5 For all other Object pairs, including Array objects, equivalence is
-	  // determined by having the same number of owned properties (as verified
-	  // with Object.prototype.hasOwnProperty.call), the same set of keys
-	  // (although not necessarily the same order), equivalent values for every
-	  // corresponding key, and an identical 'prototype' property. Note: this
-	  // accounts for both named and indexed properties on Arrays.
-	  } else {
-	    return objEquiv(actual, expected);
-	  }
-	}
-
-	function isArguments(object) {
-	  return Object.prototype.toString.call(object) == '[object Arguments]';
-	}
-
-	function objEquiv(a, b) {
-	  if (util.isNullOrUndefined(a) || util.isNullOrUndefined(b))
-	    return false;
-	  // an identical 'prototype' property.
-	  if (a.prototype !== b.prototype) return false;
-	  // if one is a primitive, the other must be same
-	  if (util.isPrimitive(a) || util.isPrimitive(b)) {
-	    return a === b;
-	  }
-	  var aIsArgs = isArguments(a),
-	      bIsArgs = isArguments(b);
-	  if ((aIsArgs && !bIsArgs) || (!aIsArgs && bIsArgs))
-	    return false;
-	  if (aIsArgs) {
-	    a = pSlice.call(a);
-	    b = pSlice.call(b);
-	    return _deepEqual(a, b);
-	  }
-	  var ka = objectKeys(a),
-	      kb = objectKeys(b),
-	      key, i;
-	  // having the same number of owned properties (keys incorporates
-	  // hasOwnProperty)
-	  if (ka.length != kb.length)
-	    return false;
-	  //the same set of keys (although not necessarily the same order),
-	  ka.sort();
-	  kb.sort();
-	  //~~~cheap key test
-	  for (i = ka.length - 1; i >= 0; i--) {
-	    if (ka[i] != kb[i])
-	      return false;
-	  }
-	  //equivalent values for every corresponding key, and
-	  //~~~possibly expensive deep test
-	  for (i = ka.length - 1; i >= 0; i--) {
-	    key = ka[i];
-	    if (!_deepEqual(a[key], b[key])) return false;
-	  }
-	  return true;
-	}
-
-	// 8. The non-equivalence assertion tests for any deep inequality.
-	// assert.notDeepEqual(actual, expected, message_opt);
-
-	assert.notDeepEqual = function notDeepEqual(actual, expected, message) {
-	  if (_deepEqual(actual, expected)) {
-	    fail(actual, expected, message, 'notDeepEqual', assert.notDeepEqual);
-	  }
-	};
-
-	// 9. The strict equality assertion tests strict equality, as determined by ===.
-	// assert.strictEqual(actual, expected, message_opt);
-
-	assert.strictEqual = function strictEqual(actual, expected, message) {
-	  if (actual !== expected) {
-	    fail(actual, expected, message, '===', assert.strictEqual);
-	  }
-	};
-
-	// 10. The strict non-equality assertion tests for strict inequality, as
-	// determined by !==.  assert.notStrictEqual(actual, expected, message_opt);
-
-	assert.notStrictEqual = function notStrictEqual(actual, expected, message) {
-	  if (actual === expected) {
-	    fail(actual, expected, message, '!==', assert.notStrictEqual);
-	  }
-	};
-
-	function expectedException(actual, expected) {
-	  if (!actual || !expected) {
-	    return false;
-	  }
-
-	  if (Object.prototype.toString.call(expected) == '[object RegExp]') {
-	    return expected.test(actual);
-	  } else if (actual instanceof expected) {
-	    return true;
-	  } else if (expected.call({}, actual) === true) {
-	    return true;
-	  }
-
-	  return false;
-	}
-
-	function _throws(shouldThrow, block, expected, message) {
-	  var actual;
-
-	  if (util.isString(expected)) {
-	    message = expected;
-	    expected = null;
-	  }
-
-	  try {
-	    block();
-	  } catch (e) {
-	    actual = e;
-	  }
-
-	  message = (expected && expected.name ? ' (' + expected.name + ').' : '.') +
-	            (message ? ' ' + message : '.');
-
-	  if (shouldThrow && !actual) {
-	    fail(actual, expected, 'Missing expected exception' + message);
-	  }
-
-	  if (!shouldThrow && expectedException(actual, expected)) {
-	    fail(actual, expected, 'Got unwanted exception' + message);
-	  }
-
-	  if ((shouldThrow && actual && expected &&
-	      !expectedException(actual, expected)) || (!shouldThrow && actual)) {
-	    throw actual;
-	  }
-	}
-
-	// 11. Expected to throw an error:
-	// assert.throws(block, Error_opt, message_opt);
-
-	assert.throws = function(block, /*optional*/error, /*optional*/message) {
-	  _throws.apply(this, [true].concat(pSlice.call(arguments)));
-	};
-
-	// EXTENSION! This is annoying to write outside this module.
-	assert.doesNotThrow = function(block, /*optional*/message) {
-	  _throws.apply(this, [false].concat(pSlice.call(arguments)));
-	};
-
-	assert.ifError = function(err) { if (err) {throw err;}};
-
-	var objectKeys = Object.keys || function (obj) {
-	  var keys = [];
-	  for (var key in obj) {
-	    if (hasOwn.call(obj, key)) keys.push(key);
-	  }
-	  return keys;
-	};
-
-
-/***/ },
-/* 54 */
-/***/ function(module, exports, __webpack_require__) {
+/* 26 */
+/***/ function(module, exports) {
 
 	// Copyright Joyent, Inc. and other Node contributors.
 	//
@@ -22945,706 +17714,8 @@
 
 
 /***/ },
-/* 55 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = __webpack_require__(70)
-
-
-/***/ },
-/* 56 */
-/***/ function(module, exports, __webpack_require__) {
-
-	exports = module.exports = __webpack_require__(71);
-	exports.Stream = __webpack_require__(46);
-	exports.Readable = exports;
-	exports.Writable = __webpack_require__(67);
-	exports.Duplex = __webpack_require__(69);
-	exports.Transform = __webpack_require__(70);
-	exports.PassThrough = __webpack_require__(68);
-
-
-/***/ },
-/* 57 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = __webpack_require__(67)
-
-
-/***/ },
-/* 58 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = __webpack_require__(69)
-
-
-/***/ },
-/* 59 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = __webpack_require__(68)
-
-
-/***/ },
-/* 60 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(global, process) {// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	var formatRegExp = /%[sdj%]/g;
-	exports.format = function(f) {
-	  if (!isString(f)) {
-	    var objects = [];
-	    for (var i = 0; i < arguments.length; i++) {
-	      objects.push(inspect(arguments[i]));
-	    }
-	    return objects.join(' ');
-	  }
-
-	  var i = 1;
-	  var args = arguments;
-	  var len = args.length;
-	  var str = String(f).replace(formatRegExp, function(x) {
-	    if (x === '%%') return '%';
-	    if (i >= len) return x;
-	    switch (x) {
-	      case '%s': return String(args[i++]);
-	      case '%d': return Number(args[i++]);
-	      case '%j':
-	        try {
-	          return JSON.stringify(args[i++]);
-	        } catch (_) {
-	          return '[Circular]';
-	        }
-	      default:
-	        return x;
-	    }
-	  });
-	  for (var x = args[i]; i < len; x = args[++i]) {
-	    if (isNull(x) || !isObject(x)) {
-	      str += ' ' + x;
-	    } else {
-	      str += ' ' + inspect(x);
-	    }
-	  }
-	  return str;
-	};
-
-
-	// Mark that a method should not be used.
-	// Returns a modified function which warns once by default.
-	// If --no-deprecation is set, then it is a no-op.
-	exports.deprecate = function(fn, msg) {
-	  // Allow for deprecating things in the process of starting up.
-	  if (isUndefined(global.process)) {
-	    return function() {
-	      return exports.deprecate(fn, msg).apply(this, arguments);
-	    };
-	  }
-
-	  if (process.noDeprecation === true) {
-	    return fn;
-	  }
-
-	  var warned = false;
-	  function deprecated() {
-	    if (!warned) {
-	      if (process.throwDeprecation) {
-	        throw new Error(msg);
-	      } else if (process.traceDeprecation) {
-	        console.trace(msg);
-	      } else {
-	        console.error(msg);
-	      }
-	      warned = true;
-	    }
-	    return fn.apply(this, arguments);
-	  }
-
-	  return deprecated;
-	};
-
-
-	var debugs = {};
-	var debugEnviron;
-	exports.debuglog = function(set) {
-	  if (isUndefined(debugEnviron))
-	    debugEnviron = process.env.NODE_DEBUG || '';
-	  set = set.toUpperCase();
-	  if (!debugs[set]) {
-	    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
-	      var pid = process.pid;
-	      debugs[set] = function() {
-	        var msg = exports.format.apply(exports, arguments);
-	        console.error('%s %d: %s', set, pid, msg);
-	      };
-	    } else {
-	      debugs[set] = function() {};
-	    }
-	  }
-	  return debugs[set];
-	};
-
-
-	/**
-	 * Echos the value of a value. Trys to print the value out
-	 * in the best way possible given the different types.
-	 *
-	 * @param {Object} obj The object to print out.
-	 * @param {Object} opts Optional options object that alters the output.
-	 */
-	/* legacy: obj, showHidden, depth, colors*/
-	function inspect(obj, opts) {
-	  // default options
-	  var ctx = {
-	    seen: [],
-	    stylize: stylizeNoColor
-	  };
-	  // legacy...
-	  if (arguments.length >= 3) ctx.depth = arguments[2];
-	  if (arguments.length >= 4) ctx.colors = arguments[3];
-	  if (isBoolean(opts)) {
-	    // legacy...
-	    ctx.showHidden = opts;
-	  } else if (opts) {
-	    // got an "options" object
-	    exports._extend(ctx, opts);
-	  }
-	  // set default options
-	  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
-	  if (isUndefined(ctx.depth)) ctx.depth = 2;
-	  if (isUndefined(ctx.colors)) ctx.colors = false;
-	  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
-	  if (ctx.colors) ctx.stylize = stylizeWithColor;
-	  return formatValue(ctx, obj, ctx.depth);
-	}
-	exports.inspect = inspect;
-
-
-	// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
-	inspect.colors = {
-	  'bold' : [1, 22],
-	  'italic' : [3, 23],
-	  'underline' : [4, 24],
-	  'inverse' : [7, 27],
-	  'white' : [37, 39],
-	  'grey' : [90, 39],
-	  'black' : [30, 39],
-	  'blue' : [34, 39],
-	  'cyan' : [36, 39],
-	  'green' : [32, 39],
-	  'magenta' : [35, 39],
-	  'red' : [31, 39],
-	  'yellow' : [33, 39]
-	};
-
-	// Don't use 'blue' not visible on cmd.exe
-	inspect.styles = {
-	  'special': 'cyan',
-	  'number': 'yellow',
-	  'boolean': 'yellow',
-	  'undefined': 'grey',
-	  'null': 'bold',
-	  'string': 'green',
-	  'date': 'magenta',
-	  // "name": intentionally not styling
-	  'regexp': 'red'
-	};
-
-
-	function stylizeWithColor(str, styleType) {
-	  var style = inspect.styles[styleType];
-
-	  if (style) {
-	    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
-	           '\u001b[' + inspect.colors[style][1] + 'm';
-	  } else {
-	    return str;
-	  }
-	}
-
-
-	function stylizeNoColor(str, styleType) {
-	  return str;
-	}
-
-
-	function arrayToHash(array) {
-	  var hash = {};
-
-	  array.forEach(function(val, idx) {
-	    hash[val] = true;
-	  });
-
-	  return hash;
-	}
-
-
-	function formatValue(ctx, value, recurseTimes) {
-	  // Provide a hook for user-specified inspect functions.
-	  // Check that value is an object with an inspect function on it
-	  if (ctx.customInspect &&
-	      value &&
-	      isFunction(value.inspect) &&
-	      // Filter out the util module, it's inspect function is special
-	      value.inspect !== exports.inspect &&
-	      // Also filter out any prototype objects using the circular check.
-	      !(value.constructor && value.constructor.prototype === value)) {
-	    var ret = value.inspect(recurseTimes, ctx);
-	    if (!isString(ret)) {
-	      ret = formatValue(ctx, ret, recurseTimes);
-	    }
-	    return ret;
-	  }
-
-	  // Primitive types cannot have properties
-	  var primitive = formatPrimitive(ctx, value);
-	  if (primitive) {
-	    return primitive;
-	  }
-
-	  // Look up the keys of the object.
-	  var keys = Object.keys(value);
-	  var visibleKeys = arrayToHash(keys);
-
-	  if (ctx.showHidden) {
-	    keys = Object.getOwnPropertyNames(value);
-	  }
-
-	  // IE doesn't make error fields non-enumerable
-	  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
-	  if (isError(value)
-	      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
-	    return formatError(value);
-	  }
-
-	  // Some type of object without properties can be shortcutted.
-	  if (keys.length === 0) {
-	    if (isFunction(value)) {
-	      var name = value.name ? ': ' + value.name : '';
-	      return ctx.stylize('[Function' + name + ']', 'special');
-	    }
-	    if (isRegExp(value)) {
-	      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
-	    }
-	    if (isDate(value)) {
-	      return ctx.stylize(Date.prototype.toString.call(value), 'date');
-	    }
-	    if (isError(value)) {
-	      return formatError(value);
-	    }
-	  }
-
-	  var base = '', array = false, braces = ['{', '}'];
-
-	  // Make Array say that they are Array
-	  if (isArray(value)) {
-	    array = true;
-	    braces = ['[', ']'];
-	  }
-
-	  // Make functions say that they are functions
-	  if (isFunction(value)) {
-	    var n = value.name ? ': ' + value.name : '';
-	    base = ' [Function' + n + ']';
-	  }
-
-	  // Make RegExps say that they are RegExps
-	  if (isRegExp(value)) {
-	    base = ' ' + RegExp.prototype.toString.call(value);
-	  }
-
-	  // Make dates with properties first say the date
-	  if (isDate(value)) {
-	    base = ' ' + Date.prototype.toUTCString.call(value);
-	  }
-
-	  // Make error with message first say the error
-	  if (isError(value)) {
-	    base = ' ' + formatError(value);
-	  }
-
-	  if (keys.length === 0 && (!array || value.length == 0)) {
-	    return braces[0] + base + braces[1];
-	  }
-
-	  if (recurseTimes < 0) {
-	    if (isRegExp(value)) {
-	      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
-	    } else {
-	      return ctx.stylize('[Object]', 'special');
-	    }
-	  }
-
-	  ctx.seen.push(value);
-
-	  var output;
-	  if (array) {
-	    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
-	  } else {
-	    output = keys.map(function(key) {
-	      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
-	    });
-	  }
-
-	  ctx.seen.pop();
-
-	  return reduceToSingleString(output, base, braces);
-	}
-
-
-	function formatPrimitive(ctx, value) {
-	  if (isUndefined(value))
-	    return ctx.stylize('undefined', 'undefined');
-	  if (isString(value)) {
-	    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
-	                                             .replace(/'/g, "\\'")
-	                                             .replace(/\\"/g, '"') + '\'';
-	    return ctx.stylize(simple, 'string');
-	  }
-	  if (isNumber(value))
-	    return ctx.stylize('' + value, 'number');
-	  if (isBoolean(value))
-	    return ctx.stylize('' + value, 'boolean');
-	  // For some reason typeof null is "object", so special case here.
-	  if (isNull(value))
-	    return ctx.stylize('null', 'null');
-	}
-
-
-	function formatError(value) {
-	  return '[' + Error.prototype.toString.call(value) + ']';
-	}
-
-
-	function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
-	  var output = [];
-	  for (var i = 0, l = value.length; i < l; ++i) {
-	    if (hasOwnProperty(value, String(i))) {
-	      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
-	          String(i), true));
-	    } else {
-	      output.push('');
-	    }
-	  }
-	  keys.forEach(function(key) {
-	    if (!key.match(/^\d+$/)) {
-	      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
-	          key, true));
-	    }
-	  });
-	  return output;
-	}
-
-
-	function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
-	  var name, str, desc;
-	  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
-	  if (desc.get) {
-	    if (desc.set) {
-	      str = ctx.stylize('[Getter/Setter]', 'special');
-	    } else {
-	      str = ctx.stylize('[Getter]', 'special');
-	    }
-	  } else {
-	    if (desc.set) {
-	      str = ctx.stylize('[Setter]', 'special');
-	    }
-	  }
-	  if (!hasOwnProperty(visibleKeys, key)) {
-	    name = '[' + key + ']';
-	  }
-	  if (!str) {
-	    if (ctx.seen.indexOf(desc.value) < 0) {
-	      if (isNull(recurseTimes)) {
-	        str = formatValue(ctx, desc.value, null);
-	      } else {
-	        str = formatValue(ctx, desc.value, recurseTimes - 1);
-	      }
-	      if (str.indexOf('\n') > -1) {
-	        if (array) {
-	          str = str.split('\n').map(function(line) {
-	            return '  ' + line;
-	          }).join('\n').substr(2);
-	        } else {
-	          str = '\n' + str.split('\n').map(function(line) {
-	            return '   ' + line;
-	          }).join('\n');
-	        }
-	      }
-	    } else {
-	      str = ctx.stylize('[Circular]', 'special');
-	    }
-	  }
-	  if (isUndefined(name)) {
-	    if (array && key.match(/^\d+$/)) {
-	      return str;
-	    }
-	    name = JSON.stringify('' + key);
-	    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
-	      name = name.substr(1, name.length - 2);
-	      name = ctx.stylize(name, 'name');
-	    } else {
-	      name = name.replace(/'/g, "\\'")
-	                 .replace(/\\"/g, '"')
-	                 .replace(/(^"|"$)/g, "'");
-	      name = ctx.stylize(name, 'string');
-	    }
-	  }
-
-	  return name + ': ' + str;
-	}
-
-
-	function reduceToSingleString(output, base, braces) {
-	  var numLinesEst = 0;
-	  var length = output.reduce(function(prev, cur) {
-	    numLinesEst++;
-	    if (cur.indexOf('\n') >= 0) numLinesEst++;
-	    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
-	  }, 0);
-
-	  if (length > 60) {
-	    return braces[0] +
-	           (base === '' ? '' : base + '\n ') +
-	           ' ' +
-	           output.join(',\n  ') +
-	           ' ' +
-	           braces[1];
-	  }
-
-	  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
-	}
-
-
-	// NOTE: These type checking functions intentionally don't use `instanceof`
-	// because it is fragile and can be easily faked with `Object.create()`.
-	function isArray(ar) {
-	  return Array.isArray(ar);
-	}
-	exports.isArray = isArray;
-
-	function isBoolean(arg) {
-	  return typeof arg === 'boolean';
-	}
-	exports.isBoolean = isBoolean;
-
-	function isNull(arg) {
-	  return arg === null;
-	}
-	exports.isNull = isNull;
-
-	function isNullOrUndefined(arg) {
-	  return arg == null;
-	}
-	exports.isNullOrUndefined = isNullOrUndefined;
-
-	function isNumber(arg) {
-	  return typeof arg === 'number';
-	}
-	exports.isNumber = isNumber;
-
-	function isString(arg) {
-	  return typeof arg === 'string';
-	}
-	exports.isString = isString;
-
-	function isSymbol(arg) {
-	  return typeof arg === 'symbol';
-	}
-	exports.isSymbol = isSymbol;
-
-	function isUndefined(arg) {
-	  return arg === void 0;
-	}
-	exports.isUndefined = isUndefined;
-
-	function isRegExp(re) {
-	  return isObject(re) && objectToString(re) === '[object RegExp]';
-	}
-	exports.isRegExp = isRegExp;
-
-	function isObject(arg) {
-	  return typeof arg === 'object' && arg !== null;
-	}
-	exports.isObject = isObject;
-
-	function isDate(d) {
-	  return isObject(d) && objectToString(d) === '[object Date]';
-	}
-	exports.isDate = isDate;
-
-	function isError(e) {
-	  return isObject(e) &&
-	      (objectToString(e) === '[object Error]' || e instanceof Error);
-	}
-	exports.isError = isError;
-
-	function isFunction(arg) {
-	  return typeof arg === 'function';
-	}
-	exports.isFunction = isFunction;
-
-	function isPrimitive(arg) {
-	  return arg === null ||
-	         typeof arg === 'boolean' ||
-	         typeof arg === 'number' ||
-	         typeof arg === 'string' ||
-	         typeof arg === 'symbol' ||  // ES6 symbol
-	         typeof arg === 'undefined';
-	}
-	exports.isPrimitive = isPrimitive;
-
-	exports.isBuffer = __webpack_require__(72);
-
-	function objectToString(o) {
-	  return Object.prototype.toString.call(o);
-	}
-
-
-	function pad(n) {
-	  return n < 10 ? '0' + n.toString(10) : n.toString(10);
-	}
-
-
-	var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
-	              'Oct', 'Nov', 'Dec'];
-
-	// 26 Feb 16:19:34
-	function timestamp() {
-	  var d = new Date();
-	  var time = [pad(d.getHours()),
-	              pad(d.getMinutes()),
-	              pad(d.getSeconds())].join(':');
-	  return [d.getDate(), months[d.getMonth()], time].join(' ');
-	}
-
-
-	// log is just a thin wrapper to console.log that prepends a timestamp
-	exports.log = function() {
-	  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
-	};
-
-
-	/**
-	 * Inherit the prototype methods from one constructor into another.
-	 *
-	 * The Function.prototype.inherits from lang.js rewritten as a standalone
-	 * function (not on Function.prototype). NOTE: If this file is to be loaded
-	 * during bootstrapping this function needs to be rewritten using some native
-	 * functions as prototype setup using normal JavaScript does not work as
-	 * expected during bootstrapping (see mirror.js in r114903).
-	 *
-	 * @param {function} ctor Constructor function which needs to inherit the
-	 *     prototype.
-	 * @param {function} superCtor Constructor function to inherit prototype from.
-	 */
-	exports.inherits = __webpack_require__(94);
-
-	exports._extend = function(origin, add) {
-	  // Don't do anything if add isn't an object
-	  if (!add || !isObject(add)) return origin;
-
-	  var keys = Object.keys(add);
-	  var i = keys.length;
-	  while (i--) {
-	    origin[keys[i]] = add[keys[i]];
-	  }
-	  return origin;
-	};
-
-	function hasOwnProperty(obj, prop) {
-	  return Object.prototype.hasOwnProperty.call(obj, prop);
-	}
-
-	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }()), __webpack_require__(61)))
-
-/***/ },
-/* 61 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// shim for using process in browser
-
-	var process = module.exports = {};
-	var queue = [];
-	var draining = false;
-
-	function drainQueue() {
-	    if (draining) {
-	        return;
-	    }
-	    draining = true;
-	    var currentQueue;
-	    var len = queue.length;
-	    while(len) {
-	        currentQueue = queue;
-	        queue = [];
-	        var i = -1;
-	        while (++i < len) {
-	            currentQueue[i]();
-	        }
-	        len = queue.length;
-	    }
-	    draining = false;
-	}
-	process.nextTick = function (fun) {
-	    queue.push(fun);
-	    if (!draining) {
-	        setTimeout(drainQueue, 0);
-	    }
-	};
-
-	process.title = 'browser';
-	process.browser = true;
-	process.env = {};
-	process.argv = [];
-	process.version = ''; // empty string to avoid regexp issues
-	process.versions = {};
-
-	function noop() {}
-
-	process.on = noop;
-	process.addListener = noop;
-	process.once = noop;
-	process.off = noop;
-	process.removeListener = noop;
-	process.removeAllListeners = noop;
-	process.emit = noop;
-
-	process.binding = function (name) {
-	    throw new Error('process.binding is not supported');
-	};
-
-	// TODO(shtylman)
-	process.cwd = function () { return '/' };
-	process.chdir = function (dir) {
-	    throw new Error('process.chdir is not supported');
-	};
-	process.umask = function() { return 0; };
-
-
-/***/ },
-/* 62 */
-/***/ function(module, exports, __webpack_require__) {
+/* 27 */
+/***/ function(module, exports) {
 
 	if (typeof Object.create === 'function') {
 	  // implementation from standard node.js 'util' module
@@ -23672,1456 +17743,20 @@
 
 
 /***/ },
-/* 63 */
+/* 28 */
 /***/ function(module, exports, __webpack_require__) {
 
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var AFMFont, fs;
-
-	  fs = __webpack_require__(10);
-
-	  AFMFont = (function() {
-	    var WIN_ANSI_MAP, characters;
-
-	    AFMFont.open = function(filename) {
-	      return new AFMFont(fs.readFileSync(filename, 'utf8'));
-	    };
-
-	    function AFMFont(contents) {
-	      var e, i;
-	      this.contents = contents;
-	      this.attributes = {};
-	      this.glyphWidths = {};
-	      this.boundingBoxes = {};
-	      this.parse();
-	      this.charWidths = (function() {
-	        var _i, _results;
-	        _results = [];
-	        for (i = _i = 0; _i <= 255; i = ++_i) {
-	          _results.push(this.glyphWidths[characters[i]]);
-	        }
-	        return _results;
-	      }).call(this);
-	      this.bbox = (function() {
-	        var _i, _len, _ref, _results;
-	        _ref = this.attributes['FontBBox'].split(/\s+/);
-	        _results = [];
-	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	          e = _ref[_i];
-	          _results.push(+e);
-	        }
-	        return _results;
-	      }).call(this);
-	      this.ascender = +(this.attributes['Ascender'] || 0);
-	      this.decender = +(this.attributes['Descender'] || 0);
-	      this.lineGap = (this.bbox[3] - this.bbox[1]) - (this.ascender - this.decender);
-	    }
-
-	    AFMFont.prototype.parse = function() {
-	      var a, key, line, match, name, section, value, _i, _len, _ref;
-	      section = '';
-	      _ref = this.contents.split('\n');
-	      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-	        line = _ref[_i];
-	        if (match = line.match(/^Start(\w+)/)) {
-	          section = match[1];
-	          continue;
-	        } else if (match = line.match(/^End(\w+)/)) {
-	          section = '';
-	          continue;
-	        }
-	        switch (section) {
-	          case 'FontMetrics':
-	            match = line.match(/(^\w+)\s+(.*)/);
-	            key = match[1];
-	            value = match[2];
-	            if (a = this.attributes[key]) {
-	              if (!Array.isArray(a)) {
-	                a = this.attributes[key] = [a];
-	              }
-	              a.push(value);
-	            } else {
-	              this.attributes[key] = value;
-	            }
-	            break;
-	          case 'CharMetrics':
-	            if (!/^CH?\s/.test(line)) {
-	              continue;
-	            }
-	            name = line.match(/\bN\s+(\.?\w+)\s*;/)[1];
-	            this.glyphWidths[name] = +line.match(/\bWX\s+(\d+)\s*;/)[1];
-	        }
-	      }
-	    };
-
-	    WIN_ANSI_MAP = {
-	      402: 131,
-	      8211: 150,
-	      8212: 151,
-	      8216: 145,
-	      8217: 146,
-	      8218: 130,
-	      8220: 147,
-	      8221: 148,
-	      8222: 132,
-	      8224: 134,
-	      8225: 135,
-	      8226: 149,
-	      8230: 133,
-	      8364: 128,
-	      8240: 137,
-	      8249: 139,
-	      8250: 155,
-	      710: 136,
-	      8482: 153,
-	      338: 140,
-	      339: 156,
-	      732: 152,
-	      352: 138,
-	      353: 154,
-	      376: 159,
-	      381: 142,
-	      382: 158
-	    };
-
-	    AFMFont.prototype.encodeText = function(text) {
-	      var char, i, string, _i, _ref;
-	      string = '';
-	      for (i = _i = 0, _ref = text.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        char = text.charCodeAt(i);
-	        char = WIN_ANSI_MAP[char] || char;
-	        string += String.fromCharCode(char);
-	      }
-	      return string;
-	    };
-
-	    AFMFont.prototype.characterToGlyph = function(character) {
-	      return characters[WIN_ANSI_MAP[character] || character];
-	    };
-
-	    AFMFont.prototype.widthOfGlyph = function(glyph) {
-	      return this.glyphWidths[glyph];
-	    };
-
-	    characters = '.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n\nspace         exclam         quotedbl       numbersign\ndollar        percent        ampersand      quotesingle\nparenleft     parenright     asterisk       plus\ncomma         hyphen         period         slash\nzero          one            two            three\nfour          five           six            seven\neight         nine           colon          semicolon\nless          equal          greater        question\n\nat            A              B              C\nD             E              F              G\nH             I              J              K\nL             M              N              O\nP             Q              R              S\nT             U              V              W\nX             Y              Z              bracketleft\nbackslash     bracketright   asciicircum    underscore\n\ngrave         a              b              c\nd             e              f              g\nh             i              j              k\nl             m              n              o\np             q              r              s\nt             u              v              w\nx             y              z              braceleft\nbar           braceright     asciitilde     .notdef\n\nEuro          .notdef        quotesinglbase florin\nquotedblbase  ellipsis       dagger         daggerdbl\ncircumflex    perthousand    Scaron         guilsinglleft\nOE            .notdef        Zcaron         .notdef\n.notdef       quoteleft      quoteright     quotedblleft\nquotedblright bullet         endash         emdash\ntilde         trademark      scaron         guilsinglright\noe            .notdef        zcaron         ydieresis\n\nspace         exclamdown     cent           sterling\ncurrency      yen            brokenbar      section\ndieresis      copyright      ordfeminine    guillemotleft\nlogicalnot    hyphen         registered     macron\ndegree        plusminus      twosuperior    threesuperior\nacute         mu             paragraph      periodcentered\ncedilla       onesuperior    ordmasculine   guillemotright\nonequarter    onehalf        threequarters  questiondown\n\nAgrave        Aacute         Acircumflex    Atilde\nAdieresis     Aring          AE             Ccedilla\nEgrave        Eacute         Ecircumflex    Edieresis\nIgrave        Iacute         Icircumflex    Idieresis\nEth           Ntilde         Ograve         Oacute\nOcircumflex   Otilde         Odieresis      multiply\nOslash        Ugrave         Uacute         Ucircumflex\nUdieresis     Yacute         Thorn          germandbls\n\nagrave        aacute         acircumflex    atilde\nadieresis     aring          ae             ccedilla\negrave        eacute         ecircumflex    edieresis\nigrave        iacute         icircumflex    idieresis\neth           ntilde         ograve         oacute\nocircumflex   otilde         odieresis      divide\noslash        ugrave         uacute         ucircumflex\nudieresis     yacute         thorn          ydieresis'.split(/\s+/);
-
-	    return AFMFont;
-
-	  })();
-
-	  module.exports = AFMFont;
-
-	}).call(this);
+	exports = module.exports = __webpack_require__(29);
+	exports.Stream = __webpack_require__(25);
+	exports.Readable = exports;
+	exports.Writable = __webpack_require__(36);
+	exports.Duplex = __webpack_require__(35);
+	exports.Transform = __webpack_require__(38);
+	exports.PassThrough = __webpack_require__(39);
 
 
 /***/ },
-/* 64 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var CmapTable, DFont, Data, Directory, GlyfTable, HeadTable, HheaTable, HmtxTable, LocaTable, MaxpTable, NameTable, OS2Table, PostTable, TTFFont, fs;
-
-	  fs = __webpack_require__(10);
-
-	  Data = __webpack_require__(34);
-
-	  DFont = __webpack_require__(78);
-
-	  Directory = __webpack_require__(79);
-
-	  NameTable = __webpack_require__(80);
-
-	  HeadTable = __webpack_require__(81);
-
-	  CmapTable = __webpack_require__(82);
-
-	  HmtxTable = __webpack_require__(83);
-
-	  HheaTable = __webpack_require__(84);
-
-	  MaxpTable = __webpack_require__(85);
-
-	  PostTable = __webpack_require__(86);
-
-	  OS2Table = __webpack_require__(87);
-
-	  LocaTable = __webpack_require__(88);
-
-	  GlyfTable = __webpack_require__(90);
-
-	  TTFFont = (function() {
-	    TTFFont.open = function(filename, name) {
-	      var contents;
-	      contents = fs.readFileSync(filename);
-	      return new TTFFont(contents, name);
-	    };
-
-	    TTFFont.fromDFont = function(filename, family) {
-	      var dfont;
-	      dfont = DFont.open(filename);
-	      return new TTFFont(dfont.getNamedFont(family));
-	    };
-
-	    TTFFont.fromBuffer = function(buffer, family) {
-	      var dfont, e, ttf;
-	      try {
-	        ttf = new TTFFont(buffer, family);
-	        if (!(ttf.head.exists && ttf.name.exists && ttf.cmap.exists)) {
-	          dfont = new DFont(buffer);
-	          ttf = new TTFFont(dfont.getNamedFont(family));
-	          if (!(ttf.head.exists && ttf.name.exists && ttf.cmap.exists)) {
-	            throw new Error('Invalid TTF file in DFont');
-	          }
-	        }
-	        return ttf;
-	      } catch (_error) {
-	        e = _error;
-	        throw new Error('Unknown font format in buffer: ' + e.message);
-	      }
-	    };
-
-	    function TTFFont(rawData, name) {
-	      var data, i, numFonts, offset, offsets, version, _i, _j, _len;
-	      this.rawData = rawData;
-	      data = this.contents = new Data(this.rawData);
-	      if (data.readString(4) === 'ttcf') {
-	        if (!name) {
-	          throw new Error("Must specify a font name for TTC files.");
-	        }
-	        version = data.readInt();
-	        numFonts = data.readInt();
-	        offsets = [];
-	        for (i = _i = 0; 0 <= numFonts ? _i < numFonts : _i > numFonts; i = 0 <= numFonts ? ++_i : --_i) {
-	          offsets[i] = data.readInt();
-	        }
-	        for (i = _j = 0, _len = offsets.length; _j < _len; i = ++_j) {
-	          offset = offsets[i];
-	          data.pos = offset;
-	          this.parse();
-	          if (this.name.postscriptName === name) {
-	            return;
-	          }
-	        }
-	        throw new Error("Font " + name + " not found in TTC file.");
-	      } else {
-	        data.pos = 0;
-	        this.parse();
-	      }
-	    }
-
-	    TTFFont.prototype.parse = function() {
-	      this.directory = new Directory(this.contents);
-	      this.head = new HeadTable(this);
-	      this.name = new NameTable(this);
-	      this.cmap = new CmapTable(this);
-	      this.hhea = new HheaTable(this);
-	      this.maxp = new MaxpTable(this);
-	      this.hmtx = new HmtxTable(this);
-	      this.post = new PostTable(this);
-	      this.os2 = new OS2Table(this);
-	      this.loca = new LocaTable(this);
-	      this.glyf = new GlyfTable(this);
-	      this.ascender = (this.os2.exists && this.os2.ascender) || this.hhea.ascender;
-	      this.decender = (this.os2.exists && this.os2.decender) || this.hhea.decender;
-	      this.lineGap = (this.os2.exists && this.os2.lineGap) || this.hhea.lineGap;
-	      return this.bbox = [this.head.xMin, this.head.yMin, this.head.xMax, this.head.yMax];
-	    };
-
-	    TTFFont.prototype.characterToGlyph = function(character) {
-	      var _ref;
-	      return ((_ref = this.cmap.unicode) != null ? _ref.codeMap[character] : void 0) || 0;
-	    };
-
-	    TTFFont.prototype.widthOfGlyph = function(glyph) {
-	      var scale;
-	      scale = 1000.0 / this.head.unitsPerEm;
-	      return this.hmtx.forGlyph(glyph).advance * scale;
-	    };
-
-	    return TTFFont;
-
-	  })();
-
-	  module.exports = TTFFont;
-
-	}).call(this);
-
-
-/***/ },
-/* 65 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var CmapTable, Subset, utils,
-	    __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
-
-	  CmapTable = __webpack_require__(82);
-
-	  utils = __webpack_require__(89);
-
-	  Subset = (function() {
-	    function Subset(font) {
-	      this.font = font;
-	      this.subset = {};
-	      this.unicodes = {};
-	      this.next = 33;
-	    }
-
-	    Subset.prototype.use = function(character) {
-	      var i, _i, _ref;
-	      if (typeof character === 'string') {
-	        for (i = _i = 0, _ref = character.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	          this.use(character.charCodeAt(i));
-	        }
-	        return;
-	      }
-	      if (!this.unicodes[character]) {
-	        this.subset[this.next] = character;
-	        return this.unicodes[character] = this.next++;
-	      }
-	    };
-
-	    Subset.prototype.encodeText = function(text) {
-	      var char, i, string, _i, _ref;
-	      string = '';
-	      for (i = _i = 0, _ref = text.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        char = this.unicodes[text.charCodeAt(i)];
-	        string += String.fromCharCode(char);
-	      }
-	      return string;
-	    };
-
-	    Subset.prototype.generateCmap = function() {
-	      var mapping, roman, unicode, unicodeCmap, _ref;
-	      unicodeCmap = this.font.cmap.tables[0].codeMap;
-	      mapping = {};
-	      _ref = this.subset;
-	      for (roman in _ref) {
-	        unicode = _ref[roman];
-	        mapping[roman] = unicodeCmap[unicode];
-	      }
-	      return mapping;
-	    };
-
-	    Subset.prototype.glyphIDs = function() {
-	      var ret, roman, unicode, unicodeCmap, val, _ref;
-	      unicodeCmap = this.font.cmap.tables[0].codeMap;
-	      ret = [0];
-	      _ref = this.subset;
-	      for (roman in _ref) {
-	        unicode = _ref[roman];
-	        val = unicodeCmap[unicode];
-	        if ((val != null) && __indexOf.call(ret, val) < 0) {
-	          ret.push(val);
-	        }
-	      }
-	      return ret.sort();
-	    };
-
-	    Subset.prototype.glyphsFor = function(glyphIDs) {
-	      var additionalIDs, glyph, glyphs, id, _i, _len, _ref;
-	      glyphs = {};
-	      for (_i = 0, _len = glyphIDs.length; _i < _len; _i++) {
-	        id = glyphIDs[_i];
-	        glyphs[id] = this.font.glyf.glyphFor(id);
-	      }
-	      additionalIDs = [];
-	      for (id in glyphs) {
-	        glyph = glyphs[id];
-	        if (glyph != null ? glyph.compound : void 0) {
-	          additionalIDs.push.apply(additionalIDs, glyph.glyphIDs);
-	        }
-	      }
-	      if (additionalIDs.length > 0) {
-	        _ref = this.glyphsFor(additionalIDs);
-	        for (id in _ref) {
-	          glyph = _ref[id];
-	          glyphs[id] = glyph;
-	        }
-	      }
-	      return glyphs;
-	    };
-
-	    Subset.prototype.encode = function() {
-	      var cmap, code, glyf, glyphs, id, ids, loca, name, new2old, newIDs, nextGlyphID, old2new, oldID, oldIDs, tables, _ref, _ref1;
-	      cmap = CmapTable.encode(this.generateCmap(), 'unicode');
-	      glyphs = this.glyphsFor(this.glyphIDs());
-	      old2new = {
-	        0: 0
-	      };
-	      _ref = cmap.charMap;
-	      for (code in _ref) {
-	        ids = _ref[code];
-	        old2new[ids.old] = ids["new"];
-	      }
-	      nextGlyphID = cmap.maxGlyphID;
-	      for (oldID in glyphs) {
-	        if (!(oldID in old2new)) {
-	          old2new[oldID] = nextGlyphID++;
-	        }
-	      }
-	      new2old = utils.invert(old2new);
-	      newIDs = Object.keys(new2old).sort(function(a, b) {
-	        return a - b;
-	      });
-	      oldIDs = (function() {
-	        var _i, _len, _results;
-	        _results = [];
-	        for (_i = 0, _len = newIDs.length; _i < _len; _i++) {
-	          id = newIDs[_i];
-	          _results.push(new2old[id]);
-	        }
-	        return _results;
-	      })();
-	      glyf = this.font.glyf.encode(glyphs, oldIDs, old2new);
-	      loca = this.font.loca.encode(glyf.offsets);
-	      name = this.font.name.encode();
-	      this.postscriptName = name.postscriptName;
-	      this.cmap = {};
-	      _ref1 = cmap.charMap;
-	      for (code in _ref1) {
-	        ids = _ref1[code];
-	        this.cmap[code] = ids.old;
-	      }
-	      tables = {
-	        cmap: cmap.table,
-	        glyf: glyf.table,
-	        loca: loca.table,
-	        hmtx: this.font.hmtx.encode(oldIDs),
-	        hhea: this.font.hhea.encode(oldIDs),
-	        maxp: this.font.maxp.encode(oldIDs),
-	        post: this.font.post.encode(oldIDs),
-	        name: name.table,
-	        head: this.font.head.encode(loca)
-	      };
-	      if (this.font.os2.exists) {
-	        tables['OS/2'] = this.font.os2.raw();
-	      }
-	      return this.font.directory.encode(tables);
-	    };
-
-	    return Subset;
-
-	  })();
-
-	  module.exports = Subset;
-
-	}).call(this);
-
-
-/***/ },
-/* 66 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var AI, AL, BA, BK, CB, CI_BRK, CJ, CP_BRK, CR, DI_BRK, ID, IN_BRK, LF, LineBreaker, NL, NS, PR_BRK, SA, SG, SP, UnicodeTrie, WJ, XX, characterClasses, classTrie, pairTable, _ref, _ref1;
-
-	  UnicodeTrie = __webpack_require__(100);
-
-	  classTrie = new UnicodeTrie(__webpack_require__(106));
-
-	  _ref = __webpack_require__(92), BK = _ref.BK, CR = _ref.CR, LF = _ref.LF, NL = _ref.NL, CB = _ref.CB, BA = _ref.BA, SP = _ref.SP, WJ = _ref.WJ, SP = _ref.SP, BK = _ref.BK, LF = _ref.LF, NL = _ref.NL, AI = _ref.AI, AL = _ref.AL, SA = _ref.SA, SG = _ref.SG, XX = _ref.XX, CJ = _ref.CJ, ID = _ref.ID, NS = _ref.NS, characterClasses = _ref.characterClasses;
-
-	  _ref1 = __webpack_require__(91), DI_BRK = _ref1.DI_BRK, IN_BRK = _ref1.IN_BRK, CI_BRK = _ref1.CI_BRK, CP_BRK = _ref1.CP_BRK, PR_BRK = _ref1.PR_BRK, pairTable = _ref1.pairTable;
-
-	  LineBreaker = (function() {
-	    var Break, mapClass, mapFirst;
-
-	    function LineBreaker(string) {
-	      this.string = string;
-	      this.pos = 0;
-	      this.lastPos = 0;
-	      this.curClass = null;
-	      this.nextClass = null;
-	    }
-
-	    LineBreaker.prototype.nextCodePoint = function() {
-	      var code, next;
-	      code = this.string.charCodeAt(this.pos++);
-	      next = this.string.charCodeAt(this.pos);
-	      if ((0xd800 <= code && code <= 0xdbff) && (0xdc00 <= next && next <= 0xdfff)) {
-	        this.pos++;
-	        return ((code - 0xd800) * 0x400) + (next - 0xdc00) + 0x10000;
-	      }
-	      return code;
-	    };
-
-	    mapClass = function(c) {
-	      switch (c) {
-	        case AI:
-	          return AL;
-	        case SA:
-	        case SG:
-	        case XX:
-	          return AL;
-	        case CJ:
-	          return NS;
-	        default:
-	          return c;
-	      }
-	    };
-
-	    mapFirst = function(c) {
-	      switch (c) {
-	        case LF:
-	        case NL:
-	          return BK;
-	        case CB:
-	          return BA;
-	        case SP:
-	          return WJ;
-	        default:
-	          return c;
-	      }
-	    };
-
-	    LineBreaker.prototype.nextCharClass = function(first) {
-	      if (first == null) {
-	        first = false;
-	      }
-	      return mapClass(classTrie.get(this.nextCodePoint()));
-	    };
-
-	    Break = (function() {
-	      function Break(position, required) {
-	        this.position = position;
-	        this.required = required != null ? required : false;
-	      }
-
-	      return Break;
-
-	    })();
-
-	    LineBreaker.prototype.nextBreak = function() {
-	      var cur, lastClass, shouldBreak;
-	      if (this.curClass == null) {
-	        this.curClass = mapFirst(this.nextCharClass());
-	      }
-	      while (this.pos < this.string.length) {
-	        this.lastPos = this.pos;
-	        lastClass = this.nextClass;
-	        this.nextClass = this.nextCharClass();
-	        if (this.curClass === BK || (this.curClass === CR && this.nextClass !== LF)) {
-	          this.curClass = mapFirst(mapClass(this.nextClass));
-	          return new Break(this.lastPos, true);
-	        }
-	        cur = (function() {
-	          switch (this.nextClass) {
-	            case SP:
-	              return this.curClass;
-	            case BK:
-	            case LF:
-	            case NL:
-	              return BK;
-	            case CR:
-	              return CR;
-	            case CB:
-	              return BA;
-	          }
-	        }).call(this);
-	        if (cur != null) {
-	          this.curClass = cur;
-	          if (this.nextClass === CB) {
-	            return new Break(this.lastPos);
-	          }
-	          continue;
-	        }
-	        shouldBreak = false;
-	        switch (pairTable[this.curClass][this.nextClass]) {
-	          case DI_BRK:
-	            shouldBreak = true;
-	            break;
-	          case IN_BRK:
-	            shouldBreak = lastClass === SP;
-	            break;
-	          case CI_BRK:
-	            shouldBreak = lastClass === SP;
-	            if (!shouldBreak) {
-	              continue;
-	            }
-	            break;
-	          case CP_BRK:
-	            if (lastClass !== SP) {
-	              continue;
-	            }
-	        }
-	        this.curClass = this.nextClass;
-	        if (shouldBreak) {
-	          return new Break(this.lastPos);
-	        }
-	      }
-	      if (this.pos >= this.string.length) {
-	        if (this.lastPos < this.string.length) {
-	          this.lastPos = this.string.length;
-	          return new Break(this.string.length);
-	        } else {
-	          return null;
-	        }
-	      }
-	    };
-
-	    return LineBreaker;
-
-	  })();
-
-	  module.exports = LineBreaker;
-
-	}).call(this);
-
-
-/***/ },
-/* 67 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(process) {// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	// A bit simpler than readable streams.
-	// Implement an async ._write(chunk, cb), and it'll handle all
-	// the drain event emission and buffering.
-
-	module.exports = Writable;
-
-	/*<replacement>*/
-	var Buffer = __webpack_require__(4).Buffer;
-	/*</replacement>*/
-
-	Writable.WritableState = WritableState;
-
-
-	/*<replacement>*/
-	var util = __webpack_require__(105);
-	util.inherits = __webpack_require__(104);
-	/*</replacement>*/
-
-	var Stream = __webpack_require__(46);
-
-	util.inherits(Writable, Stream);
-
-	function WriteReq(chunk, encoding, cb) {
-	  this.chunk = chunk;
-	  this.encoding = encoding;
-	  this.callback = cb;
-	}
-
-	function WritableState(options, stream) {
-	  var Duplex = __webpack_require__(69);
-
-	  options = options || {};
-
-	  // the point at which write() starts returning false
-	  // Note: 0 is a valid value, means that we always return false if
-	  // the entire buffer is not flushed immediately on write()
-	  var hwm = options.highWaterMark;
-	  var defaultHwm = options.objectMode ? 16 : 16 * 1024;
-	  this.highWaterMark = (hwm || hwm === 0) ? hwm : defaultHwm;
-
-	  // object stream flag to indicate whether or not this stream
-	  // contains buffers or objects.
-	  this.objectMode = !!options.objectMode;
-
-	  if (stream instanceof Duplex)
-	    this.objectMode = this.objectMode || !!options.writableObjectMode;
-
-	  // cast to ints.
-	  this.highWaterMark = ~~this.highWaterMark;
-
-	  this.needDrain = false;
-	  // at the start of calling end()
-	  this.ending = false;
-	  // when end() has been called, and returned
-	  this.ended = false;
-	  // when 'finish' is emitted
-	  this.finished = false;
-
-	  // should we decode strings into buffers before passing to _write?
-	  // this is here so that some node-core streams can optimize string
-	  // handling at a lower level.
-	  var noDecode = options.decodeStrings === false;
-	  this.decodeStrings = !noDecode;
-
-	  // Crypto is kind of old and crusty.  Historically, its default string
-	  // encoding is 'binary' so we have to make this configurable.
-	  // Everything else in the universe uses 'utf8', though.
-	  this.defaultEncoding = options.defaultEncoding || 'utf8';
-
-	  // not an actual buffer we keep track of, but a measurement
-	  // of how much we're waiting to get pushed to some underlying
-	  // socket or file.
-	  this.length = 0;
-
-	  // a flag to see when we're in the middle of a write.
-	  this.writing = false;
-
-	  // when true all writes will be buffered until .uncork() call
-	  this.corked = 0;
-
-	  // a flag to be able to tell if the onwrite cb is called immediately,
-	  // or on a later tick.  We set this to true at first, because any
-	  // actions that shouldn't happen until "later" should generally also
-	  // not happen before the first write call.
-	  this.sync = true;
-
-	  // a flag to know if we're processing previously buffered items, which
-	  // may call the _write() callback in the same tick, so that we don't
-	  // end up in an overlapped onwrite situation.
-	  this.bufferProcessing = false;
-
-	  // the callback that's passed to _write(chunk,cb)
-	  this.onwrite = function(er) {
-	    onwrite(stream, er);
-	  };
-
-	  // the callback that the user supplies to write(chunk,encoding,cb)
-	  this.writecb = null;
-
-	  // the amount that is being written when _write is called.
-	  this.writelen = 0;
-
-	  this.buffer = [];
-
-	  // number of pending user-supplied write callbacks
-	  // this must be 0 before 'finish' can be emitted
-	  this.pendingcb = 0;
-
-	  // emit prefinish if the only thing we're waiting for is _write cbs
-	  // This is relevant for synchronous Transform streams
-	  this.prefinished = false;
-
-	  // True if the error was already emitted and should not be thrown again
-	  this.errorEmitted = false;
-	}
-
-	function Writable(options) {
-	  var Duplex = __webpack_require__(69);
-
-	  // Writable ctor is applied to Duplexes, though they're not
-	  // instanceof Writable, they're instanceof Readable.
-	  if (!(this instanceof Writable) && !(this instanceof Duplex))
-	    return new Writable(options);
-
-	  this._writableState = new WritableState(options, this);
-
-	  // legacy.
-	  this.writable = true;
-
-	  Stream.call(this);
-	}
-
-	// Otherwise people can pipe Writable streams, which is just wrong.
-	Writable.prototype.pipe = function() {
-	  this.emit('error', new Error('Cannot pipe. Not readable.'));
-	};
-
-
-	function writeAfterEnd(stream, state, cb) {
-	  var er = new Error('write after end');
-	  // TODO: defer error events consistently everywhere, not just the cb
-	  stream.emit('error', er);
-	  process.nextTick(function() {
-	    cb(er);
-	  });
-	}
-
-	// If we get something that is not a buffer, string, null, or undefined,
-	// and we're not in objectMode, then that's an error.
-	// Otherwise stream chunks are all considered to be of length=1, and the
-	// watermarks determine how many objects to keep in the buffer, rather than
-	// how many bytes or characters.
-	function validChunk(stream, state, chunk, cb) {
-	  var valid = true;
-	  if (!util.isBuffer(chunk) &&
-	      !util.isString(chunk) &&
-	      !util.isNullOrUndefined(chunk) &&
-	      !state.objectMode) {
-	    var er = new TypeError('Invalid non-string/buffer chunk');
-	    stream.emit('error', er);
-	    process.nextTick(function() {
-	      cb(er);
-	    });
-	    valid = false;
-	  }
-	  return valid;
-	}
-
-	Writable.prototype.write = function(chunk, encoding, cb) {
-	  var state = this._writableState;
-	  var ret = false;
-
-	  if (util.isFunction(encoding)) {
-	    cb = encoding;
-	    encoding = null;
-	  }
-
-	  if (util.isBuffer(chunk))
-	    encoding = 'buffer';
-	  else if (!encoding)
-	    encoding = state.defaultEncoding;
-
-	  if (!util.isFunction(cb))
-	    cb = function() {};
-
-	  if (state.ended)
-	    writeAfterEnd(this, state, cb);
-	  else if (validChunk(this, state, chunk, cb)) {
-	    state.pendingcb++;
-	    ret = writeOrBuffer(this, state, chunk, encoding, cb);
-	  }
-
-	  return ret;
-	};
-
-	Writable.prototype.cork = function() {
-	  var state = this._writableState;
-
-	  state.corked++;
-	};
-
-	Writable.prototype.uncork = function() {
-	  var state = this._writableState;
-
-	  if (state.corked) {
-	    state.corked--;
-
-	    if (!state.writing &&
-	        !state.corked &&
-	        !state.finished &&
-	        !state.bufferProcessing &&
-	        state.buffer.length)
-	      clearBuffer(this, state);
-	  }
-	};
-
-	function decodeChunk(state, chunk, encoding) {
-	  if (!state.objectMode &&
-	      state.decodeStrings !== false &&
-	      util.isString(chunk)) {
-	    chunk = new Buffer(chunk, encoding);
-	  }
-	  return chunk;
-	}
-
-	// if we're already writing something, then just put this
-	// in the queue, and wait our turn.  Otherwise, call _write
-	// If we return false, then we need a drain event, so set that flag.
-	function writeOrBuffer(stream, state, chunk, encoding, cb) {
-	  chunk = decodeChunk(state, chunk, encoding);
-	  if (util.isBuffer(chunk))
-	    encoding = 'buffer';
-	  var len = state.objectMode ? 1 : chunk.length;
-
-	  state.length += len;
-
-	  var ret = state.length < state.highWaterMark;
-	  // we must ensure that previous needDrain will not be reset to false.
-	  if (!ret)
-	    state.needDrain = true;
-
-	  if (state.writing || state.corked)
-	    state.buffer.push(new WriteReq(chunk, encoding, cb));
-	  else
-	    doWrite(stream, state, false, len, chunk, encoding, cb);
-
-	  return ret;
-	}
-
-	function doWrite(stream, state, writev, len, chunk, encoding, cb) {
-	  state.writelen = len;
-	  state.writecb = cb;
-	  state.writing = true;
-	  state.sync = true;
-	  if (writev)
-	    stream._writev(chunk, state.onwrite);
-	  else
-	    stream._write(chunk, encoding, state.onwrite);
-	  state.sync = false;
-	}
-
-	function onwriteError(stream, state, sync, er, cb) {
-	  if (sync)
-	    process.nextTick(function() {
-	      state.pendingcb--;
-	      cb(er);
-	    });
-	  else {
-	    state.pendingcb--;
-	    cb(er);
-	  }
-
-	  stream._writableState.errorEmitted = true;
-	  stream.emit('error', er);
-	}
-
-	function onwriteStateUpdate(state) {
-	  state.writing = false;
-	  state.writecb = null;
-	  state.length -= state.writelen;
-	  state.writelen = 0;
-	}
-
-	function onwrite(stream, er) {
-	  var state = stream._writableState;
-	  var sync = state.sync;
-	  var cb = state.writecb;
-
-	  onwriteStateUpdate(state);
-
-	  if (er)
-	    onwriteError(stream, state, sync, er, cb);
-	  else {
-	    // Check if we're actually ready to finish, but don't emit yet
-	    var finished = needFinish(stream, state);
-
-	    if (!finished &&
-	        !state.corked &&
-	        !state.bufferProcessing &&
-	        state.buffer.length) {
-	      clearBuffer(stream, state);
-	    }
-
-	    if (sync) {
-	      process.nextTick(function() {
-	        afterWrite(stream, state, finished, cb);
-	      });
-	    } else {
-	      afterWrite(stream, state, finished, cb);
-	    }
-	  }
-	}
-
-	function afterWrite(stream, state, finished, cb) {
-	  if (!finished)
-	    onwriteDrain(stream, state);
-	  state.pendingcb--;
-	  cb();
-	  finishMaybe(stream, state);
-	}
-
-	// Must force callback to be called on nextTick, so that we don't
-	// emit 'drain' before the write() consumer gets the 'false' return
-	// value, and has a chance to attach a 'drain' listener.
-	function onwriteDrain(stream, state) {
-	  if (state.length === 0 && state.needDrain) {
-	    state.needDrain = false;
-	    stream.emit('drain');
-	  }
-	}
-
-
-	// if there's something in the buffer waiting, then process it
-	function clearBuffer(stream, state) {
-	  state.bufferProcessing = true;
-
-	  if (stream._writev && state.buffer.length > 1) {
-	    // Fast case, write everything using _writev()
-	    var cbs = [];
-	    for (var c = 0; c < state.buffer.length; c++)
-	      cbs.push(state.buffer[c].callback);
-
-	    // count the one we are adding, as well.
-	    // TODO(isaacs) clean this up
-	    state.pendingcb++;
-	    doWrite(stream, state, true, state.length, state.buffer, '', function(err) {
-	      for (var i = 0; i < cbs.length; i++) {
-	        state.pendingcb--;
-	        cbs[i](err);
-	      }
-	    });
-
-	    // Clear buffer
-	    state.buffer = [];
-	  } else {
-	    // Slow case, write chunks one-by-one
-	    for (var c = 0; c < state.buffer.length; c++) {
-	      var entry = state.buffer[c];
-	      var chunk = entry.chunk;
-	      var encoding = entry.encoding;
-	      var cb = entry.callback;
-	      var len = state.objectMode ? 1 : chunk.length;
-
-	      doWrite(stream, state, false, len, chunk, encoding, cb);
-
-	      // if we didn't call the onwrite immediately, then
-	      // it means that we need to wait until it does.
-	      // also, that means that the chunk and cb are currently
-	      // being processed, so move the buffer counter past them.
-	      if (state.writing) {
-	        c++;
-	        break;
-	      }
-	    }
-
-	    if (c < state.buffer.length)
-	      state.buffer = state.buffer.slice(c);
-	    else
-	      state.buffer.length = 0;
-	  }
-
-	  state.bufferProcessing = false;
-	}
-
-	Writable.prototype._write = function(chunk, encoding, cb) {
-	  cb(new Error('not implemented'));
-
-	};
-
-	Writable.prototype._writev = null;
-
-	Writable.prototype.end = function(chunk, encoding, cb) {
-	  var state = this._writableState;
-
-	  if (util.isFunction(chunk)) {
-	    cb = chunk;
-	    chunk = null;
-	    encoding = null;
-	  } else if (util.isFunction(encoding)) {
-	    cb = encoding;
-	    encoding = null;
-	  }
-
-	  if (!util.isNullOrUndefined(chunk))
-	    this.write(chunk, encoding);
-
-	  // .end() fully uncorks
-	  if (state.corked) {
-	    state.corked = 1;
-	    this.uncork();
-	  }
-
-	  // ignore unnecessary end() calls.
-	  if (!state.ending && !state.finished)
-	    endWritable(this, state, cb);
-	};
-
-
-	function needFinish(stream, state) {
-	  return (state.ending &&
-	          state.length === 0 &&
-	          !state.finished &&
-	          !state.writing);
-	}
-
-	function prefinish(stream, state) {
-	  if (!state.prefinished) {
-	    state.prefinished = true;
-	    stream.emit('prefinish');
-	  }
-	}
-
-	function finishMaybe(stream, state) {
-	  var need = needFinish(stream, state);
-	  if (need) {
-	    if (state.pendingcb === 0) {
-	      prefinish(stream, state);
-	      state.finished = true;
-	      stream.emit('finish');
-	    } else
-	      prefinish(stream, state);
-	  }
-	  return need;
-	}
-
-	function endWritable(stream, state, cb) {
-	  state.ending = true;
-	  finishMaybe(stream, state);
-	  if (cb) {
-	    if (state.finished)
-	      process.nextTick(cb);
-	    else
-	      stream.once('finish', cb);
-	  }
-	  state.ended = true;
-	}
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(61)))
-
-/***/ },
-/* 68 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	// a passthrough stream.
-	// basically just the most minimal sort of Transform stream.
-	// Every written chunk gets output as-is.
-
-	module.exports = PassThrough;
-
-	var Transform = __webpack_require__(70);
-
-	/*<replacement>*/
-	var util = __webpack_require__(105);
-	util.inherits = __webpack_require__(104);
-	/*</replacement>*/
-
-	util.inherits(PassThrough, Transform);
-
-	function PassThrough(options) {
-	  if (!(this instanceof PassThrough))
-	    return new PassThrough(options);
-
-	  Transform.call(this, options);
-	}
-
-	PassThrough.prototype._transform = function(chunk, encoding, cb) {
-	  cb(null, chunk);
-	};
-
-
-/***/ },
-/* 69 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(process) {// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	// a duplex stream is just a stream that is both readable and writable.
-	// Since JS doesn't have multiple prototypal inheritance, this class
-	// prototypally inherits from Readable, and then parasitically from
-	// Writable.
-
-	module.exports = Duplex;
-
-	/*<replacement>*/
-	var objectKeys = Object.keys || function (obj) {
-	  var keys = [];
-	  for (var key in obj) keys.push(key);
-	  return keys;
-	}
-	/*</replacement>*/
-
-
-	/*<replacement>*/
-	var util = __webpack_require__(105);
-	util.inherits = __webpack_require__(104);
-	/*</replacement>*/
-
-	var Readable = __webpack_require__(71);
-	var Writable = __webpack_require__(67);
-
-	util.inherits(Duplex, Readable);
-
-	forEach(objectKeys(Writable.prototype), function(method) {
-	  if (!Duplex.prototype[method])
-	    Duplex.prototype[method] = Writable.prototype[method];
-	});
-
-	function Duplex(options) {
-	  if (!(this instanceof Duplex))
-	    return new Duplex(options);
-
-	  Readable.call(this, options);
-	  Writable.call(this, options);
-
-	  if (options && options.readable === false)
-	    this.readable = false;
-
-	  if (options && options.writable === false)
-	    this.writable = false;
-
-	  this.allowHalfOpen = true;
-	  if (options && options.allowHalfOpen === false)
-	    this.allowHalfOpen = false;
-
-	  this.once('end', onend);
-	}
-
-	// the no-half-open enforcer
-	function onend() {
-	  // if we allow half-open state, or if the writable side ended,
-	  // then we're ok.
-	  if (this.allowHalfOpen || this._writableState.ended)
-	    return;
-
-	  // no more data can be written.
-	  // But allow more writes to happen in this tick.
-	  process.nextTick(this.end.bind(this));
-	}
-
-	function forEach (xs, f) {
-	  for (var i = 0, l = xs.length; i < l; i++) {
-	    f(xs[i], i);
-	  }
-	}
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(61)))
-
-/***/ },
-/* 70 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-	// a transform stream is a readable/writable stream where you do
-	// something with the data.  Sometimes it's called a "filter",
-	// but that's not a great name for it, since that implies a thing where
-	// some bits pass through, and others are simply ignored.  (That would
-	// be a valid example of a transform, of course.)
-	//
-	// While the output is causally related to the input, it's not a
-	// necessarily symmetric or synchronous transformation.  For example,
-	// a zlib stream might take multiple plain-text writes(), and then
-	// emit a single compressed chunk some time in the future.
-	//
-	// Here's how this works:
-	//
-	// The Transform stream has all the aspects of the readable and writable
-	// stream classes.  When you write(chunk), that calls _write(chunk,cb)
-	// internally, and returns false if there's a lot of pending writes
-	// buffered up.  When you call read(), that calls _read(n) until
-	// there's enough pending readable data buffered up.
-	//
-	// In a transform stream, the written data is placed in a buffer.  When
-	// _read(n) is called, it transforms the queued up data, calling the
-	// buffered _write cb's as it consumes chunks.  If consuming a single
-	// written chunk would result in multiple output chunks, then the first
-	// outputted bit calls the readcb, and subsequent chunks just go into
-	// the read buffer, and will cause it to emit 'readable' if necessary.
-	//
-	// This way, back-pressure is actually determined by the reading side,
-	// since _read has to be called to start processing a new chunk.  However,
-	// a pathological inflate type of transform can cause excessive buffering
-	// here.  For example, imagine a stream where every byte of input is
-	// interpreted as an integer from 0-255, and then results in that many
-	// bytes of output.  Writing the 4 bytes {ff,ff,ff,ff} would result in
-	// 1kb of data being output.  In this case, you could write a very small
-	// amount of input, and end up with a very large amount of output.  In
-	// such a pathological inflating mechanism, there'd be no way to tell
-	// the system to stop doing the transform.  A single 4MB write could
-	// cause the system to run out of memory.
-	//
-	// However, even in such a pathological case, only a single written chunk
-	// would be consumed, and then the rest would wait (un-transformed) until
-	// the results of the previous transformed chunk were consumed.
-
-	module.exports = Transform;
-
-	var Duplex = __webpack_require__(69);
-
-	/*<replacement>*/
-	var util = __webpack_require__(105);
-	util.inherits = __webpack_require__(104);
-	/*</replacement>*/
-
-	util.inherits(Transform, Duplex);
-
-
-	function TransformState(options, stream) {
-	  this.afterTransform = function(er, data) {
-	    return afterTransform(stream, er, data);
-	  };
-
-	  this.needTransform = false;
-	  this.transforming = false;
-	  this.writecb = null;
-	  this.writechunk = null;
-	}
-
-	function afterTransform(stream, er, data) {
-	  var ts = stream._transformState;
-	  ts.transforming = false;
-
-	  var cb = ts.writecb;
-
-	  if (!cb)
-	    return stream.emit('error', new Error('no writecb in Transform class'));
-
-	  ts.writechunk = null;
-	  ts.writecb = null;
-
-	  if (!util.isNullOrUndefined(data))
-	    stream.push(data);
-
-	  if (cb)
-	    cb(er);
-
-	  var rs = stream._readableState;
-	  rs.reading = false;
-	  if (rs.needReadable || rs.length < rs.highWaterMark) {
-	    stream._read(rs.highWaterMark);
-	  }
-	}
-
-
-	function Transform(options) {
-	  if (!(this instanceof Transform))
-	    return new Transform(options);
-
-	  Duplex.call(this, options);
-
-	  this._transformState = new TransformState(options, this);
-
-	  // when the writable side finishes, then flush out anything remaining.
-	  var stream = this;
-
-	  // start out asking for a readable event once data is transformed.
-	  this._readableState.needReadable = true;
-
-	  // we have implemented the _read method, and done the other things
-	  // that Readable wants before the first _read call, so unset the
-	  // sync guard flag.
-	  this._readableState.sync = false;
-
-	  this.once('prefinish', function() {
-	    if (util.isFunction(this._flush))
-	      this._flush(function(er) {
-	        done(stream, er);
-	      });
-	    else
-	      done(stream);
-	  });
-	}
-
-	Transform.prototype.push = function(chunk, encoding) {
-	  this._transformState.needTransform = false;
-	  return Duplex.prototype.push.call(this, chunk, encoding);
-	};
-
-	// This is the part where you do stuff!
-	// override this function in implementation classes.
-	// 'chunk' is an input chunk.
-	//
-	// Call `push(newChunk)` to pass along transformed output
-	// to the readable side.  You may call 'push' zero or more times.
-	//
-	// Call `cb(err)` when you are done with this chunk.  If you pass
-	// an error, then that'll put the hurt on the whole operation.  If you
-	// never call cb(), then you'll never get another chunk.
-	Transform.prototype._transform = function(chunk, encoding, cb) {
-	  throw new Error('not implemented');
-	};
-
-	Transform.prototype._write = function(chunk, encoding, cb) {
-	  var ts = this._transformState;
-	  ts.writecb = cb;
-	  ts.writechunk = chunk;
-	  ts.writeencoding = encoding;
-	  if (!ts.transforming) {
-	    var rs = this._readableState;
-	    if (ts.needTransform ||
-	        rs.needReadable ||
-	        rs.length < rs.highWaterMark)
-	      this._read(rs.highWaterMark);
-	  }
-	};
-
-	// Doesn't matter what the args are here.
-	// _transform does all the work.
-	// That we got here means that the readable side wants more data.
-	Transform.prototype._read = function(n) {
-	  var ts = this._transformState;
-
-	  if (!util.isNull(ts.writechunk) && ts.writecb && !ts.transforming) {
-	    ts.transforming = true;
-	    this._transform(ts.writechunk, ts.writeencoding, ts.afterTransform);
-	  } else {
-	    // mark that we need a transform, so that any data that comes in
-	    // will get processed, now that we've asked for it.
-	    ts.needTransform = true;
-	  }
-	};
-
-
-	function done(stream, er) {
-	  if (er)
-	    return stream.emit('error', er);
-
-	  // if there's nothing in the write buffer, then that means
-	  // that nothing more will ever be provided
-	  var ws = stream._writableState;
-	  var ts = stream._transformState;
-
-	  if (ws.length)
-	    throw new Error('calling transform done when ws.length != 0');
-
-	  if (ts.transforming)
-	    throw new Error('calling transform done when still transforming');
-
-	  return stream.push(null);
-	}
-
-
-/***/ },
-/* 71 */
+/* 29 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {// Copyright Joyent, Inc. and other Node contributors.
@@ -25148,17 +17783,17 @@
 	module.exports = Readable;
 
 	/*<replacement>*/
-	var isArray = __webpack_require__(107);
+	var isArray = __webpack_require__(31);
 	/*</replacement>*/
 
 
 	/*<replacement>*/
-	var Buffer = __webpack_require__(4).Buffer;
+	var Buffer = __webpack_require__(2).Buffer;
 	/*</replacement>*/
 
 	Readable.ReadableState = ReadableState;
 
-	var EE = __webpack_require__(54).EventEmitter;
+	var EE = __webpack_require__(26).EventEmitter;
 
 	/*<replacement>*/
 	if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
@@ -25166,18 +17801,18 @@
 	};
 	/*</replacement>*/
 
-	var Stream = __webpack_require__(46);
+	var Stream = __webpack_require__(25);
 
 	/*<replacement>*/
-	var util = __webpack_require__(105);
-	util.inherits = __webpack_require__(104);
+	var util = __webpack_require__(32);
+	util.inherits = __webpack_require__(33);
 	/*</replacement>*/
 
 	var StringDecoder;
 
 
 	/*<replacement>*/
-	var debug = __webpack_require__(93);
+	var debug = __webpack_require__(34);
 	if (debug && debug.debuglog) {
 	  debug = debug.debuglog('stream');
 	} else {
@@ -25189,7 +17824,7 @@
 	util.inherits(Readable, Stream);
 
 	function ReadableState(options, stream) {
-	  var Duplex = __webpack_require__(69);
+	  var Duplex = __webpack_require__(35);
 
 	  options = options || {};
 
@@ -25250,14 +17885,14 @@
 	  this.encoding = null;
 	  if (options.encoding) {
 	    if (!StringDecoder)
-	      StringDecoder = __webpack_require__(101).StringDecoder;
+	      StringDecoder = __webpack_require__(37).StringDecoder;
 	    this.decoder = new StringDecoder(options.encoding);
 	    this.encoding = options.encoding;
 	  }
 	}
 
 	function Readable(options) {
-	  var Duplex = __webpack_require__(69);
+	  var Duplex = __webpack_require__(35);
 
 	  if (!(this instanceof Readable))
 	    return new Readable(options);
@@ -25360,7 +17995,7 @@
 	// backwards compatibility.
 	Readable.prototype.setEncoding = function(enc) {
 	  if (!StringDecoder)
-	    StringDecoder = __webpack_require__(101).StringDecoder;
+	    StringDecoder = __webpack_require__(37).StringDecoder;
 	  this._readableState.decoder = new StringDecoder(enc);
 	  this._readableState.encoding = enc;
 	  return this;
@@ -26076,22 +18711,2495 @@
 	  return -1;
 	}
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(61)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(30)))
 
 /***/ },
-/* 72 */
-/***/ function(module, exports, __webpack_require__) {
+/* 30 */
+/***/ function(module, exports) {
 
-	module.exports = function isBuffer(arg) {
-	  return arg && typeof arg === 'object'
-	    && typeof arg.copy === 'function'
-	    && typeof arg.fill === 'function'
-	    && typeof arg.readUInt8 === 'function';
+	// shim for using process in browser
+
+	var process = module.exports = {};
+	var queue = [];
+	var draining = false;
+	var currentQueue;
+	var queueIndex = -1;
+
+	function cleanUpNextTick() {
+	    draining = false;
+	    if (currentQueue.length) {
+	        queue = currentQueue.concat(queue);
+	    } else {
+	        queueIndex = -1;
+	    }
+	    if (queue.length) {
+	        drainQueue();
+	    }
 	}
 
+	function drainQueue() {
+	    if (draining) {
+	        return;
+	    }
+	    var timeout = setTimeout(cleanUpNextTick);
+	    draining = true;
+
+	    var len = queue.length;
+	    while(len) {
+	        currentQueue = queue;
+	        queue = [];
+	        while (++queueIndex < len) {
+	            currentQueue[queueIndex].run();
+	        }
+	        queueIndex = -1;
+	        len = queue.length;
+	    }
+	    currentQueue = null;
+	    draining = false;
+	    clearTimeout(timeout);
+	}
+
+	process.nextTick = function (fun) {
+	    var args = new Array(arguments.length - 1);
+	    if (arguments.length > 1) {
+	        for (var i = 1; i < arguments.length; i++) {
+	            args[i - 1] = arguments[i];
+	        }
+	    }
+	    queue.push(new Item(fun, args));
+	    if (queue.length === 1 && !draining) {
+	        setTimeout(drainQueue, 0);
+	    }
+	};
+
+	// v8 likes predictible objects
+	function Item(fun, array) {
+	    this.fun = fun;
+	    this.array = array;
+	}
+	Item.prototype.run = function () {
+	    this.fun.apply(null, this.array);
+	};
+	process.title = 'browser';
+	process.browser = true;
+	process.env = {};
+	process.argv = [];
+	process.version = ''; // empty string to avoid regexp issues
+	process.versions = {};
+
+	function noop() {}
+
+	process.on = noop;
+	process.addListener = noop;
+	process.once = noop;
+	process.off = noop;
+	process.removeListener = noop;
+	process.removeAllListeners = noop;
+	process.emit = noop;
+
+	process.binding = function (name) {
+	    throw new Error('process.binding is not supported');
+	};
+
+	// TODO(shtylman)
+	process.cwd = function () { return '/' };
+	process.chdir = function (dir) {
+	    throw new Error('process.chdir is not supported');
+	};
+	process.umask = function() { return 0; };
+
+
 /***/ },
-/* 73 */
+/* 31 */
+/***/ function(module, exports) {
+
+	module.exports = Array.isArray || function (arr) {
+	  return Object.prototype.toString.call(arr) == '[object Array]';
+	};
+
+
+/***/ },
+/* 32 */
 /***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	// NOTE: These type checking functions intentionally don't use `instanceof`
+	// because it is fragile and can be easily faked with `Object.create()`.
+	function isArray(ar) {
+	  return Array.isArray(ar);
+	}
+	exports.isArray = isArray;
+
+	function isBoolean(arg) {
+	  return typeof arg === 'boolean';
+	}
+	exports.isBoolean = isBoolean;
+
+	function isNull(arg) {
+	  return arg === null;
+	}
+	exports.isNull = isNull;
+
+	function isNullOrUndefined(arg) {
+	  return arg == null;
+	}
+	exports.isNullOrUndefined = isNullOrUndefined;
+
+	function isNumber(arg) {
+	  return typeof arg === 'number';
+	}
+	exports.isNumber = isNumber;
+
+	function isString(arg) {
+	  return typeof arg === 'string';
+	}
+	exports.isString = isString;
+
+	function isSymbol(arg) {
+	  return typeof arg === 'symbol';
+	}
+	exports.isSymbol = isSymbol;
+
+	function isUndefined(arg) {
+	  return arg === void 0;
+	}
+	exports.isUndefined = isUndefined;
+
+	function isRegExp(re) {
+	  return isObject(re) && objectToString(re) === '[object RegExp]';
+	}
+	exports.isRegExp = isRegExp;
+
+	function isObject(arg) {
+	  return typeof arg === 'object' && arg !== null;
+	}
+	exports.isObject = isObject;
+
+	function isDate(d) {
+	  return isObject(d) && objectToString(d) === '[object Date]';
+	}
+	exports.isDate = isDate;
+
+	function isError(e) {
+	  return isObject(e) &&
+	      (objectToString(e) === '[object Error]' || e instanceof Error);
+	}
+	exports.isError = isError;
+
+	function isFunction(arg) {
+	  return typeof arg === 'function';
+	}
+	exports.isFunction = isFunction;
+
+	function isPrimitive(arg) {
+	  return arg === null ||
+	         typeof arg === 'boolean' ||
+	         typeof arg === 'number' ||
+	         typeof arg === 'string' ||
+	         typeof arg === 'symbol' ||  // ES6 symbol
+	         typeof arg === 'undefined';
+	}
+	exports.isPrimitive = isPrimitive;
+
+	function isBuffer(arg) {
+	  return Buffer.isBuffer(arg);
+	}
+	exports.isBuffer = isBuffer;
+
+	function objectToString(o) {
+	  return Object.prototype.toString.call(o);
+	}
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 33 */
+/***/ function(module, exports) {
+
+	if (typeof Object.create === 'function') {
+	  // implementation from standard node.js 'util' module
+	  module.exports = function inherits(ctor, superCtor) {
+	    ctor.super_ = superCtor
+	    ctor.prototype = Object.create(superCtor.prototype, {
+	      constructor: {
+	        value: ctor,
+	        enumerable: false,
+	        writable: true,
+	        configurable: true
+	      }
+	    });
+	  };
+	} else {
+	  // old school shim for old browsers
+	  module.exports = function inherits(ctor, superCtor) {
+	    ctor.super_ = superCtor
+	    var TempCtor = function () {}
+	    TempCtor.prototype = superCtor.prototype
+	    ctor.prototype = new TempCtor()
+	    ctor.prototype.constructor = ctor
+	  }
+	}
+
+
+/***/ },
+/* 34 */
+/***/ function(module, exports) {
+
+	/* (ignored) */
+
+/***/ },
+/* 35 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(process) {// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	// a duplex stream is just a stream that is both readable and writable.
+	// Since JS doesn't have multiple prototypal inheritance, this class
+	// prototypally inherits from Readable, and then parasitically from
+	// Writable.
+
+	module.exports = Duplex;
+
+	/*<replacement>*/
+	var objectKeys = Object.keys || function (obj) {
+	  var keys = [];
+	  for (var key in obj) keys.push(key);
+	  return keys;
+	}
+	/*</replacement>*/
+
+
+	/*<replacement>*/
+	var util = __webpack_require__(32);
+	util.inherits = __webpack_require__(33);
+	/*</replacement>*/
+
+	var Readable = __webpack_require__(29);
+	var Writable = __webpack_require__(36);
+
+	util.inherits(Duplex, Readable);
+
+	forEach(objectKeys(Writable.prototype), function(method) {
+	  if (!Duplex.prototype[method])
+	    Duplex.prototype[method] = Writable.prototype[method];
+	});
+
+	function Duplex(options) {
+	  if (!(this instanceof Duplex))
+	    return new Duplex(options);
+
+	  Readable.call(this, options);
+	  Writable.call(this, options);
+
+	  if (options && options.readable === false)
+	    this.readable = false;
+
+	  if (options && options.writable === false)
+	    this.writable = false;
+
+	  this.allowHalfOpen = true;
+	  if (options && options.allowHalfOpen === false)
+	    this.allowHalfOpen = false;
+
+	  this.once('end', onend);
+	}
+
+	// the no-half-open enforcer
+	function onend() {
+	  // if we allow half-open state, or if the writable side ended,
+	  // then we're ok.
+	  if (this.allowHalfOpen || this._writableState.ended)
+	    return;
+
+	  // no more data can be written.
+	  // But allow more writes to happen in this tick.
+	  process.nextTick(this.end.bind(this));
+	}
+
+	function forEach (xs, f) {
+	  for (var i = 0, l = xs.length; i < l; i++) {
+	    f(xs[i], i);
+	  }
+	}
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(30)))
+
+/***/ },
+/* 36 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(process) {// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	// A bit simpler than readable streams.
+	// Implement an async ._write(chunk, cb), and it'll handle all
+	// the drain event emission and buffering.
+
+	module.exports = Writable;
+
+	/*<replacement>*/
+	var Buffer = __webpack_require__(2).Buffer;
+	/*</replacement>*/
+
+	Writable.WritableState = WritableState;
+
+
+	/*<replacement>*/
+	var util = __webpack_require__(32);
+	util.inherits = __webpack_require__(33);
+	/*</replacement>*/
+
+	var Stream = __webpack_require__(25);
+
+	util.inherits(Writable, Stream);
+
+	function WriteReq(chunk, encoding, cb) {
+	  this.chunk = chunk;
+	  this.encoding = encoding;
+	  this.callback = cb;
+	}
+
+	function WritableState(options, stream) {
+	  var Duplex = __webpack_require__(35);
+
+	  options = options || {};
+
+	  // the point at which write() starts returning false
+	  // Note: 0 is a valid value, means that we always return false if
+	  // the entire buffer is not flushed immediately on write()
+	  var hwm = options.highWaterMark;
+	  var defaultHwm = options.objectMode ? 16 : 16 * 1024;
+	  this.highWaterMark = (hwm || hwm === 0) ? hwm : defaultHwm;
+
+	  // object stream flag to indicate whether or not this stream
+	  // contains buffers or objects.
+	  this.objectMode = !!options.objectMode;
+
+	  if (stream instanceof Duplex)
+	    this.objectMode = this.objectMode || !!options.writableObjectMode;
+
+	  // cast to ints.
+	  this.highWaterMark = ~~this.highWaterMark;
+
+	  this.needDrain = false;
+	  // at the start of calling end()
+	  this.ending = false;
+	  // when end() has been called, and returned
+	  this.ended = false;
+	  // when 'finish' is emitted
+	  this.finished = false;
+
+	  // should we decode strings into buffers before passing to _write?
+	  // this is here so that some node-core streams can optimize string
+	  // handling at a lower level.
+	  var noDecode = options.decodeStrings === false;
+	  this.decodeStrings = !noDecode;
+
+	  // Crypto is kind of old and crusty.  Historically, its default string
+	  // encoding is 'binary' so we have to make this configurable.
+	  // Everything else in the universe uses 'utf8', though.
+	  this.defaultEncoding = options.defaultEncoding || 'utf8';
+
+	  // not an actual buffer we keep track of, but a measurement
+	  // of how much we're waiting to get pushed to some underlying
+	  // socket or file.
+	  this.length = 0;
+
+	  // a flag to see when we're in the middle of a write.
+	  this.writing = false;
+
+	  // when true all writes will be buffered until .uncork() call
+	  this.corked = 0;
+
+	  // a flag to be able to tell if the onwrite cb is called immediately,
+	  // or on a later tick.  We set this to true at first, because any
+	  // actions that shouldn't happen until "later" should generally also
+	  // not happen before the first write call.
+	  this.sync = true;
+
+	  // a flag to know if we're processing previously buffered items, which
+	  // may call the _write() callback in the same tick, so that we don't
+	  // end up in an overlapped onwrite situation.
+	  this.bufferProcessing = false;
+
+	  // the callback that's passed to _write(chunk,cb)
+	  this.onwrite = function(er) {
+	    onwrite(stream, er);
+	  };
+
+	  // the callback that the user supplies to write(chunk,encoding,cb)
+	  this.writecb = null;
+
+	  // the amount that is being written when _write is called.
+	  this.writelen = 0;
+
+	  this.buffer = [];
+
+	  // number of pending user-supplied write callbacks
+	  // this must be 0 before 'finish' can be emitted
+	  this.pendingcb = 0;
+
+	  // emit prefinish if the only thing we're waiting for is _write cbs
+	  // This is relevant for synchronous Transform streams
+	  this.prefinished = false;
+
+	  // True if the error was already emitted and should not be thrown again
+	  this.errorEmitted = false;
+	}
+
+	function Writable(options) {
+	  var Duplex = __webpack_require__(35);
+
+	  // Writable ctor is applied to Duplexes, though they're not
+	  // instanceof Writable, they're instanceof Readable.
+	  if (!(this instanceof Writable) && !(this instanceof Duplex))
+	    return new Writable(options);
+
+	  this._writableState = new WritableState(options, this);
+
+	  // legacy.
+	  this.writable = true;
+
+	  Stream.call(this);
+	}
+
+	// Otherwise people can pipe Writable streams, which is just wrong.
+	Writable.prototype.pipe = function() {
+	  this.emit('error', new Error('Cannot pipe. Not readable.'));
+	};
+
+
+	function writeAfterEnd(stream, state, cb) {
+	  var er = new Error('write after end');
+	  // TODO: defer error events consistently everywhere, not just the cb
+	  stream.emit('error', er);
+	  process.nextTick(function() {
+	    cb(er);
+	  });
+	}
+
+	// If we get something that is not a buffer, string, null, or undefined,
+	// and we're not in objectMode, then that's an error.
+	// Otherwise stream chunks are all considered to be of length=1, and the
+	// watermarks determine how many objects to keep in the buffer, rather than
+	// how many bytes or characters.
+	function validChunk(stream, state, chunk, cb) {
+	  var valid = true;
+	  if (!util.isBuffer(chunk) &&
+	      !util.isString(chunk) &&
+	      !util.isNullOrUndefined(chunk) &&
+	      !state.objectMode) {
+	    var er = new TypeError('Invalid non-string/buffer chunk');
+	    stream.emit('error', er);
+	    process.nextTick(function() {
+	      cb(er);
+	    });
+	    valid = false;
+	  }
+	  return valid;
+	}
+
+	Writable.prototype.write = function(chunk, encoding, cb) {
+	  var state = this._writableState;
+	  var ret = false;
+
+	  if (util.isFunction(encoding)) {
+	    cb = encoding;
+	    encoding = null;
+	  }
+
+	  if (util.isBuffer(chunk))
+	    encoding = 'buffer';
+	  else if (!encoding)
+	    encoding = state.defaultEncoding;
+
+	  if (!util.isFunction(cb))
+	    cb = function() {};
+
+	  if (state.ended)
+	    writeAfterEnd(this, state, cb);
+	  else if (validChunk(this, state, chunk, cb)) {
+	    state.pendingcb++;
+	    ret = writeOrBuffer(this, state, chunk, encoding, cb);
+	  }
+
+	  return ret;
+	};
+
+	Writable.prototype.cork = function() {
+	  var state = this._writableState;
+
+	  state.corked++;
+	};
+
+	Writable.prototype.uncork = function() {
+	  var state = this._writableState;
+
+	  if (state.corked) {
+	    state.corked--;
+
+	    if (!state.writing &&
+	        !state.corked &&
+	        !state.finished &&
+	        !state.bufferProcessing &&
+	        state.buffer.length)
+	      clearBuffer(this, state);
+	  }
+	};
+
+	function decodeChunk(state, chunk, encoding) {
+	  if (!state.objectMode &&
+	      state.decodeStrings !== false &&
+	      util.isString(chunk)) {
+	    chunk = new Buffer(chunk, encoding);
+	  }
+	  return chunk;
+	}
+
+	// if we're already writing something, then just put this
+	// in the queue, and wait our turn.  Otherwise, call _write
+	// If we return false, then we need a drain event, so set that flag.
+	function writeOrBuffer(stream, state, chunk, encoding, cb) {
+	  chunk = decodeChunk(state, chunk, encoding);
+	  if (util.isBuffer(chunk))
+	    encoding = 'buffer';
+	  var len = state.objectMode ? 1 : chunk.length;
+
+	  state.length += len;
+
+	  var ret = state.length < state.highWaterMark;
+	  // we must ensure that previous needDrain will not be reset to false.
+	  if (!ret)
+	    state.needDrain = true;
+
+	  if (state.writing || state.corked)
+	    state.buffer.push(new WriteReq(chunk, encoding, cb));
+	  else
+	    doWrite(stream, state, false, len, chunk, encoding, cb);
+
+	  return ret;
+	}
+
+	function doWrite(stream, state, writev, len, chunk, encoding, cb) {
+	  state.writelen = len;
+	  state.writecb = cb;
+	  state.writing = true;
+	  state.sync = true;
+	  if (writev)
+	    stream._writev(chunk, state.onwrite);
+	  else
+	    stream._write(chunk, encoding, state.onwrite);
+	  state.sync = false;
+	}
+
+	function onwriteError(stream, state, sync, er, cb) {
+	  if (sync)
+	    process.nextTick(function() {
+	      state.pendingcb--;
+	      cb(er);
+	    });
+	  else {
+	    state.pendingcb--;
+	    cb(er);
+	  }
+
+	  stream._writableState.errorEmitted = true;
+	  stream.emit('error', er);
+	}
+
+	function onwriteStateUpdate(state) {
+	  state.writing = false;
+	  state.writecb = null;
+	  state.length -= state.writelen;
+	  state.writelen = 0;
+	}
+
+	function onwrite(stream, er) {
+	  var state = stream._writableState;
+	  var sync = state.sync;
+	  var cb = state.writecb;
+
+	  onwriteStateUpdate(state);
+
+	  if (er)
+	    onwriteError(stream, state, sync, er, cb);
+	  else {
+	    // Check if we're actually ready to finish, but don't emit yet
+	    var finished = needFinish(stream, state);
+
+	    if (!finished &&
+	        !state.corked &&
+	        !state.bufferProcessing &&
+	        state.buffer.length) {
+	      clearBuffer(stream, state);
+	    }
+
+	    if (sync) {
+	      process.nextTick(function() {
+	        afterWrite(stream, state, finished, cb);
+	      });
+	    } else {
+	      afterWrite(stream, state, finished, cb);
+	    }
+	  }
+	}
+
+	function afterWrite(stream, state, finished, cb) {
+	  if (!finished)
+	    onwriteDrain(stream, state);
+	  state.pendingcb--;
+	  cb();
+	  finishMaybe(stream, state);
+	}
+
+	// Must force callback to be called on nextTick, so that we don't
+	// emit 'drain' before the write() consumer gets the 'false' return
+	// value, and has a chance to attach a 'drain' listener.
+	function onwriteDrain(stream, state) {
+	  if (state.length === 0 && state.needDrain) {
+	    state.needDrain = false;
+	    stream.emit('drain');
+	  }
+	}
+
+
+	// if there's something in the buffer waiting, then process it
+	function clearBuffer(stream, state) {
+	  state.bufferProcessing = true;
+
+	  if (stream._writev && state.buffer.length > 1) {
+	    // Fast case, write everything using _writev()
+	    var cbs = [];
+	    for (var c = 0; c < state.buffer.length; c++)
+	      cbs.push(state.buffer[c].callback);
+
+	    // count the one we are adding, as well.
+	    // TODO(isaacs) clean this up
+	    state.pendingcb++;
+	    doWrite(stream, state, true, state.length, state.buffer, '', function(err) {
+	      for (var i = 0; i < cbs.length; i++) {
+	        state.pendingcb--;
+	        cbs[i](err);
+	      }
+	    });
+
+	    // Clear buffer
+	    state.buffer = [];
+	  } else {
+	    // Slow case, write chunks one-by-one
+	    for (var c = 0; c < state.buffer.length; c++) {
+	      var entry = state.buffer[c];
+	      var chunk = entry.chunk;
+	      var encoding = entry.encoding;
+	      var cb = entry.callback;
+	      var len = state.objectMode ? 1 : chunk.length;
+
+	      doWrite(stream, state, false, len, chunk, encoding, cb);
+
+	      // if we didn't call the onwrite immediately, then
+	      // it means that we need to wait until it does.
+	      // also, that means that the chunk and cb are currently
+	      // being processed, so move the buffer counter past them.
+	      if (state.writing) {
+	        c++;
+	        break;
+	      }
+	    }
+
+	    if (c < state.buffer.length)
+	      state.buffer = state.buffer.slice(c);
+	    else
+	      state.buffer.length = 0;
+	  }
+
+	  state.bufferProcessing = false;
+	}
+
+	Writable.prototype._write = function(chunk, encoding, cb) {
+	  cb(new Error('not implemented'));
+
+	};
+
+	Writable.prototype._writev = null;
+
+	Writable.prototype.end = function(chunk, encoding, cb) {
+	  var state = this._writableState;
+
+	  if (util.isFunction(chunk)) {
+	    cb = chunk;
+	    chunk = null;
+	    encoding = null;
+	  } else if (util.isFunction(encoding)) {
+	    cb = encoding;
+	    encoding = null;
+	  }
+
+	  if (!util.isNullOrUndefined(chunk))
+	    this.write(chunk, encoding);
+
+	  // .end() fully uncorks
+	  if (state.corked) {
+	    state.corked = 1;
+	    this.uncork();
+	  }
+
+	  // ignore unnecessary end() calls.
+	  if (!state.ending && !state.finished)
+	    endWritable(this, state, cb);
+	};
+
+
+	function needFinish(stream, state) {
+	  return (state.ending &&
+	          state.length === 0 &&
+	          !state.finished &&
+	          !state.writing);
+	}
+
+	function prefinish(stream, state) {
+	  if (!state.prefinished) {
+	    state.prefinished = true;
+	    stream.emit('prefinish');
+	  }
+	}
+
+	function finishMaybe(stream, state) {
+	  var need = needFinish(stream, state);
+	  if (need) {
+	    if (state.pendingcb === 0) {
+	      prefinish(stream, state);
+	      state.finished = true;
+	      stream.emit('finish');
+	    } else
+	      prefinish(stream, state);
+	  }
+	  return need;
+	}
+
+	function endWritable(stream, state, cb) {
+	  state.ending = true;
+	  finishMaybe(stream, state);
+	  if (cb) {
+	    if (state.finished)
+	      process.nextTick(cb);
+	    else
+	      stream.once('finish', cb);
+	  }
+	  state.ended = true;
+	}
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(30)))
+
+/***/ },
+/* 37 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	var Buffer = __webpack_require__(2).Buffer;
+
+	var isBufferEncoding = Buffer.isEncoding
+	  || function(encoding) {
+	       switch (encoding && encoding.toLowerCase()) {
+	         case 'hex': case 'utf8': case 'utf-8': case 'ascii': case 'binary': case 'base64': case 'ucs2': case 'ucs-2': case 'utf16le': case 'utf-16le': case 'raw': return true;
+	         default: return false;
+	       }
+	     }
+
+
+	function assertEncoding(encoding) {
+	  if (encoding && !isBufferEncoding(encoding)) {
+	    throw new Error('Unknown encoding: ' + encoding);
+	  }
+	}
+
+	// StringDecoder provides an interface for efficiently splitting a series of
+	// buffers into a series of JS strings without breaking apart multi-byte
+	// characters. CESU-8 is handled as part of the UTF-8 encoding.
+	//
+	// @TODO Handling all encodings inside a single object makes it very difficult
+	// to reason about this code, so it should be split up in the future.
+	// @TODO There should be a utf8-strict encoding that rejects invalid UTF-8 code
+	// points as used by CESU-8.
+	var StringDecoder = exports.StringDecoder = function(encoding) {
+	  this.encoding = (encoding || 'utf8').toLowerCase().replace(/[-_]/, '');
+	  assertEncoding(encoding);
+	  switch (this.encoding) {
+	    case 'utf8':
+	      // CESU-8 represents each of Surrogate Pair by 3-bytes
+	      this.surrogateSize = 3;
+	      break;
+	    case 'ucs2':
+	    case 'utf16le':
+	      // UTF-16 represents each of Surrogate Pair by 2-bytes
+	      this.surrogateSize = 2;
+	      this.detectIncompleteChar = utf16DetectIncompleteChar;
+	      break;
+	    case 'base64':
+	      // Base-64 stores 3 bytes in 4 chars, and pads the remainder.
+	      this.surrogateSize = 3;
+	      this.detectIncompleteChar = base64DetectIncompleteChar;
+	      break;
+	    default:
+	      this.write = passThroughWrite;
+	      return;
+	  }
+
+	  // Enough space to store all bytes of a single character. UTF-8 needs 4
+	  // bytes, but CESU-8 may require up to 6 (3 bytes per surrogate).
+	  this.charBuffer = new Buffer(6);
+	  // Number of bytes received for the current incomplete multi-byte character.
+	  this.charReceived = 0;
+	  // Number of bytes expected for the current incomplete multi-byte character.
+	  this.charLength = 0;
+	};
+
+
+	// write decodes the given buffer and returns it as JS string that is
+	// guaranteed to not contain any partial multi-byte characters. Any partial
+	// character found at the end of the buffer is buffered up, and will be
+	// returned when calling write again with the remaining bytes.
+	//
+	// Note: Converting a Buffer containing an orphan surrogate to a String
+	// currently works, but converting a String to a Buffer (via `new Buffer`, or
+	// Buffer#write) will replace incomplete surrogates with the unicode
+	// replacement character. See https://codereview.chromium.org/121173009/ .
+	StringDecoder.prototype.write = function(buffer) {
+	  var charStr = '';
+	  // if our last write ended with an incomplete multibyte character
+	  while (this.charLength) {
+	    // determine how many remaining bytes this buffer has to offer for this char
+	    var available = (buffer.length >= this.charLength - this.charReceived) ?
+	        this.charLength - this.charReceived :
+	        buffer.length;
+
+	    // add the new bytes to the char buffer
+	    buffer.copy(this.charBuffer, this.charReceived, 0, available);
+	    this.charReceived += available;
+
+	    if (this.charReceived < this.charLength) {
+	      // still not enough chars in this buffer? wait for more ...
+	      return '';
+	    }
+
+	    // remove bytes belonging to the current character from the buffer
+	    buffer = buffer.slice(available, buffer.length);
+
+	    // get the character that was split
+	    charStr = this.charBuffer.slice(0, this.charLength).toString(this.encoding);
+
+	    // CESU-8: lead surrogate (D800-DBFF) is also the incomplete character
+	    var charCode = charStr.charCodeAt(charStr.length - 1);
+	    if (charCode >= 0xD800 && charCode <= 0xDBFF) {
+	      this.charLength += this.surrogateSize;
+	      charStr = '';
+	      continue;
+	    }
+	    this.charReceived = this.charLength = 0;
+
+	    // if there are no more bytes in this buffer, just emit our char
+	    if (buffer.length === 0) {
+	      return charStr;
+	    }
+	    break;
+	  }
+
+	  // determine and set charLength / charReceived
+	  this.detectIncompleteChar(buffer);
+
+	  var end = buffer.length;
+	  if (this.charLength) {
+	    // buffer the incomplete character bytes we got
+	    buffer.copy(this.charBuffer, 0, buffer.length - this.charReceived, end);
+	    end -= this.charReceived;
+	  }
+
+	  charStr += buffer.toString(this.encoding, 0, end);
+
+	  var end = charStr.length - 1;
+	  var charCode = charStr.charCodeAt(end);
+	  // CESU-8: lead surrogate (D800-DBFF) is also the incomplete character
+	  if (charCode >= 0xD800 && charCode <= 0xDBFF) {
+	    var size = this.surrogateSize;
+	    this.charLength += size;
+	    this.charReceived += size;
+	    this.charBuffer.copy(this.charBuffer, size, 0, size);
+	    buffer.copy(this.charBuffer, 0, 0, size);
+	    return charStr.substring(0, end);
+	  }
+
+	  // or just emit the charStr
+	  return charStr;
+	};
+
+	// detectIncompleteChar determines if there is an incomplete UTF-8 character at
+	// the end of the given buffer. If so, it sets this.charLength to the byte
+	// length that character, and sets this.charReceived to the number of bytes
+	// that are available for this character.
+	StringDecoder.prototype.detectIncompleteChar = function(buffer) {
+	  // determine how many bytes we have to check at the end of this buffer
+	  var i = (buffer.length >= 3) ? 3 : buffer.length;
+
+	  // Figure out if one of the last i bytes of our buffer announces an
+	  // incomplete char.
+	  for (; i > 0; i--) {
+	    var c = buffer[buffer.length - i];
+
+	    // See http://en.wikipedia.org/wiki/UTF-8#Description
+
+	    // 110XXXXX
+	    if (i == 1 && c >> 5 == 0x06) {
+	      this.charLength = 2;
+	      break;
+	    }
+
+	    // 1110XXXX
+	    if (i <= 2 && c >> 4 == 0x0E) {
+	      this.charLength = 3;
+	      break;
+	    }
+
+	    // 11110XXX
+	    if (i <= 3 && c >> 3 == 0x1E) {
+	      this.charLength = 4;
+	      break;
+	    }
+	  }
+	  this.charReceived = i;
+	};
+
+	StringDecoder.prototype.end = function(buffer) {
+	  var res = '';
+	  if (buffer && buffer.length)
+	    res = this.write(buffer);
+
+	  if (this.charReceived) {
+	    var cr = this.charReceived;
+	    var buf = this.charBuffer;
+	    var enc = this.encoding;
+	    res += buf.slice(0, cr).toString(enc);
+	  }
+
+	  return res;
+	};
+
+	function passThroughWrite(buffer) {
+	  return buffer.toString(this.encoding);
+	}
+
+	function utf16DetectIncompleteChar(buffer) {
+	  this.charReceived = buffer.length % 2;
+	  this.charLength = this.charReceived ? 2 : 0;
+	}
+
+	function base64DetectIncompleteChar(buffer) {
+	  this.charReceived = buffer.length % 3;
+	  this.charLength = this.charReceived ? 3 : 0;
+	}
+
+
+/***/ },
+/* 38 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+	// a transform stream is a readable/writable stream where you do
+	// something with the data.  Sometimes it's called a "filter",
+	// but that's not a great name for it, since that implies a thing where
+	// some bits pass through, and others are simply ignored.  (That would
+	// be a valid example of a transform, of course.)
+	//
+	// While the output is causally related to the input, it's not a
+	// necessarily symmetric or synchronous transformation.  For example,
+	// a zlib stream might take multiple plain-text writes(), and then
+	// emit a single compressed chunk some time in the future.
+	//
+	// Here's how this works:
+	//
+	// The Transform stream has all the aspects of the readable and writable
+	// stream classes.  When you write(chunk), that calls _write(chunk,cb)
+	// internally, and returns false if there's a lot of pending writes
+	// buffered up.  When you call read(), that calls _read(n) until
+	// there's enough pending readable data buffered up.
+	//
+	// In a transform stream, the written data is placed in a buffer.  When
+	// _read(n) is called, it transforms the queued up data, calling the
+	// buffered _write cb's as it consumes chunks.  If consuming a single
+	// written chunk would result in multiple output chunks, then the first
+	// outputted bit calls the readcb, and subsequent chunks just go into
+	// the read buffer, and will cause it to emit 'readable' if necessary.
+	//
+	// This way, back-pressure is actually determined by the reading side,
+	// since _read has to be called to start processing a new chunk.  However,
+	// a pathological inflate type of transform can cause excessive buffering
+	// here.  For example, imagine a stream where every byte of input is
+	// interpreted as an integer from 0-255, and then results in that many
+	// bytes of output.  Writing the 4 bytes {ff,ff,ff,ff} would result in
+	// 1kb of data being output.  In this case, you could write a very small
+	// amount of input, and end up with a very large amount of output.  In
+	// such a pathological inflating mechanism, there'd be no way to tell
+	// the system to stop doing the transform.  A single 4MB write could
+	// cause the system to run out of memory.
+	//
+	// However, even in such a pathological case, only a single written chunk
+	// would be consumed, and then the rest would wait (un-transformed) until
+	// the results of the previous transformed chunk were consumed.
+
+	module.exports = Transform;
+
+	var Duplex = __webpack_require__(35);
+
+	/*<replacement>*/
+	var util = __webpack_require__(32);
+	util.inherits = __webpack_require__(33);
+	/*</replacement>*/
+
+	util.inherits(Transform, Duplex);
+
+
+	function TransformState(options, stream) {
+	  this.afterTransform = function(er, data) {
+	    return afterTransform(stream, er, data);
+	  };
+
+	  this.needTransform = false;
+	  this.transforming = false;
+	  this.writecb = null;
+	  this.writechunk = null;
+	}
+
+	function afterTransform(stream, er, data) {
+	  var ts = stream._transformState;
+	  ts.transforming = false;
+
+	  var cb = ts.writecb;
+
+	  if (!cb)
+	    return stream.emit('error', new Error('no writecb in Transform class'));
+
+	  ts.writechunk = null;
+	  ts.writecb = null;
+
+	  if (!util.isNullOrUndefined(data))
+	    stream.push(data);
+
+	  if (cb)
+	    cb(er);
+
+	  var rs = stream._readableState;
+	  rs.reading = false;
+	  if (rs.needReadable || rs.length < rs.highWaterMark) {
+	    stream._read(rs.highWaterMark);
+	  }
+	}
+
+
+	function Transform(options) {
+	  if (!(this instanceof Transform))
+	    return new Transform(options);
+
+	  Duplex.call(this, options);
+
+	  this._transformState = new TransformState(options, this);
+
+	  // when the writable side finishes, then flush out anything remaining.
+	  var stream = this;
+
+	  // start out asking for a readable event once data is transformed.
+	  this._readableState.needReadable = true;
+
+	  // we have implemented the _read method, and done the other things
+	  // that Readable wants before the first _read call, so unset the
+	  // sync guard flag.
+	  this._readableState.sync = false;
+
+	  this.once('prefinish', function() {
+	    if (util.isFunction(this._flush))
+	      this._flush(function(er) {
+	        done(stream, er);
+	      });
+	    else
+	      done(stream);
+	  });
+	}
+
+	Transform.prototype.push = function(chunk, encoding) {
+	  this._transformState.needTransform = false;
+	  return Duplex.prototype.push.call(this, chunk, encoding);
+	};
+
+	// This is the part where you do stuff!
+	// override this function in implementation classes.
+	// 'chunk' is an input chunk.
+	//
+	// Call `push(newChunk)` to pass along transformed output
+	// to the readable side.  You may call 'push' zero or more times.
+	//
+	// Call `cb(err)` when you are done with this chunk.  If you pass
+	// an error, then that'll put the hurt on the whole operation.  If you
+	// never call cb(), then you'll never get another chunk.
+	Transform.prototype._transform = function(chunk, encoding, cb) {
+	  throw new Error('not implemented');
+	};
+
+	Transform.prototype._write = function(chunk, encoding, cb) {
+	  var ts = this._transformState;
+	  ts.writecb = cb;
+	  ts.writechunk = chunk;
+	  ts.writeencoding = encoding;
+	  if (!ts.transforming) {
+	    var rs = this._readableState;
+	    if (ts.needTransform ||
+	        rs.needReadable ||
+	        rs.length < rs.highWaterMark)
+	      this._read(rs.highWaterMark);
+	  }
+	};
+
+	// Doesn't matter what the args are here.
+	// _transform does all the work.
+	// That we got here means that the readable side wants more data.
+	Transform.prototype._read = function(n) {
+	  var ts = this._transformState;
+
+	  if (!util.isNull(ts.writechunk) && ts.writecb && !ts.transforming) {
+	    ts.transforming = true;
+	    this._transform(ts.writechunk, ts.writeencoding, ts.afterTransform);
+	  } else {
+	    // mark that we need a transform, so that any data that comes in
+	    // will get processed, now that we've asked for it.
+	    ts.needTransform = true;
+	  }
+	};
+
+
+	function done(stream, er) {
+	  if (er)
+	    return stream.emit('error', er);
+
+	  // if there's nothing in the write buffer, then that means
+	  // that nothing more will ever be provided
+	  var ws = stream._writableState;
+	  var ts = stream._transformState;
+
+	  if (ws.length)
+	    throw new Error('calling transform done when ws.length != 0');
+
+	  if (ts.transforming)
+	    throw new Error('calling transform done when still transforming');
+
+	  return stream.push(null);
+	}
+
+
+/***/ },
+/* 39 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	// a passthrough stream.
+	// basically just the most minimal sort of Transform stream.
+	// Every written chunk gets output as-is.
+
+	module.exports = PassThrough;
+
+	var Transform = __webpack_require__(38);
+
+	/*<replacement>*/
+	var util = __webpack_require__(32);
+	util.inherits = __webpack_require__(33);
+	/*</replacement>*/
+
+	util.inherits(PassThrough, Transform);
+
+	function PassThrough(options) {
+	  if (!(this instanceof PassThrough))
+	    return new PassThrough(options);
+
+	  Transform.call(this, options);
+	}
+
+	PassThrough.prototype._transform = function(chunk, encoding, cb) {
+	  cb(null, chunk);
+	};
+
+
+/***/ },
+/* 40 */
+/***/ function(module, exports, __webpack_require__) {
+
+	module.exports = __webpack_require__(36)
+
+
+/***/ },
+/* 41 */
+/***/ function(module, exports, __webpack_require__) {
+
+	module.exports = __webpack_require__(35)
+
+
+/***/ },
+/* 42 */
+/***/ function(module, exports, __webpack_require__) {
+
+	module.exports = __webpack_require__(38)
+
+
+/***/ },
+/* 43 */
+/***/ function(module, exports, __webpack_require__) {
+
+	module.exports = __webpack_require__(39)
+
+
+/***/ },
+/* 44 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer, __dirname) {/* jslint node: true */
+	'use strict';
+
+	// var b64 = require('./base64.js').base64DecToArr;
+	function VirtualFileSystem() {
+		this.fileSystem = {};
+		this.baseSystem = {};
+	}
+
+	VirtualFileSystem.prototype.readFileSync = function(filename) {
+		filename = fixFilename(filename);
+
+		var base64content = this.baseSystem[filename];
+		if (base64content) {
+			return new Buffer(base64content, 'base64');
+		}
+
+		return this.fileSystem[filename];
+	};
+
+	VirtualFileSystem.prototype.writeFileSync = function(filename, content) {
+		this.fileSystem[fixFilename(filename)] = content;
+	};
+
+	VirtualFileSystem.prototype.bindFS = function(data) {
+		this.baseSystem = data;
+	};
+
+
+	function fixFilename(filename) {
+		if (filename.indexOf(__dirname) === 0) {
+			filename = filename.substring(__dirname.length);
+		}
+
+		if (filename.indexOf('/') === 0) {
+			filename = filename.substring(1);
+		}
+
+		return filename;
+	}
+
+	module.exports = new VirtualFileSystem();
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer, "/"))
+
+/***/ },
+/* 45 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+
+	/*
+	PDFObject - converts JavaScript types into their corrisponding PDF types.
+	By Devon Govett
+	 */
+
+	(function() {
+	  var PDFObject, PDFReference;
+
+	  PDFObject = (function() {
+	    var escapable, escapableRe, pad, swapBytes;
+
+	    function PDFObject() {}
+
+	    pad = function(str, length) {
+	      return (Array(length + 1).join('0') + str).slice(-length);
+	    };
+
+	    escapableRe = /[\n\r\t\b\f\(\)\\]/g;
+
+	    escapable = {
+	      '\n': '\\n',
+	      '\r': '\\r',
+	      '\t': '\\t',
+	      '\b': '\\b',
+	      '\f': '\\f',
+	      '\\': '\\\\',
+	      '(': '\\(',
+	      ')': '\\)'
+	    };
+
+	    swapBytes = function(buff) {
+	      var a, i, l, _i, _ref;
+	      l = buff.length;
+	      if (l & 0x01) {
+	        throw new Error("Buffer length must be even");
+	      } else {
+	        for (i = _i = 0, _ref = l - 1; _i < _ref; i = _i += 2) {
+	          a = buff[i];
+	          buff[i] = buff[i + 1];
+	          buff[i + 1] = a;
+	        }
+	      }
+	      return buff;
+	    };
+
+	    PDFObject.convert = function(object) {
+	      var e, i, isUnicode, items, key, out, string, val, _i, _ref;
+	      if (typeof object === 'string') {
+	        return '/' + object;
+	      } else if (object instanceof String) {
+	        string = object.replace(escapableRe, function(c) {
+	          return escapable[c];
+	        });
+	        isUnicode = false;
+	        for (i = _i = 0, _ref = string.length; _i < _ref; i = _i += 1) {
+	          if (string.charCodeAt(i) > 0x7f) {
+	            isUnicode = true;
+	            break;
+	          }
+	        }
+	        if (isUnicode) {
+	          string = swapBytes(new Buffer('\ufeff' + string, 'utf16le')).toString('binary');
+	        }
+	        return '(' + string + ')';
+	      } else if (Buffer.isBuffer(object)) {
+	        return '<' + object.toString('hex') + '>';
+	      } else if (object instanceof PDFReference) {
+	        return object.toString();
+	      } else if (object instanceof Date) {
+	        return '(D:' + pad(object.getUTCFullYear(), 4) + pad(object.getUTCMonth(), 2) + pad(object.getUTCDate(), 2) + pad(object.getUTCHours(), 2) + pad(object.getUTCMinutes(), 2) + pad(object.getUTCSeconds(), 2) + 'Z)';
+	      } else if (Array.isArray(object)) {
+	        items = ((function() {
+	          var _j, _len, _results;
+	          _results = [];
+	          for (_j = 0, _len = object.length; _j < _len; _j++) {
+	            e = object[_j];
+	            _results.push(PDFObject.convert(e));
+	          }
+	          return _results;
+	        })()).join(' ');
+	        return '[' + items + ']';
+	      } else if ({}.toString.call(object) === '[object Object]') {
+	        out = ['<<'];
+	        for (key in object) {
+	          val = object[key];
+	          out.push('/' + key + ' ' + PDFObject.convert(val));
+	        }
+	        out.push('>>');
+	        return out.join('\n');
+	      } else {
+	        return '' + object;
+	      }
+	    };
+
+	    return PDFObject;
+
+	  })();
+
+	  module.exports = PDFObject;
+
+	  PDFReference = __webpack_require__(46);
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 46 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+
+	/*
+	PDFReference - represents a reference to another object in the PDF object heirarchy
+	By Devon Govett
+	 */
+
+	(function() {
+	  var PDFObject, PDFReference, zlib,
+	    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
+
+	  zlib = __webpack_require__(47);
+
+	  PDFReference = (function() {
+	    function PDFReference(document, id, data) {
+	      this.document = document;
+	      this.id = id;
+	      this.data = data != null ? data : {};
+	      this.finalize = __bind(this.finalize, this);
+	      this.gen = 0;
+	      this.deflate = null;
+	      this.compress = this.document.compress && !this.data.Filter;
+	      this.uncompressedLength = 0;
+	      this.chunks = [];
+	    }
+
+	    PDFReference.prototype.initDeflate = function() {
+	      this.data.Filter = 'FlateDecode';
+	      this.deflate = zlib.createDeflate();
+	      this.deflate.on('data', (function(_this) {
+	        return function(chunk) {
+	          _this.chunks.push(chunk);
+	          return _this.data.Length += chunk.length;
+	        };
+	      })(this));
+	      return this.deflate.on('end', this.finalize);
+	    };
+
+	    PDFReference.prototype.write = function(chunk) {
+	      var _base;
+	      if (!Buffer.isBuffer(chunk)) {
+	        chunk = new Buffer(chunk + '\n', 'binary');
+	      }
+	      this.uncompressedLength += chunk.length;
+	      if ((_base = this.data).Length == null) {
+	        _base.Length = 0;
+	      }
+	      if (this.compress) {
+	        if (!this.deflate) {
+	          this.initDeflate();
+	        }
+	        return this.deflate.write(chunk);
+	      } else {
+	        this.chunks.push(chunk);
+	        return this.data.Length += chunk.length;
+	      }
+	    };
+
+	    PDFReference.prototype.end = function(chunk) {
+	      if (typeof chunk === 'string' || Buffer.isBuffer(chunk)) {
+	        this.write(chunk);
+	      }
+	      if (this.deflate) {
+	        return this.deflate.end();
+	      } else {
+	        return this.finalize();
+	      }
+	    };
+
+	    PDFReference.prototype.finalize = function() {
+	      var chunk, _i, _len, _ref;
+	      this.offset = this.document._offset;
+	      this.document._write("" + this.id + " " + this.gen + " obj");
+	      this.document._write(PDFObject.convert(this.data));
+	      if (this.chunks.length) {
+	        this.document._write('stream');
+	        _ref = this.chunks;
+	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	          chunk = _ref[_i];
+	          this.document._write(chunk);
+	        }
+	        this.chunks.length = 0;
+	        this.document._write('\nendstream');
+	      }
+	      this.document._write('endobj');
+	      return this.document._refEnd(this);
+	    };
+
+	    PDFReference.prototype.toString = function() {
+	      return "" + this.id + " " + this.gen + " R";
+	    };
+
+	    return PDFReference;
+
+	  })();
+
+	  module.exports = PDFReference;
+
+	  PDFObject = __webpack_require__(45);
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 47 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer, process) {// Copyright Joyent, Inc. and other Node contributors.
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a
+	// copy of this software and associated documentation files (the
+	// "Software"), to deal in the Software without restriction, including
+	// without limitation the rights to use, copy, modify, merge, publish,
+	// distribute, sublicense, and/or sell copies of the Software, and to permit
+	// persons to whom the Software is furnished to do so, subject to the
+	// following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included
+	// in all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	var Transform = __webpack_require__(42);
+
+	var binding = __webpack_require__(48);
+	var util = __webpack_require__(60);
+	var assert = __webpack_require__(63).ok;
+
+	// zlib doesn't provide these, so kludge them in following the same
+	// const naming scheme zlib uses.
+	binding.Z_MIN_WINDOWBITS = 8;
+	binding.Z_MAX_WINDOWBITS = 15;
+	binding.Z_DEFAULT_WINDOWBITS = 15;
+
+	// fewer than 64 bytes per chunk is stupid.
+	// technically it could work with as few as 8, but even 64 bytes
+	// is absurdly low.  Usually a MB or more is best.
+	binding.Z_MIN_CHUNK = 64;
+	binding.Z_MAX_CHUNK = Infinity;
+	binding.Z_DEFAULT_CHUNK = (16 * 1024);
+
+	binding.Z_MIN_MEMLEVEL = 1;
+	binding.Z_MAX_MEMLEVEL = 9;
+	binding.Z_DEFAULT_MEMLEVEL = 8;
+
+	binding.Z_MIN_LEVEL = -1;
+	binding.Z_MAX_LEVEL = 9;
+	binding.Z_DEFAULT_LEVEL = binding.Z_DEFAULT_COMPRESSION;
+
+	// expose all the zlib constants
+	Object.keys(binding).forEach(function(k) {
+	  if (k.match(/^Z/)) exports[k] = binding[k];
+	});
+
+	// translation table for return codes.
+	exports.codes = {
+	  Z_OK: binding.Z_OK,
+	  Z_STREAM_END: binding.Z_STREAM_END,
+	  Z_NEED_DICT: binding.Z_NEED_DICT,
+	  Z_ERRNO: binding.Z_ERRNO,
+	  Z_STREAM_ERROR: binding.Z_STREAM_ERROR,
+	  Z_DATA_ERROR: binding.Z_DATA_ERROR,
+	  Z_MEM_ERROR: binding.Z_MEM_ERROR,
+	  Z_BUF_ERROR: binding.Z_BUF_ERROR,
+	  Z_VERSION_ERROR: binding.Z_VERSION_ERROR
+	};
+
+	Object.keys(exports.codes).forEach(function(k) {
+	  exports.codes[exports.codes[k]] = k;
+	});
+
+	exports.Deflate = Deflate;
+	exports.Inflate = Inflate;
+	exports.Gzip = Gzip;
+	exports.Gunzip = Gunzip;
+	exports.DeflateRaw = DeflateRaw;
+	exports.InflateRaw = InflateRaw;
+	exports.Unzip = Unzip;
+
+	exports.createDeflate = function(o) {
+	  return new Deflate(o);
+	};
+
+	exports.createInflate = function(o) {
+	  return new Inflate(o);
+	};
+
+	exports.createDeflateRaw = function(o) {
+	  return new DeflateRaw(o);
+	};
+
+	exports.createInflateRaw = function(o) {
+	  return new InflateRaw(o);
+	};
+
+	exports.createGzip = function(o) {
+	  return new Gzip(o);
+	};
+
+	exports.createGunzip = function(o) {
+	  return new Gunzip(o);
+	};
+
+	exports.createUnzip = function(o) {
+	  return new Unzip(o);
+	};
+
+
+	// Convenience methods.
+	// compress/decompress a string or buffer in one step.
+	exports.deflate = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new Deflate(opts), buffer, callback);
+	};
+
+	exports.deflateSync = function(buffer, opts) {
+	  return zlibBufferSync(new Deflate(opts), buffer);
+	};
+
+	exports.gzip = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new Gzip(opts), buffer, callback);
+	};
+
+	exports.gzipSync = function(buffer, opts) {
+	  return zlibBufferSync(new Gzip(opts), buffer);
+	};
+
+	exports.deflateRaw = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new DeflateRaw(opts), buffer, callback);
+	};
+
+	exports.deflateRawSync = function(buffer, opts) {
+	  return zlibBufferSync(new DeflateRaw(opts), buffer);
+	};
+
+	exports.unzip = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new Unzip(opts), buffer, callback);
+	};
+
+	exports.unzipSync = function(buffer, opts) {
+	  return zlibBufferSync(new Unzip(opts), buffer);
+	};
+
+	exports.inflate = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new Inflate(opts), buffer, callback);
+	};
+
+	exports.inflateSync = function(buffer, opts) {
+	  return zlibBufferSync(new Inflate(opts), buffer);
+	};
+
+	exports.gunzip = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new Gunzip(opts), buffer, callback);
+	};
+
+	exports.gunzipSync = function(buffer, opts) {
+	  return zlibBufferSync(new Gunzip(opts), buffer);
+	};
+
+	exports.inflateRaw = function(buffer, opts, callback) {
+	  if (typeof opts === 'function') {
+	    callback = opts;
+	    opts = {};
+	  }
+	  return zlibBuffer(new InflateRaw(opts), buffer, callback);
+	};
+
+	exports.inflateRawSync = function(buffer, opts) {
+	  return zlibBufferSync(new InflateRaw(opts), buffer);
+	};
+
+	function zlibBuffer(engine, buffer, callback) {
+	  var buffers = [];
+	  var nread = 0;
+
+	  engine.on('error', onError);
+	  engine.on('end', onEnd);
+
+	  engine.end(buffer);
+	  flow();
+
+	  function flow() {
+	    var chunk;
+	    while (null !== (chunk = engine.read())) {
+	      buffers.push(chunk);
+	      nread += chunk.length;
+	    }
+	    engine.once('readable', flow);
+	  }
+
+	  function onError(err) {
+	    engine.removeListener('end', onEnd);
+	    engine.removeListener('readable', flow);
+	    callback(err);
+	  }
+
+	  function onEnd() {
+	    var buf = Buffer.concat(buffers, nread);
+	    buffers = [];
+	    callback(null, buf);
+	    engine.close();
+	  }
+	}
+
+	function zlibBufferSync(engine, buffer) {
+	  if (typeof buffer === 'string')
+	    buffer = new Buffer(buffer);
+	  if (!Buffer.isBuffer(buffer))
+	    throw new TypeError('Not a string or buffer');
+
+	  var flushFlag = binding.Z_FINISH;
+
+	  return engine._processChunk(buffer, flushFlag);
+	}
+
+	// generic zlib
+	// minimal 2-byte header
+	function Deflate(opts) {
+	  if (!(this instanceof Deflate)) return new Deflate(opts);
+	  Zlib.call(this, opts, binding.DEFLATE);
+	}
+
+	function Inflate(opts) {
+	  if (!(this instanceof Inflate)) return new Inflate(opts);
+	  Zlib.call(this, opts, binding.INFLATE);
+	}
+
+
+
+	// gzip - bigger header, same deflate compression
+	function Gzip(opts) {
+	  if (!(this instanceof Gzip)) return new Gzip(opts);
+	  Zlib.call(this, opts, binding.GZIP);
+	}
+
+	function Gunzip(opts) {
+	  if (!(this instanceof Gunzip)) return new Gunzip(opts);
+	  Zlib.call(this, opts, binding.GUNZIP);
+	}
+
+
+
+	// raw - no header
+	function DeflateRaw(opts) {
+	  if (!(this instanceof DeflateRaw)) return new DeflateRaw(opts);
+	  Zlib.call(this, opts, binding.DEFLATERAW);
+	}
+
+	function InflateRaw(opts) {
+	  if (!(this instanceof InflateRaw)) return new InflateRaw(opts);
+	  Zlib.call(this, opts, binding.INFLATERAW);
+	}
+
+
+	// auto-detect header.
+	function Unzip(opts) {
+	  if (!(this instanceof Unzip)) return new Unzip(opts);
+	  Zlib.call(this, opts, binding.UNZIP);
+	}
+
+
+	// the Zlib class they all inherit from
+	// This thing manages the queue of requests, and returns
+	// true or false if there is anything in the queue when
+	// you call the .write() method.
+
+	function Zlib(opts, mode) {
+	  this._opts = opts = opts || {};
+	  this._chunkSize = opts.chunkSize || exports.Z_DEFAULT_CHUNK;
+
+	  Transform.call(this, opts);
+
+	  if (opts.flush) {
+	    if (opts.flush !== binding.Z_NO_FLUSH &&
+	        opts.flush !== binding.Z_PARTIAL_FLUSH &&
+	        opts.flush !== binding.Z_SYNC_FLUSH &&
+	        opts.flush !== binding.Z_FULL_FLUSH &&
+	        opts.flush !== binding.Z_FINISH &&
+	        opts.flush !== binding.Z_BLOCK) {
+	      throw new Error('Invalid flush flag: ' + opts.flush);
+	    }
+	  }
+	  this._flushFlag = opts.flush || binding.Z_NO_FLUSH;
+
+	  if (opts.chunkSize) {
+	    if (opts.chunkSize < exports.Z_MIN_CHUNK ||
+	        opts.chunkSize > exports.Z_MAX_CHUNK) {
+	      throw new Error('Invalid chunk size: ' + opts.chunkSize);
+	    }
+	  }
+
+	  if (opts.windowBits) {
+	    if (opts.windowBits < exports.Z_MIN_WINDOWBITS ||
+	        opts.windowBits > exports.Z_MAX_WINDOWBITS) {
+	      throw new Error('Invalid windowBits: ' + opts.windowBits);
+	    }
+	  }
+
+	  if (opts.level) {
+	    if (opts.level < exports.Z_MIN_LEVEL ||
+	        opts.level > exports.Z_MAX_LEVEL) {
+	      throw new Error('Invalid compression level: ' + opts.level);
+	    }
+	  }
+
+	  if (opts.memLevel) {
+	    if (opts.memLevel < exports.Z_MIN_MEMLEVEL ||
+	        opts.memLevel > exports.Z_MAX_MEMLEVEL) {
+	      throw new Error('Invalid memLevel: ' + opts.memLevel);
+	    }
+	  }
+
+	  if (opts.strategy) {
+	    if (opts.strategy != exports.Z_FILTERED &&
+	        opts.strategy != exports.Z_HUFFMAN_ONLY &&
+	        opts.strategy != exports.Z_RLE &&
+	        opts.strategy != exports.Z_FIXED &&
+	        opts.strategy != exports.Z_DEFAULT_STRATEGY) {
+	      throw new Error('Invalid strategy: ' + opts.strategy);
+	    }
+	  }
+
+	  if (opts.dictionary) {
+	    if (!Buffer.isBuffer(opts.dictionary)) {
+	      throw new Error('Invalid dictionary: it should be a Buffer instance');
+	    }
+	  }
+
+	  this._binding = new binding.Zlib(mode);
+
+	  var self = this;
+	  this._hadError = false;
+	  this._binding.onerror = function(message, errno) {
+	    // there is no way to cleanly recover.
+	    // continuing only obscures problems.
+	    self._binding = null;
+	    self._hadError = true;
+
+	    var error = new Error(message);
+	    error.errno = errno;
+	    error.code = exports.codes[errno];
+	    self.emit('error', error);
+	  };
+
+	  var level = exports.Z_DEFAULT_COMPRESSION;
+	  if (typeof opts.level === 'number') level = opts.level;
+
+	  var strategy = exports.Z_DEFAULT_STRATEGY;
+	  if (typeof opts.strategy === 'number') strategy = opts.strategy;
+
+	  this._binding.init(opts.windowBits || exports.Z_DEFAULT_WINDOWBITS,
+	                     level,
+	                     opts.memLevel || exports.Z_DEFAULT_MEMLEVEL,
+	                     strategy,
+	                     opts.dictionary);
+
+	  this._buffer = new Buffer(this._chunkSize);
+	  this._offset = 0;
+	  this._closed = false;
+	  this._level = level;
+	  this._strategy = strategy;
+
+	  this.once('end', this.close);
+	}
+
+	util.inherits(Zlib, Transform);
+
+	Zlib.prototype.params = function(level, strategy, callback) {
+	  if (level < exports.Z_MIN_LEVEL ||
+	      level > exports.Z_MAX_LEVEL) {
+	    throw new RangeError('Invalid compression level: ' + level);
+	  }
+	  if (strategy != exports.Z_FILTERED &&
+	      strategy != exports.Z_HUFFMAN_ONLY &&
+	      strategy != exports.Z_RLE &&
+	      strategy != exports.Z_FIXED &&
+	      strategy != exports.Z_DEFAULT_STRATEGY) {
+	    throw new TypeError('Invalid strategy: ' + strategy);
+	  }
+
+	  if (this._level !== level || this._strategy !== strategy) {
+	    var self = this;
+	    this.flush(binding.Z_SYNC_FLUSH, function() {
+	      self._binding.params(level, strategy);
+	      if (!self._hadError) {
+	        self._level = level;
+	        self._strategy = strategy;
+	        if (callback) callback();
+	      }
+	    });
+	  } else {
+	    process.nextTick(callback);
+	  }
+	};
+
+	Zlib.prototype.reset = function() {
+	  return this._binding.reset();
+	};
+
+	// This is the _flush function called by the transform class,
+	// internally, when the last chunk has been written.
+	Zlib.prototype._flush = function(callback) {
+	  this._transform(new Buffer(0), '', callback);
+	};
+
+	Zlib.prototype.flush = function(kind, callback) {
+	  var ws = this._writableState;
+
+	  if (typeof kind === 'function' || (kind === void 0 && !callback)) {
+	    callback = kind;
+	    kind = binding.Z_FULL_FLUSH;
+	  }
+
+	  if (ws.ended) {
+	    if (callback)
+	      process.nextTick(callback);
+	  } else if (ws.ending) {
+	    if (callback)
+	      this.once('end', callback);
+	  } else if (ws.needDrain) {
+	    var self = this;
+	    this.once('drain', function() {
+	      self.flush(callback);
+	    });
+	  } else {
+	    this._flushFlag = kind;
+	    this.write(new Buffer(0), '', callback);
+	  }
+	};
+
+	Zlib.prototype.close = function(callback) {
+	  if (callback)
+	    process.nextTick(callback);
+
+	  if (this._closed)
+	    return;
+
+	  this._closed = true;
+
+	  this._binding.close();
+
+	  var self = this;
+	  process.nextTick(function() {
+	    self.emit('close');
+	  });
+	};
+
+	Zlib.prototype._transform = function(chunk, encoding, cb) {
+	  var flushFlag;
+	  var ws = this._writableState;
+	  var ending = ws.ending || ws.ended;
+	  var last = ending && (!chunk || ws.length === chunk.length);
+
+	  if (!chunk === null && !Buffer.isBuffer(chunk))
+	    return cb(new Error('invalid input'));
+
+	  // If it's the last chunk, or a final flush, we use the Z_FINISH flush flag.
+	  // If it's explicitly flushing at some other time, then we use
+	  // Z_FULL_FLUSH. Otherwise, use Z_NO_FLUSH for maximum compression
+	  // goodness.
+	  if (last)
+	    flushFlag = binding.Z_FINISH;
+	  else {
+	    flushFlag = this._flushFlag;
+	    // once we've flushed the last of the queue, stop flushing and
+	    // go back to the normal behavior.
+	    if (chunk.length >= ws.length) {
+	      this._flushFlag = this._opts.flush || binding.Z_NO_FLUSH;
+	    }
+	  }
+
+	  var self = this;
+	  this._processChunk(chunk, flushFlag, cb);
+	};
+
+	Zlib.prototype._processChunk = function(chunk, flushFlag, cb) {
+	  var availInBefore = chunk && chunk.length;
+	  var availOutBefore = this._chunkSize - this._offset;
+	  var inOff = 0;
+
+	  var self = this;
+
+	  var async = typeof cb === 'function';
+
+	  if (!async) {
+	    var buffers = [];
+	    var nread = 0;
+
+	    var error;
+	    this.on('error', function(er) {
+	      error = er;
+	    });
+
+	    do {
+	      var res = this._binding.writeSync(flushFlag,
+	                                        chunk, // in
+	                                        inOff, // in_off
+	                                        availInBefore, // in_len
+	                                        this._buffer, // out
+	                                        this._offset, //out_off
+	                                        availOutBefore); // out_len
+	    } while (!this._hadError && callback(res[0], res[1]));
+
+	    if (this._hadError) {
+	      throw error;
+	    }
+
+	    var buf = Buffer.concat(buffers, nread);
+	    this.close();
+
+	    return buf;
+	  }
+
+	  var req = this._binding.write(flushFlag,
+	                                chunk, // in
+	                                inOff, // in_off
+	                                availInBefore, // in_len
+	                                this._buffer, // out
+	                                this._offset, //out_off
+	                                availOutBefore); // out_len
+
+	  req.buffer = chunk;
+	  req.callback = callback;
+
+	  function callback(availInAfter, availOutAfter) {
+	    if (self._hadError)
+	      return;
+
+	    var have = availOutBefore - availOutAfter;
+	    assert(have >= 0, 'have should not go down');
+
+	    if (have > 0) {
+	      var out = self._buffer.slice(self._offset, self._offset + have);
+	      self._offset += have;
+	      // serve some output to the consumer.
+	      if (async) {
+	        self.push(out);
+	      } else {
+	        buffers.push(out);
+	        nread += out.length;
+	      }
+	    }
+
+	    // exhausted the output buffer, or used all the input create a new one.
+	    if (availOutAfter === 0 || self._offset >= self._chunkSize) {
+	      availOutBefore = self._chunkSize;
+	      self._offset = 0;
+	      self._buffer = new Buffer(self._chunkSize);
+	    }
+
+	    if (availOutAfter === 0) {
+	      // Not actually done.  Need to reprocess.
+	      // Also, update the availInBefore to the availInAfter value,
+	      // so that if we have to hit it a third (fourth, etc.) time,
+	      // it'll have the correct byte counts.
+	      inOff += (availInBefore - availInAfter);
+	      availInBefore = availInAfter;
+
+	      if (!async)
+	        return true;
+
+	      var newReq = self._binding.write(flushFlag,
+	                                       chunk,
+	                                       inOff,
+	                                       availInBefore,
+	                                       self._buffer,
+	                                       self._offset,
+	                                       self._chunkSize);
+	      newReq.callback = callback; // this same function
+	      newReq.buffer = chunk;
+	      return;
+	    }
+
+	    if (!async)
+	      return false;
+
+	    // finished with the chunk.
+	    cb();
+	  }
+	};
+
+	util.inherits(Deflate, Zlib);
+	util.inherits(Inflate, Zlib);
+	util.inherits(Gzip, Zlib);
+	util.inherits(Gunzip, Zlib);
+	util.inherits(DeflateRaw, Zlib);
+	util.inherits(InflateRaw, Zlib);
+	util.inherits(Unzip, Zlib);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer, __webpack_require__(30)))
+
+/***/ },
+/* 48 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(process, Buffer) {var msg = __webpack_require__(49);
+	var zstream = __webpack_require__(50);
+	var zlib_deflate = __webpack_require__(51);
+	var zlib_inflate = __webpack_require__(56);
+	var constants = __webpack_require__(59);
+
+	for (var key in constants) {
+	  exports[key] = constants[key];
+	}
+
+	// zlib modes
+	exports.NONE = 0;
+	exports.DEFLATE = 1;
+	exports.INFLATE = 2;
+	exports.GZIP = 3;
+	exports.GUNZIP = 4;
+	exports.DEFLATERAW = 5;
+	exports.INFLATERAW = 6;
+	exports.UNZIP = 7;
+
+	/**
+	 * Emulate Node's zlib C++ layer for use by the JS layer in index.js
+	 */
+	function Zlib(mode) {
+	  if (mode < exports.DEFLATE || mode > exports.UNZIP)
+	    throw new TypeError("Bad argument");
+	    
+	  this.mode = mode;
+	  this.init_done = false;
+	  this.write_in_progress = false;
+	  this.pending_close = false;
+	  this.windowBits = 0;
+	  this.level = 0;
+	  this.memLevel = 0;
+	  this.strategy = 0;
+	  this.dictionary = null;
+	}
+
+	Zlib.prototype.init = function(windowBits, level, memLevel, strategy, dictionary) {
+	  this.windowBits = windowBits;
+	  this.level = level;
+	  this.memLevel = memLevel;
+	  this.strategy = strategy;
+	  // dictionary not supported.
+	  
+	  if (this.mode === exports.GZIP || this.mode === exports.GUNZIP)
+	    this.windowBits += 16;
+	    
+	  if (this.mode === exports.UNZIP)
+	    this.windowBits += 32;
+	    
+	  if (this.mode === exports.DEFLATERAW || this.mode === exports.INFLATERAW)
+	    this.windowBits = -this.windowBits;
+	    
+	  this.strm = new zstream();
+	  
+	  switch (this.mode) {
+	    case exports.DEFLATE:
+	    case exports.GZIP:
+	    case exports.DEFLATERAW:
+	      var status = zlib_deflate.deflateInit2(
+	        this.strm,
+	        this.level,
+	        exports.Z_DEFLATED,
+	        this.windowBits,
+	        this.memLevel,
+	        this.strategy
+	      );
+	      break;
+	    case exports.INFLATE:
+	    case exports.GUNZIP:
+	    case exports.INFLATERAW:
+	    case exports.UNZIP:
+	      var status  = zlib_inflate.inflateInit2(
+	        this.strm,
+	        this.windowBits
+	      );
+	      break;
+	    default:
+	      throw new Error("Unknown mode " + this.mode);
+	  }
+	  
+	  if (status !== exports.Z_OK) {
+	    this._error(status);
+	    return;
+	  }
+	  
+	  this.write_in_progress = false;
+	  this.init_done = true;
+	};
+
+	Zlib.prototype.params = function() {
+	  throw new Error("deflateParams Not supported");
+	};
+
+	Zlib.prototype._writeCheck = function() {
+	  if (!this.init_done)
+	    throw new Error("write before init");
+	    
+	  if (this.mode === exports.NONE)
+	    throw new Error("already finalized");
+	    
+	  if (this.write_in_progress)
+	    throw new Error("write already in progress");
+	    
+	  if (this.pending_close)
+	    throw new Error("close is pending");
+	};
+
+	Zlib.prototype.write = function(flush, input, in_off, in_len, out, out_off, out_len) {    
+	  this._writeCheck();
+	  this.write_in_progress = true;
+	  
+	  var self = this;
+	  process.nextTick(function() {
+	    self.write_in_progress = false;
+	    var res = self._write(flush, input, in_off, in_len, out, out_off, out_len);
+	    self.callback(res[0], res[1]);
+	    
+	    if (self.pending_close)
+	      self.close();
+	  });
+	  
+	  return this;
+	};
+
+	// set method for Node buffers, used by pako
+	function bufferSet(data, offset) {
+	  for (var i = 0; i < data.length; i++) {
+	    this[offset + i] = data[i];
+	  }
+	}
+
+	Zlib.prototype.writeSync = function(flush, input, in_off, in_len, out, out_off, out_len) {
+	  this._writeCheck();
+	  return this._write(flush, input, in_off, in_len, out, out_off, out_len);
+	};
+
+	Zlib.prototype._write = function(flush, input, in_off, in_len, out, out_off, out_len) {
+	  this.write_in_progress = true;
+	  
+	  if (flush !== exports.Z_NO_FLUSH &&
+	      flush !== exports.Z_PARTIAL_FLUSH &&
+	      flush !== exports.Z_SYNC_FLUSH &&
+	      flush !== exports.Z_FULL_FLUSH &&
+	      flush !== exports.Z_FINISH &&
+	      flush !== exports.Z_BLOCK) {
+	    throw new Error("Invalid flush value");
+	  }
+	  
+	  if (input == null) {
+	    input = new Buffer(0);
+	    in_len = 0;
+	    in_off = 0;
+	  }
+	  
+	  if (out._set)
+	    out.set = out._set;
+	  else
+	    out.set = bufferSet;
+	  
+	  var strm = this.strm;
+	  strm.avail_in = in_len;
+	  strm.input = input;
+	  strm.next_in = in_off;
+	  strm.avail_out = out_len;
+	  strm.output = out;
+	  strm.next_out = out_off;
+	  
+	  switch (this.mode) {
+	    case exports.DEFLATE:
+	    case exports.GZIP:
+	    case exports.DEFLATERAW:
+	      var status = zlib_deflate.deflate(strm, flush);
+	      break;
+	    case exports.UNZIP:
+	    case exports.INFLATE:
+	    case exports.GUNZIP:
+	    case exports.INFLATERAW:
+	      var status = zlib_inflate.inflate(strm, flush);
+	      break;
+	    default:
+	      throw new Error("Unknown mode " + this.mode);
+	  }
+	  
+	  if (status !== exports.Z_STREAM_END && status !== exports.Z_OK) {
+	    this._error(status);
+	  }
+	  
+	  this.write_in_progress = false;
+	  return [strm.avail_in, strm.avail_out];
+	};
+
+	Zlib.prototype.close = function() {
+	  if (this.write_in_progress) {
+	    this.pending_close = true;
+	    return;
+	  }
+	  
+	  this.pending_close = false;
+	  
+	  if (this.mode === exports.DEFLATE || this.mode === exports.GZIP || this.mode === exports.DEFLATERAW) {
+	    zlib_deflate.deflateEnd(this.strm);
+	  } else {
+	    zlib_inflate.inflateEnd(this.strm);
+	  }
+	  
+	  this.mode = exports.NONE;
+	};
+
+	Zlib.prototype.reset = function() {
+	  switch (this.mode) {
+	    case exports.DEFLATE:
+	    case exports.DEFLATERAW:
+	      var status = zlib_deflate.deflateReset(this.strm);
+	      break;
+	    case exports.INFLATE:
+	    case exports.INFLATERAW:
+	      var status = zlib_inflate.inflateReset(this.strm);
+	      break;
+	  }
+	  
+	  if (status !== exports.Z_OK) {
+	    this._error(status);
+	  }
+	};
+
+	Zlib.prototype._error = function(status) {
+	  this.onerror(msg[status] + ': ' + this.strm.msg, status);
+	  
+	  this.write_in_progress = false;
+	  if (this.pending_close)
+	    this.close();
+	};
+
+	exports.Zlib = Zlib;
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(30), __webpack_require__(2).Buffer))
+
+/***/ },
+/* 49 */
+/***/ function(module, exports) {
 
 	'use strict';
 
@@ -26107,17 +21215,53 @@
 	  '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 	};
 
+
 /***/ },
-/* 74 */
+/* 50 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+
+	function ZStream() {
+	  /* next input byte */
+	  this.input = null; // JS specific, because we have no pointers
+	  this.next_in = 0;
+	  /* number of bytes available at input */
+	  this.avail_in = 0;
+	  /* total number of input bytes read so far */
+	  this.total_in = 0;
+	  /* next output byte should be put there */
+	  this.output = null; // JS specific, because we have no pointers
+	  this.next_out = 0;
+	  /* remaining free space at output */
+	  this.avail_out = 0;
+	  /* total number of bytes output so far */
+	  this.total_out = 0;
+	  /* last error message, NULL if no error */
+	  this.msg = ''/*Z_NULL*/;
+	  /* not visible by applications */
+	  this.state = null;
+	  /* best guess about the data type: binary or text */
+	  this.data_type = 2/*Z_UNKNOWN*/;
+	  /* adler32 value of the uncompressed data */
+	  this.adler = 0;
+	}
+
+	module.exports = ZStream;
+
+
+/***/ },
+/* 51 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var utils   = __webpack_require__(98);
-	var trees   = __webpack_require__(95);
-	var adler32 = __webpack_require__(96);
-	var crc32   = __webpack_require__(97);
-	var msg   = __webpack_require__(73);
+	var utils   = __webpack_require__(52);
+	var trees   = __webpack_require__(53);
+	var adler32 = __webpack_require__(54);
+	var crc32   = __webpack_require__(55);
+	var msg   = __webpack_require__(49);
 
 	/* Public constants ==========================================================*/
 	/* ===========================================================================*/
@@ -27647,7 +22791,7 @@
 	        put_byte(s, val);
 	      } while (val !== 0);
 
-	      if (s.gzhead.hcrc && s.pending > beg){
+	      if (s.gzhead.hcrc && s.pending > beg) {
 	        strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
 	      }
 	      if (val === 0) {
@@ -27877,18 +23021,1417 @@
 	exports.deflateTune = deflateTune;
 	*/
 
+
 /***/ },
-/* 75 */
+/* 52 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+
+	var TYPED_OK =  (typeof Uint8Array !== 'undefined') &&
+	                (typeof Uint16Array !== 'undefined') &&
+	                (typeof Int32Array !== 'undefined');
+
+
+	exports.assign = function (obj /*from1, from2, from3, ...*/) {
+	  var sources = Array.prototype.slice.call(arguments, 1);
+	  while (sources.length) {
+	    var source = sources.shift();
+	    if (!source) { continue; }
+
+	    if (typeof source !== 'object') {
+	      throw new TypeError(source + 'must be non-object');
+	    }
+
+	    for (var p in source) {
+	      if (source.hasOwnProperty(p)) {
+	        obj[p] = source[p];
+	      }
+	    }
+	  }
+
+	  return obj;
+	};
+
+
+	// reduce buffer size, avoiding mem copy
+	exports.shrinkBuf = function (buf, size) {
+	  if (buf.length === size) { return buf; }
+	  if (buf.subarray) { return buf.subarray(0, size); }
+	  buf.length = size;
+	  return buf;
+	};
+
+
+	var fnTyped = {
+	  arraySet: function (dest, src, src_offs, len, dest_offs) {
+	    if (src.subarray && dest.subarray) {
+	      dest.set(src.subarray(src_offs, src_offs+len), dest_offs);
+	      return;
+	    }
+	    // Fallback to ordinary array
+	    for (var i=0; i<len; i++) {
+	      dest[dest_offs + i] = src[src_offs + i];
+	    }
+	  },
+	  // Join array of chunks to single array.
+	  flattenChunks: function(chunks) {
+	    var i, l, len, pos, chunk, result;
+
+	    // calculate data length
+	    len = 0;
+	    for (i=0, l=chunks.length; i<l; i++) {
+	      len += chunks[i].length;
+	    }
+
+	    // join chunks
+	    result = new Uint8Array(len);
+	    pos = 0;
+	    for (i=0, l=chunks.length; i<l; i++) {
+	      chunk = chunks[i];
+	      result.set(chunk, pos);
+	      pos += chunk.length;
+	    }
+
+	    return result;
+	  }
+	};
+
+	var fnUntyped = {
+	  arraySet: function (dest, src, src_offs, len, dest_offs) {
+	    for (var i=0; i<len; i++) {
+	      dest[dest_offs + i] = src[src_offs + i];
+	    }
+	  },
+	  // Join array of chunks to single array.
+	  flattenChunks: function(chunks) {
+	    return [].concat.apply([], chunks);
+	  }
+	};
+
+
+	// Enable/Disable typed arrays use, for testing
+	//
+	exports.setTyped = function (on) {
+	  if (on) {
+	    exports.Buf8  = Uint8Array;
+	    exports.Buf16 = Uint16Array;
+	    exports.Buf32 = Int32Array;
+	    exports.assign(exports, fnTyped);
+	  } else {
+	    exports.Buf8  = Array;
+	    exports.Buf16 = Array;
+	    exports.Buf32 = Array;
+	    exports.assign(exports, fnUntyped);
+	  }
+	};
+
+	exports.setTyped(TYPED_OK);
+
+
+/***/ },
+/* 53 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 
-	var utils = __webpack_require__(98);
-	var adler32 = __webpack_require__(96);
-	var crc32   = __webpack_require__(97);
-	var inflate_fast = __webpack_require__(102);
-	var inflate_table = __webpack_require__(103);
+	var utils = __webpack_require__(52);
+
+	/* Public constants ==========================================================*/
+	/* ===========================================================================*/
+
+
+	//var Z_FILTERED          = 1;
+	//var Z_HUFFMAN_ONLY      = 2;
+	//var Z_RLE               = 3;
+	var Z_FIXED               = 4;
+	//var Z_DEFAULT_STRATEGY  = 0;
+
+	/* Possible values of the data_type field (though see inflate()) */
+	var Z_BINARY              = 0;
+	var Z_TEXT                = 1;
+	//var Z_ASCII             = 1; // = Z_TEXT
+	var Z_UNKNOWN             = 2;
+
+	/*============================================================================*/
+
+
+	function zero(buf) { var len = buf.length; while (--len >= 0) { buf[len] = 0; } }
+
+	// From zutil.h
+
+	var STORED_BLOCK = 0;
+	var STATIC_TREES = 1;
+	var DYN_TREES    = 2;
+	/* The three kinds of block type */
+
+	var MIN_MATCH    = 3;
+	var MAX_MATCH    = 258;
+	/* The minimum and maximum match lengths */
+
+	// From deflate.h
+	/* ===========================================================================
+	 * Internal compression state.
+	 */
+
+	var LENGTH_CODES  = 29;
+	/* number of length codes, not counting the special END_BLOCK code */
+
+	var LITERALS      = 256;
+	/* number of literal bytes 0..255 */
+
+	var L_CODES       = LITERALS + 1 + LENGTH_CODES;
+	/* number of Literal or Length codes, including the END_BLOCK code */
+
+	var D_CODES       = 30;
+	/* number of distance codes */
+
+	var BL_CODES      = 19;
+	/* number of codes used to transfer the bit lengths */
+
+	var HEAP_SIZE     = 2*L_CODES + 1;
+	/* maximum heap size */
+
+	var MAX_BITS      = 15;
+	/* All codes must not exceed MAX_BITS bits */
+
+	var Buf_size      = 16;
+	/* size of bit buffer in bi_buf */
+
+
+	/* ===========================================================================
+	 * Constants
+	 */
+
+	var MAX_BL_BITS = 7;
+	/* Bit length codes must not exceed MAX_BL_BITS bits */
+
+	var END_BLOCK   = 256;
+	/* end of block literal code */
+
+	var REP_3_6     = 16;
+	/* repeat previous bit length 3-6 times (2 bits of repeat count) */
+
+	var REPZ_3_10   = 17;
+	/* repeat a zero length 3-10 times  (3 bits of repeat count) */
+
+	var REPZ_11_138 = 18;
+	/* repeat a zero length 11-138 times  (7 bits of repeat count) */
+
+	var extra_lbits =   /* extra bits for each length code */
+	  [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+
+	var extra_dbits =   /* extra bits for each distance code */
+	  [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+
+	var extra_blbits =  /* extra bits for each bit length code */
+	  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,3,7];
+
+	var bl_order =
+	  [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+	/* The lengths of the bit length codes are sent in order of decreasing
+	 * probability, to avoid transmitting the lengths for unused bit length codes.
+	 */
+
+	/* ===========================================================================
+	 * Local data. These are initialized only once.
+	 */
+
+	// We pre-fill arrays with 0 to avoid uninitialized gaps
+
+	var DIST_CODE_LEN = 512; /* see definition of array dist_code below */
+
+	// !!!! Use flat array insdead of structure, Freq = i*2, Len = i*2+1
+	var static_ltree  = new Array((L_CODES+2) * 2);
+	zero(static_ltree);
+	/* The static literal tree. Since the bit lengths are imposed, there is no
+	 * need for the L_CODES extra codes used during heap construction. However
+	 * The codes 286 and 287 are needed to build a canonical tree (see _tr_init
+	 * below).
+	 */
+
+	var static_dtree  = new Array(D_CODES * 2);
+	zero(static_dtree);
+	/* The static distance tree. (Actually a trivial tree since all codes use
+	 * 5 bits.)
+	 */
+
+	var _dist_code    = new Array(DIST_CODE_LEN);
+	zero(_dist_code);
+	/* Distance codes. The first 256 values correspond to the distances
+	 * 3 .. 258, the last 256 values correspond to the top 8 bits of
+	 * the 15 bit distances.
+	 */
+
+	var _length_code  = new Array(MAX_MATCH-MIN_MATCH+1);
+	zero(_length_code);
+	/* length code for each normalized match length (0 == MIN_MATCH) */
+
+	var base_length   = new Array(LENGTH_CODES);
+	zero(base_length);
+	/* First normalized length for each code (0 = MIN_MATCH) */
+
+	var base_dist     = new Array(D_CODES);
+	zero(base_dist);
+	/* First normalized distance for each code (0 = distance of 1) */
+
+
+	var StaticTreeDesc = function (static_tree, extra_bits, extra_base, elems, max_length) {
+
+	  this.static_tree  = static_tree;  /* static tree or NULL */
+	  this.extra_bits   = extra_bits;   /* extra bits for each code or NULL */
+	  this.extra_base   = extra_base;   /* base index for extra_bits */
+	  this.elems        = elems;        /* max number of elements in the tree */
+	  this.max_length   = max_length;   /* max bit length for the codes */
+
+	  // show if `static_tree` has data or dummy - needed for monomorphic objects
+	  this.has_stree    = static_tree && static_tree.length;
+	};
+
+
+	var static_l_desc;
+	var static_d_desc;
+	var static_bl_desc;
+
+
+	var TreeDesc = function(dyn_tree, stat_desc) {
+	  this.dyn_tree = dyn_tree;     /* the dynamic tree */
+	  this.max_code = 0;            /* largest code with non zero frequency */
+	  this.stat_desc = stat_desc;   /* the corresponding static tree */
+	};
+
+
+
+	function d_code(dist) {
+	  return dist < 256 ? _dist_code[dist] : _dist_code[256 + (dist >>> 7)];
+	}
+
+
+	/* ===========================================================================
+	 * Output a short LSB first on the stream.
+	 * IN assertion: there is enough room in pendingBuf.
+	 */
+	function put_short (s, w) {
+	//    put_byte(s, (uch)((w) & 0xff));
+	//    put_byte(s, (uch)((ush)(w) >> 8));
+	  s.pending_buf[s.pending++] = (w) & 0xff;
+	  s.pending_buf[s.pending++] = (w >>> 8) & 0xff;
+	}
+
+
+	/* ===========================================================================
+	 * Send a value on a given number of bits.
+	 * IN assertion: length <= 16 and value fits in length bits.
+	 */
+	function send_bits(s, value, length) {
+	  if (s.bi_valid > (Buf_size - length)) {
+	    s.bi_buf |= (value << s.bi_valid) & 0xffff;
+	    put_short(s, s.bi_buf);
+	    s.bi_buf = value >> (Buf_size - s.bi_valid);
+	    s.bi_valid += length - Buf_size;
+	  } else {
+	    s.bi_buf |= (value << s.bi_valid) & 0xffff;
+	    s.bi_valid += length;
+	  }
+	}
+
+
+	function send_code(s, c, tree) {
+	  send_bits(s, tree[c*2]/*.Code*/, tree[c*2 + 1]/*.Len*/);
+	}
+
+
+	/* ===========================================================================
+	 * Reverse the first len bits of a code, using straightforward code (a faster
+	 * method would use a table)
+	 * IN assertion: 1 <= len <= 15
+	 */
+	function bi_reverse(code, len) {
+	  var res = 0;
+	  do {
+	    res |= code & 1;
+	    code >>>= 1;
+	    res <<= 1;
+	  } while (--len > 0);
+	  return res >>> 1;
+	}
+
+
+	/* ===========================================================================
+	 * Flush the bit buffer, keeping at most 7 bits in it.
+	 */
+	function bi_flush(s) {
+	  if (s.bi_valid === 16) {
+	    put_short(s, s.bi_buf);
+	    s.bi_buf = 0;
+	    s.bi_valid = 0;
+
+	  } else if (s.bi_valid >= 8) {
+	    s.pending_buf[s.pending++] = s.bi_buf & 0xff;
+	    s.bi_buf >>= 8;
+	    s.bi_valid -= 8;
+	  }
+	}
+
+
+	/* ===========================================================================
+	 * Compute the optimal bit lengths for a tree and update the total bit length
+	 * for the current block.
+	 * IN assertion: the fields freq and dad are set, heap[heap_max] and
+	 *    above are the tree nodes sorted by increasing frequency.
+	 * OUT assertions: the field len is set to the optimal bit length, the
+	 *     array bl_count contains the frequencies for each bit length.
+	 *     The length opt_len is updated; static_len is also updated if stree is
+	 *     not null.
+	 */
+	function gen_bitlen(s, desc)
+	//    deflate_state *s;
+	//    tree_desc *desc;    /* the tree descriptor */
+	{
+	  var tree            = desc.dyn_tree;
+	  var max_code        = desc.max_code;
+	  var stree           = desc.stat_desc.static_tree;
+	  var has_stree       = desc.stat_desc.has_stree;
+	  var extra           = desc.stat_desc.extra_bits;
+	  var base            = desc.stat_desc.extra_base;
+	  var max_length      = desc.stat_desc.max_length;
+	  var h;              /* heap index */
+	  var n, m;           /* iterate over the tree elements */
+	  var bits;           /* bit length */
+	  var xbits;          /* extra bits */
+	  var f;              /* frequency */
+	  var overflow = 0;   /* number of elements with bit length too large */
+
+	  for (bits = 0; bits <= MAX_BITS; bits++) {
+	    s.bl_count[bits] = 0;
+	  }
+
+	  /* In a first pass, compute the optimal bit lengths (which may
+	   * overflow in the case of the bit length tree).
+	   */
+	  tree[s.heap[s.heap_max]*2 + 1]/*.Len*/ = 0; /* root of the heap */
+
+	  for (h = s.heap_max+1; h < HEAP_SIZE; h++) {
+	    n = s.heap[h];
+	    bits = tree[tree[n*2 +1]/*.Dad*/ * 2 + 1]/*.Len*/ + 1;
+	    if (bits > max_length) {
+	      bits = max_length;
+	      overflow++;
+	    }
+	    tree[n*2 + 1]/*.Len*/ = bits;
+	    /* We overwrite tree[n].Dad which is no longer needed */
+
+	    if (n > max_code) { continue; } /* not a leaf node */
+
+	    s.bl_count[bits]++;
+	    xbits = 0;
+	    if (n >= base) {
+	      xbits = extra[n-base];
+	    }
+	    f = tree[n * 2]/*.Freq*/;
+	    s.opt_len += f * (bits + xbits);
+	    if (has_stree) {
+	      s.static_len += f * (stree[n*2 + 1]/*.Len*/ + xbits);
+	    }
+	  }
+	  if (overflow === 0) { return; }
+
+	  // Trace((stderr,"\nbit length overflow\n"));
+	  /* This happens for example on obj2 and pic of the Calgary corpus */
+
+	  /* Find the first bit length which could increase: */
+	  do {
+	    bits = max_length-1;
+	    while (s.bl_count[bits] === 0) { bits--; }
+	    s.bl_count[bits]--;      /* move one leaf down the tree */
+	    s.bl_count[bits+1] += 2; /* move one overflow item as its brother */
+	    s.bl_count[max_length]--;
+	    /* The brother of the overflow item also moves one step up,
+	     * but this does not affect bl_count[max_length]
+	     */
+	    overflow -= 2;
+	  } while (overflow > 0);
+
+	  /* Now recompute all bit lengths, scanning in increasing frequency.
+	   * h is still equal to HEAP_SIZE. (It is simpler to reconstruct all
+	   * lengths instead of fixing only the wrong ones. This idea is taken
+	   * from 'ar' written by Haruhiko Okumura.)
+	   */
+	  for (bits = max_length; bits !== 0; bits--) {
+	    n = s.bl_count[bits];
+	    while (n !== 0) {
+	      m = s.heap[--h];
+	      if (m > max_code) { continue; }
+	      if (tree[m*2 + 1]/*.Len*/ !== bits) {
+	        // Trace((stderr,"code %d bits %d->%d\n", m, tree[m].Len, bits));
+	        s.opt_len += (bits - tree[m*2 + 1]/*.Len*/)*tree[m*2]/*.Freq*/;
+	        tree[m*2 + 1]/*.Len*/ = bits;
+	      }
+	      n--;
+	    }
+	  }
+	}
+
+
+	/* ===========================================================================
+	 * Generate the codes for a given tree and bit counts (which need not be
+	 * optimal).
+	 * IN assertion: the array bl_count contains the bit length statistics for
+	 * the given tree and the field len is set for all tree elements.
+	 * OUT assertion: the field code is set for all tree elements of non
+	 *     zero code length.
+	 */
+	function gen_codes(tree, max_code, bl_count)
+	//    ct_data *tree;             /* the tree to decorate */
+	//    int max_code;              /* largest code with non zero frequency */
+	//    ushf *bl_count;            /* number of codes at each bit length */
+	{
+	  var next_code = new Array(MAX_BITS+1); /* next code value for each bit length */
+	  var code = 0;              /* running code value */
+	  var bits;                  /* bit index */
+	  var n;                     /* code index */
+
+	  /* The distribution counts are first used to generate the code values
+	   * without bit reversal.
+	   */
+	  for (bits = 1; bits <= MAX_BITS; bits++) {
+	    next_code[bits] = code = (code + bl_count[bits-1]) << 1;
+	  }
+	  /* Check that the bit counts in bl_count are consistent. The last code
+	   * must be all ones.
+	   */
+	  //Assert (code + bl_count[MAX_BITS]-1 == (1<<MAX_BITS)-1,
+	  //        "inconsistent bit counts");
+	  //Tracev((stderr,"\ngen_codes: max_code %d ", max_code));
+
+	  for (n = 0;  n <= max_code; n++) {
+	    var len = tree[n*2 + 1]/*.Len*/;
+	    if (len === 0) { continue; }
+	    /* Now reverse the bits */
+	    tree[n*2]/*.Code*/ = bi_reverse(next_code[len]++, len);
+
+	    //Tracecv(tree != static_ltree, (stderr,"\nn %3d %c l %2d c %4x (%x) ",
+	    //     n, (isgraph(n) ? n : ' '), len, tree[n].Code, next_code[len]-1));
+	  }
+	}
+
+
+	/* ===========================================================================
+	 * Initialize the various 'constant' tables.
+	 */
+	function tr_static_init() {
+	  var n;        /* iterates over tree elements */
+	  var bits;     /* bit counter */
+	  var length;   /* length value */
+	  var code;     /* code value */
+	  var dist;     /* distance index */
+	  var bl_count = new Array(MAX_BITS+1);
+	  /* number of codes at each bit length for an optimal tree */
+
+	  // do check in _tr_init()
+	  //if (static_init_done) return;
+
+	  /* For some embedded targets, global variables are not initialized: */
+	/*#ifdef NO_INIT_GLOBAL_POINTERS
+	  static_l_desc.static_tree = static_ltree;
+	  static_l_desc.extra_bits = extra_lbits;
+	  static_d_desc.static_tree = static_dtree;
+	  static_d_desc.extra_bits = extra_dbits;
+	  static_bl_desc.extra_bits = extra_blbits;
+	#endif*/
+
+	  /* Initialize the mapping length (0..255) -> length code (0..28) */
+	  length = 0;
+	  for (code = 0; code < LENGTH_CODES-1; code++) {
+	    base_length[code] = length;
+	    for (n = 0; n < (1<<extra_lbits[code]); n++) {
+	      _length_code[length++] = code;
+	    }
+	  }
+	  //Assert (length == 256, "tr_static_init: length != 256");
+	  /* Note that the length 255 (match length 258) can be represented
+	   * in two different ways: code 284 + 5 bits or code 285, so we
+	   * overwrite length_code[255] to use the best encoding:
+	   */
+	  _length_code[length-1] = code;
+
+	  /* Initialize the mapping dist (0..32K) -> dist code (0..29) */
+	  dist = 0;
+	  for (code = 0 ; code < 16; code++) {
+	    base_dist[code] = dist;
+	    for (n = 0; n < (1<<extra_dbits[code]); n++) {
+	      _dist_code[dist++] = code;
+	    }
+	  }
+	  //Assert (dist == 256, "tr_static_init: dist != 256");
+	  dist >>= 7; /* from now on, all distances are divided by 128 */
+	  for (; code < D_CODES; code++) {
+	    base_dist[code] = dist << 7;
+	    for (n = 0; n < (1<<(extra_dbits[code]-7)); n++) {
+	      _dist_code[256 + dist++] = code;
+	    }
+	  }
+	  //Assert (dist == 256, "tr_static_init: 256+dist != 512");
+
+	  /* Construct the codes of the static literal tree */
+	  for (bits = 0; bits <= MAX_BITS; bits++) {
+	    bl_count[bits] = 0;
+	  }
+
+	  n = 0;
+	  while (n <= 143) {
+	    static_ltree[n*2 + 1]/*.Len*/ = 8;
+	    n++;
+	    bl_count[8]++;
+	  }
+	  while (n <= 255) {
+	    static_ltree[n*2 + 1]/*.Len*/ = 9;
+	    n++;
+	    bl_count[9]++;
+	  }
+	  while (n <= 279) {
+	    static_ltree[n*2 + 1]/*.Len*/ = 7;
+	    n++;
+	    bl_count[7]++;
+	  }
+	  while (n <= 287) {
+	    static_ltree[n*2 + 1]/*.Len*/ = 8;
+	    n++;
+	    bl_count[8]++;
+	  }
+	  /* Codes 286 and 287 do not exist, but we must include them in the
+	   * tree construction to get a canonical Huffman tree (longest code
+	   * all ones)
+	   */
+	  gen_codes(static_ltree, L_CODES+1, bl_count);
+
+	  /* The static distance tree is trivial: */
+	  for (n = 0; n < D_CODES; n++) {
+	    static_dtree[n*2 + 1]/*.Len*/ = 5;
+	    static_dtree[n*2]/*.Code*/ = bi_reverse(n, 5);
+	  }
+
+	  // Now data ready and we can init static trees
+	  static_l_desc = new StaticTreeDesc(static_ltree, extra_lbits, LITERALS+1, L_CODES, MAX_BITS);
+	  static_d_desc = new StaticTreeDesc(static_dtree, extra_dbits, 0,          D_CODES, MAX_BITS);
+	  static_bl_desc =new StaticTreeDesc(new Array(0), extra_blbits, 0,         BL_CODES, MAX_BL_BITS);
+
+	  //static_init_done = true;
+	}
+
+
+	/* ===========================================================================
+	 * Initialize a new block.
+	 */
+	function init_block(s) {
+	  var n; /* iterates over tree elements */
+
+	  /* Initialize the trees. */
+	  for (n = 0; n < L_CODES;  n++) { s.dyn_ltree[n*2]/*.Freq*/ = 0; }
+	  for (n = 0; n < D_CODES;  n++) { s.dyn_dtree[n*2]/*.Freq*/ = 0; }
+	  for (n = 0; n < BL_CODES; n++) { s.bl_tree[n*2]/*.Freq*/ = 0; }
+
+	  s.dyn_ltree[END_BLOCK*2]/*.Freq*/ = 1;
+	  s.opt_len = s.static_len = 0;
+	  s.last_lit = s.matches = 0;
+	}
+
+
+	/* ===========================================================================
+	 * Flush the bit buffer and align the output on a byte boundary
+	 */
+	function bi_windup(s)
+	{
+	  if (s.bi_valid > 8) {
+	    put_short(s, s.bi_buf);
+	  } else if (s.bi_valid > 0) {
+	    //put_byte(s, (Byte)s->bi_buf);
+	    s.pending_buf[s.pending++] = s.bi_buf;
+	  }
+	  s.bi_buf = 0;
+	  s.bi_valid = 0;
+	}
+
+	/* ===========================================================================
+	 * Copy a stored block, storing first the length and its
+	 * one's complement if requested.
+	 */
+	function copy_block(s, buf, len, header)
+	//DeflateState *s;
+	//charf    *buf;    /* the input data */
+	//unsigned len;     /* its length */
+	//int      header;  /* true if block header must be written */
+	{
+	  bi_windup(s);        /* align on byte boundary */
+
+	  if (header) {
+	    put_short(s, len);
+	    put_short(s, ~len);
+	  }
+	//  while (len--) {
+	//    put_byte(s, *buf++);
+	//  }
+	  utils.arraySet(s.pending_buf, s.window, buf, len, s.pending);
+	  s.pending += len;
+	}
+
+	/* ===========================================================================
+	 * Compares to subtrees, using the tree depth as tie breaker when
+	 * the subtrees have equal frequency. This minimizes the worst case length.
+	 */
+	function smaller(tree, n, m, depth) {
+	  var _n2 = n*2;
+	  var _m2 = m*2;
+	  return (tree[_n2]/*.Freq*/ < tree[_m2]/*.Freq*/ ||
+	         (tree[_n2]/*.Freq*/ === tree[_m2]/*.Freq*/ && depth[n] <= depth[m]));
+	}
+
+	/* ===========================================================================
+	 * Restore the heap property by moving down the tree starting at node k,
+	 * exchanging a node with the smallest of its two sons if necessary, stopping
+	 * when the heap property is re-established (each father smaller than its
+	 * two sons).
+	 */
+	function pqdownheap(s, tree, k)
+	//    deflate_state *s;
+	//    ct_data *tree;  /* the tree to restore */
+	//    int k;               /* node to move down */
+	{
+	  var v = s.heap[k];
+	  var j = k << 1;  /* left son of k */
+	  while (j <= s.heap_len) {
+	    /* Set j to the smallest of the two sons: */
+	    if (j < s.heap_len &&
+	      smaller(tree, s.heap[j+1], s.heap[j], s.depth)) {
+	      j++;
+	    }
+	    /* Exit if v is smaller than both sons */
+	    if (smaller(tree, v, s.heap[j], s.depth)) { break; }
+
+	    /* Exchange v with the smallest son */
+	    s.heap[k] = s.heap[j];
+	    k = j;
+
+	    /* And continue down the tree, setting j to the left son of k */
+	    j <<= 1;
+	  }
+	  s.heap[k] = v;
+	}
+
+
+	// inlined manually
+	// var SMALLEST = 1;
+
+	/* ===========================================================================
+	 * Send the block data compressed using the given Huffman trees
+	 */
+	function compress_block(s, ltree, dtree)
+	//    deflate_state *s;
+	//    const ct_data *ltree; /* literal tree */
+	//    const ct_data *dtree; /* distance tree */
+	{
+	  var dist;           /* distance of matched string */
+	  var lc;             /* match length or unmatched char (if dist == 0) */
+	  var lx = 0;         /* running index in l_buf */
+	  var code;           /* the code to send */
+	  var extra;          /* number of extra bits to send */
+
+	  if (s.last_lit !== 0) {
+	    do {
+	      dist = (s.pending_buf[s.d_buf + lx*2] << 8) | (s.pending_buf[s.d_buf + lx*2 + 1]);
+	      lc = s.pending_buf[s.l_buf + lx];
+	      lx++;
+
+	      if (dist === 0) {
+	        send_code(s, lc, ltree); /* send a literal byte */
+	        //Tracecv(isgraph(lc), (stderr," '%c' ", lc));
+	      } else {
+	        /* Here, lc is the match length - MIN_MATCH */
+	        code = _length_code[lc];
+	        send_code(s, code+LITERALS+1, ltree); /* send the length code */
+	        extra = extra_lbits[code];
+	        if (extra !== 0) {
+	          lc -= base_length[code];
+	          send_bits(s, lc, extra);       /* send the extra length bits */
+	        }
+	        dist--; /* dist is now the match distance - 1 */
+	        code = d_code(dist);
+	        //Assert (code < D_CODES, "bad d_code");
+
+	        send_code(s, code, dtree);       /* send the distance code */
+	        extra = extra_dbits[code];
+	        if (extra !== 0) {
+	          dist -= base_dist[code];
+	          send_bits(s, dist, extra);   /* send the extra distance bits */
+	        }
+	      } /* literal or match pair ? */
+
+	      /* Check that the overlay between pending_buf and d_buf+l_buf is ok: */
+	      //Assert((uInt)(s->pending) < s->lit_bufsize + 2*lx,
+	      //       "pendingBuf overflow");
+
+	    } while (lx < s.last_lit);
+	  }
+
+	  send_code(s, END_BLOCK, ltree);
+	}
+
+
+	/* ===========================================================================
+	 * Construct one Huffman tree and assigns the code bit strings and lengths.
+	 * Update the total bit length for the current block.
+	 * IN assertion: the field freq is set for all tree elements.
+	 * OUT assertions: the fields len and code are set to the optimal bit length
+	 *     and corresponding code. The length opt_len is updated; static_len is
+	 *     also updated if stree is not null. The field max_code is set.
+	 */
+	function build_tree(s, desc)
+	//    deflate_state *s;
+	//    tree_desc *desc; /* the tree descriptor */
+	{
+	  var tree     = desc.dyn_tree;
+	  var stree    = desc.stat_desc.static_tree;
+	  var has_stree = desc.stat_desc.has_stree;
+	  var elems    = desc.stat_desc.elems;
+	  var n, m;          /* iterate over heap elements */
+	  var max_code = -1; /* largest code with non zero frequency */
+	  var node;          /* new node being created */
+
+	  /* Construct the initial heap, with least frequent element in
+	   * heap[SMALLEST]. The sons of heap[n] are heap[2*n] and heap[2*n+1].
+	   * heap[0] is not used.
+	   */
+	  s.heap_len = 0;
+	  s.heap_max = HEAP_SIZE;
+
+	  for (n = 0; n < elems; n++) {
+	    if (tree[n * 2]/*.Freq*/ !== 0) {
+	      s.heap[++s.heap_len] = max_code = n;
+	      s.depth[n] = 0;
+
+	    } else {
+	      tree[n*2 + 1]/*.Len*/ = 0;
+	    }
+	  }
+
+	  /* The pkzip format requires that at least one distance code exists,
+	   * and that at least one bit should be sent even if there is only one
+	   * possible code. So to avoid special checks later on we force at least
+	   * two codes of non zero frequency.
+	   */
+	  while (s.heap_len < 2) {
+	    node = s.heap[++s.heap_len] = (max_code < 2 ? ++max_code : 0);
+	    tree[node * 2]/*.Freq*/ = 1;
+	    s.depth[node] = 0;
+	    s.opt_len--;
+
+	    if (has_stree) {
+	      s.static_len -= stree[node*2 + 1]/*.Len*/;
+	    }
+	    /* node is 0 or 1 so it does not have extra bits */
+	  }
+	  desc.max_code = max_code;
+
+	  /* The elements heap[heap_len/2+1 .. heap_len] are leaves of the tree,
+	   * establish sub-heaps of increasing lengths:
+	   */
+	  for (n = (s.heap_len >> 1/*int /2*/); n >= 1; n--) { pqdownheap(s, tree, n); }
+
+	  /* Construct the Huffman tree by repeatedly combining the least two
+	   * frequent nodes.
+	   */
+	  node = elems;              /* next internal node of the tree */
+	  do {
+	    //pqremove(s, tree, n);  /* n = node of least frequency */
+	    /*** pqremove ***/
+	    n = s.heap[1/*SMALLEST*/];
+	    s.heap[1/*SMALLEST*/] = s.heap[s.heap_len--];
+	    pqdownheap(s, tree, 1/*SMALLEST*/);
+	    /***/
+
+	    m = s.heap[1/*SMALLEST*/]; /* m = node of next least frequency */
+
+	    s.heap[--s.heap_max] = n; /* keep the nodes sorted by frequency */
+	    s.heap[--s.heap_max] = m;
+
+	    /* Create a new node father of n and m */
+	    tree[node * 2]/*.Freq*/ = tree[n * 2]/*.Freq*/ + tree[m * 2]/*.Freq*/;
+	    s.depth[node] = (s.depth[n] >= s.depth[m] ? s.depth[n] : s.depth[m]) + 1;
+	    tree[n*2 + 1]/*.Dad*/ = tree[m*2 + 1]/*.Dad*/ = node;
+
+	    /* and insert the new node in the heap */
+	    s.heap[1/*SMALLEST*/] = node++;
+	    pqdownheap(s, tree, 1/*SMALLEST*/);
+
+	  } while (s.heap_len >= 2);
+
+	  s.heap[--s.heap_max] = s.heap[1/*SMALLEST*/];
+
+	  /* At this point, the fields freq and dad are set. We can now
+	   * generate the bit lengths.
+	   */
+	  gen_bitlen(s, desc);
+
+	  /* The field len is now set, we can generate the bit codes */
+	  gen_codes(tree, max_code, s.bl_count);
+	}
+
+
+	/* ===========================================================================
+	 * Scan a literal or distance tree to determine the frequencies of the codes
+	 * in the bit length tree.
+	 */
+	function scan_tree(s, tree, max_code)
+	//    deflate_state *s;
+	//    ct_data *tree;   /* the tree to be scanned */
+	//    int max_code;    /* and its largest code of non zero frequency */
+	{
+	  var n;                     /* iterates over all tree elements */
+	  var prevlen = -1;          /* last emitted length */
+	  var curlen;                /* length of current code */
+
+	  var nextlen = tree[0*2 + 1]/*.Len*/; /* length of next code */
+
+	  var count = 0;             /* repeat count of the current code */
+	  var max_count = 7;         /* max repeat count */
+	  var min_count = 4;         /* min repeat count */
+
+	  if (nextlen === 0) {
+	    max_count = 138;
+	    min_count = 3;
+	  }
+	  tree[(max_code+1)*2 + 1]/*.Len*/ = 0xffff; /* guard */
+
+	  for (n = 0; n <= max_code; n++) {
+	    curlen = nextlen;
+	    nextlen = tree[(n+1)*2 + 1]/*.Len*/;
+
+	    if (++count < max_count && curlen === nextlen) {
+	      continue;
+
+	    } else if (count < min_count) {
+	      s.bl_tree[curlen * 2]/*.Freq*/ += count;
+
+	    } else if (curlen !== 0) {
+
+	      if (curlen !== prevlen) { s.bl_tree[curlen * 2]/*.Freq*/++; }
+	      s.bl_tree[REP_3_6*2]/*.Freq*/++;
+
+	    } else if (count <= 10) {
+	      s.bl_tree[REPZ_3_10*2]/*.Freq*/++;
+
+	    } else {
+	      s.bl_tree[REPZ_11_138*2]/*.Freq*/++;
+	    }
+
+	    count = 0;
+	    prevlen = curlen;
+
+	    if (nextlen === 0) {
+	      max_count = 138;
+	      min_count = 3;
+
+	    } else if (curlen === nextlen) {
+	      max_count = 6;
+	      min_count = 3;
+
+	    } else {
+	      max_count = 7;
+	      min_count = 4;
+	    }
+	  }
+	}
+
+
+	/* ===========================================================================
+	 * Send a literal or distance tree in compressed form, using the codes in
+	 * bl_tree.
+	 */
+	function send_tree(s, tree, max_code)
+	//    deflate_state *s;
+	//    ct_data *tree; /* the tree to be scanned */
+	//    int max_code;       /* and its largest code of non zero frequency */
+	{
+	  var n;                     /* iterates over all tree elements */
+	  var prevlen = -1;          /* last emitted length */
+	  var curlen;                /* length of current code */
+
+	  var nextlen = tree[0*2 + 1]/*.Len*/; /* length of next code */
+
+	  var count = 0;             /* repeat count of the current code */
+	  var max_count = 7;         /* max repeat count */
+	  var min_count = 4;         /* min repeat count */
+
+	  /* tree[max_code+1].Len = -1; */  /* guard already set */
+	  if (nextlen === 0) {
+	    max_count = 138;
+	    min_count = 3;
+	  }
+
+	  for (n = 0; n <= max_code; n++) {
+	    curlen = nextlen;
+	    nextlen = tree[(n+1)*2 + 1]/*.Len*/;
+
+	    if (++count < max_count && curlen === nextlen) {
+	      continue;
+
+	    } else if (count < min_count) {
+	      do { send_code(s, curlen, s.bl_tree); } while (--count !== 0);
+
+	    } else if (curlen !== 0) {
+	      if (curlen !== prevlen) {
+	        send_code(s, curlen, s.bl_tree);
+	        count--;
+	      }
+	      //Assert(count >= 3 && count <= 6, " 3_6?");
+	      send_code(s, REP_3_6, s.bl_tree);
+	      send_bits(s, count-3, 2);
+
+	    } else if (count <= 10) {
+	      send_code(s, REPZ_3_10, s.bl_tree);
+	      send_bits(s, count-3, 3);
+
+	    } else {
+	      send_code(s, REPZ_11_138, s.bl_tree);
+	      send_bits(s, count-11, 7);
+	    }
+
+	    count = 0;
+	    prevlen = curlen;
+	    if (nextlen === 0) {
+	      max_count = 138;
+	      min_count = 3;
+
+	    } else if (curlen === nextlen) {
+	      max_count = 6;
+	      min_count = 3;
+
+	    } else {
+	      max_count = 7;
+	      min_count = 4;
+	    }
+	  }
+	}
+
+
+	/* ===========================================================================
+	 * Construct the Huffman tree for the bit lengths and return the index in
+	 * bl_order of the last bit length code to send.
+	 */
+	function build_bl_tree(s) {
+	  var max_blindex;  /* index of last bit length code of non zero freq */
+
+	  /* Determine the bit length frequencies for literal and distance trees */
+	  scan_tree(s, s.dyn_ltree, s.l_desc.max_code);
+	  scan_tree(s, s.dyn_dtree, s.d_desc.max_code);
+
+	  /* Build the bit length tree: */
+	  build_tree(s, s.bl_desc);
+	  /* opt_len now includes the length of the tree representations, except
+	   * the lengths of the bit lengths codes and the 5+5+4 bits for the counts.
+	   */
+
+	  /* Determine the number of bit length codes to send. The pkzip format
+	   * requires that at least 4 bit length codes be sent. (appnote.txt says
+	   * 3 but the actual value used is 4.)
+	   */
+	  for (max_blindex = BL_CODES-1; max_blindex >= 3; max_blindex--) {
+	    if (s.bl_tree[bl_order[max_blindex]*2 + 1]/*.Len*/ !== 0) {
+	      break;
+	    }
+	  }
+	  /* Update opt_len to include the bit length tree and counts */
+	  s.opt_len += 3*(max_blindex+1) + 5+5+4;
+	  //Tracev((stderr, "\ndyn trees: dyn %ld, stat %ld",
+	  //        s->opt_len, s->static_len));
+
+	  return max_blindex;
+	}
+
+
+	/* ===========================================================================
+	 * Send the header for a block using dynamic Huffman trees: the counts, the
+	 * lengths of the bit length codes, the literal tree and the distance tree.
+	 * IN assertion: lcodes >= 257, dcodes >= 1, blcodes >= 4.
+	 */
+	function send_all_trees(s, lcodes, dcodes, blcodes)
+	//    deflate_state *s;
+	//    int lcodes, dcodes, blcodes; /* number of codes for each tree */
+	{
+	  var rank;                    /* index in bl_order */
+
+	  //Assert (lcodes >= 257 && dcodes >= 1 && blcodes >= 4, "not enough codes");
+	  //Assert (lcodes <= L_CODES && dcodes <= D_CODES && blcodes <= BL_CODES,
+	  //        "too many codes");
+	  //Tracev((stderr, "\nbl counts: "));
+	  send_bits(s, lcodes-257, 5); /* not +255 as stated in appnote.txt */
+	  send_bits(s, dcodes-1,   5);
+	  send_bits(s, blcodes-4,  4); /* not -3 as stated in appnote.txt */
+	  for (rank = 0; rank < blcodes; rank++) {
+	    //Tracev((stderr, "\nbl code %2d ", bl_order[rank]));
+	    send_bits(s, s.bl_tree[bl_order[rank]*2 + 1]/*.Len*/, 3);
+	  }
+	  //Tracev((stderr, "\nbl tree: sent %ld", s->bits_sent));
+
+	  send_tree(s, s.dyn_ltree, lcodes-1); /* literal tree */
+	  //Tracev((stderr, "\nlit tree: sent %ld", s->bits_sent));
+
+	  send_tree(s, s.dyn_dtree, dcodes-1); /* distance tree */
+	  //Tracev((stderr, "\ndist tree: sent %ld", s->bits_sent));
+	}
+
+
+	/* ===========================================================================
+	 * Check if the data type is TEXT or BINARY, using the following algorithm:
+	 * - TEXT if the two conditions below are satisfied:
+	 *    a) There are no non-portable control characters belonging to the
+	 *       "black list" (0..6, 14..25, 28..31).
+	 *    b) There is at least one printable character belonging to the
+	 *       "white list" (9 {TAB}, 10 {LF}, 13 {CR}, 32..255).
+	 * - BINARY otherwise.
+	 * - The following partially-portable control characters form a
+	 *   "gray list" that is ignored in this detection algorithm:
+	 *   (7 {BEL}, 8 {BS}, 11 {VT}, 12 {FF}, 26 {SUB}, 27 {ESC}).
+	 * IN assertion: the fields Freq of dyn_ltree are set.
+	 */
+	function detect_data_type(s) {
+	  /* black_mask is the bit mask of black-listed bytes
+	   * set bits 0..6, 14..25, and 28..31
+	   * 0xf3ffc07f = binary 11110011111111111100000001111111
+	   */
+	  var black_mask = 0xf3ffc07f;
+	  var n;
+
+	  /* Check for non-textual ("black-listed") bytes. */
+	  for (n = 0; n <= 31; n++, black_mask >>>= 1) {
+	    if ((black_mask & 1) && (s.dyn_ltree[n*2]/*.Freq*/ !== 0)) {
+	      return Z_BINARY;
+	    }
+	  }
+
+	  /* Check for textual ("white-listed") bytes. */
+	  if (s.dyn_ltree[9 * 2]/*.Freq*/ !== 0 || s.dyn_ltree[10 * 2]/*.Freq*/ !== 0 ||
+	      s.dyn_ltree[13 * 2]/*.Freq*/ !== 0) {
+	    return Z_TEXT;
+	  }
+	  for (n = 32; n < LITERALS; n++) {
+	    if (s.dyn_ltree[n * 2]/*.Freq*/ !== 0) {
+	      return Z_TEXT;
+	    }
+	  }
+
+	  /* There are no "black-listed" or "white-listed" bytes:
+	   * this stream either is empty or has tolerated ("gray-listed") bytes only.
+	   */
+	  return Z_BINARY;
+	}
+
+
+	var static_init_done = false;
+
+	/* ===========================================================================
+	 * Initialize the tree data structures for a new zlib stream.
+	 */
+	function _tr_init(s)
+	{
+
+	  if (!static_init_done) {
+	    tr_static_init();
+	    static_init_done = true;
+	  }
+
+	  s.l_desc  = new TreeDesc(s.dyn_ltree, static_l_desc);
+	  s.d_desc  = new TreeDesc(s.dyn_dtree, static_d_desc);
+	  s.bl_desc = new TreeDesc(s.bl_tree, static_bl_desc);
+
+	  s.bi_buf = 0;
+	  s.bi_valid = 0;
+
+	  /* Initialize the first block of the first file: */
+	  init_block(s);
+	}
+
+
+	/* ===========================================================================
+	 * Send a stored block
+	 */
+	function _tr_stored_block(s, buf, stored_len, last)
+	//DeflateState *s;
+	//charf *buf;       /* input block */
+	//ulg stored_len;   /* length of input block */
+	//int last;         /* one if this is the last block for a file */
+	{
+	  send_bits(s, (STORED_BLOCK<<1)+(last ? 1 : 0), 3);    /* send block type */
+	  copy_block(s, buf, stored_len, true); /* with header */
+	}
+
+
+	/* ===========================================================================
+	 * Send one empty static block to give enough lookahead for inflate.
+	 * This takes 10 bits, of which 7 may remain in the bit buffer.
+	 */
+	function _tr_align(s) {
+	  send_bits(s, STATIC_TREES<<1, 3);
+	  send_code(s, END_BLOCK, static_ltree);
+	  bi_flush(s);
+	}
+
+
+	/* ===========================================================================
+	 * Determine the best encoding for the current block: dynamic trees, static
+	 * trees or store, and output the encoded block to the zip file.
+	 */
+	function _tr_flush_block(s, buf, stored_len, last)
+	//DeflateState *s;
+	//charf *buf;       /* input block, or NULL if too old */
+	//ulg stored_len;   /* length of input block */
+	//int last;         /* one if this is the last block for a file */
+	{
+	  var opt_lenb, static_lenb;  /* opt_len and static_len in bytes */
+	  var max_blindex = 0;        /* index of last bit length code of non zero freq */
+
+	  /* Build the Huffman trees unless a stored block is forced */
+	  if (s.level > 0) {
+
+	    /* Check if the file is binary or text */
+	    if (s.strm.data_type === Z_UNKNOWN) {
+	      s.strm.data_type = detect_data_type(s);
+	    }
+
+	    /* Construct the literal and distance trees */
+	    build_tree(s, s.l_desc);
+	    // Tracev((stderr, "\nlit data: dyn %ld, stat %ld", s->opt_len,
+	    //        s->static_len));
+
+	    build_tree(s, s.d_desc);
+	    // Tracev((stderr, "\ndist data: dyn %ld, stat %ld", s->opt_len,
+	    //        s->static_len));
+	    /* At this point, opt_len and static_len are the total bit lengths of
+	     * the compressed block data, excluding the tree representations.
+	     */
+
+	    /* Build the bit length tree for the above two trees, and get the index
+	     * in bl_order of the last bit length code to send.
+	     */
+	    max_blindex = build_bl_tree(s);
+
+	    /* Determine the best encoding. Compute the block lengths in bytes. */
+	    opt_lenb = (s.opt_len+3+7) >>> 3;
+	    static_lenb = (s.static_len+3+7) >>> 3;
+
+	    // Tracev((stderr, "\nopt %lu(%lu) stat %lu(%lu) stored %lu lit %u ",
+	    //        opt_lenb, s->opt_len, static_lenb, s->static_len, stored_len,
+	    //        s->last_lit));
+
+	    if (static_lenb <= opt_lenb) { opt_lenb = static_lenb; }
+
+	  } else {
+	    // Assert(buf != (char*)0, "lost buf");
+	    opt_lenb = static_lenb = stored_len + 5; /* force a stored block */
+	  }
+
+	  if ((stored_len+4 <= opt_lenb) && (buf !== -1)) {
+	    /* 4: two words for the lengths */
+
+	    /* The test buf != NULL is only necessary if LIT_BUFSIZE > WSIZE.
+	     * Otherwise we can't have processed more than WSIZE input bytes since
+	     * the last block flush, because compression would have been
+	     * successful. If LIT_BUFSIZE <= WSIZE, it is never too late to
+	     * transform a block into a stored block.
+	     */
+	    _tr_stored_block(s, buf, stored_len, last);
+
+	  } else if (s.strategy === Z_FIXED || static_lenb === opt_lenb) {
+
+	    send_bits(s, (STATIC_TREES<<1) + (last ? 1 : 0), 3);
+	    compress_block(s, static_ltree, static_dtree);
+
+	  } else {
+	    send_bits(s, (DYN_TREES<<1) + (last ? 1 : 0), 3);
+	    send_all_trees(s, s.l_desc.max_code+1, s.d_desc.max_code+1, max_blindex+1);
+	    compress_block(s, s.dyn_ltree, s.dyn_dtree);
+	  }
+	  // Assert (s->compressed_len == s->bits_sent, "bad compressed size");
+	  /* The above check is made mod 2^32, for files larger than 512 MB
+	   * and uLong implemented on 32 bits.
+	   */
+	  init_block(s);
+
+	  if (last) {
+	    bi_windup(s);
+	  }
+	  // Tracev((stderr,"\ncomprlen %lu(%lu) ", s->compressed_len>>3,
+	  //       s->compressed_len-7*last));
+	}
+
+	/* ===========================================================================
+	 * Save the match info and tally the frequency counts. Return true if
+	 * the current block must be flushed.
+	 */
+	function _tr_tally(s, dist, lc)
+	//    deflate_state *s;
+	//    unsigned dist;  /* distance of matched string */
+	//    unsigned lc;    /* match length-MIN_MATCH or unmatched char (if dist==0) */
+	{
+	  //var out_length, in_length, dcode;
+
+	  s.pending_buf[s.d_buf + s.last_lit * 2]     = (dist >>> 8) & 0xff;
+	  s.pending_buf[s.d_buf + s.last_lit * 2 + 1] = dist & 0xff;
+
+	  s.pending_buf[s.l_buf + s.last_lit] = lc & 0xff;
+	  s.last_lit++;
+
+	  if (dist === 0) {
+	    /* lc is the unmatched char */
+	    s.dyn_ltree[lc*2]/*.Freq*/++;
+	  } else {
+	    s.matches++;
+	    /* Here, lc is the match length - MIN_MATCH */
+	    dist--;             /* dist = match distance - 1 */
+	    //Assert((ush)dist < (ush)MAX_DIST(s) &&
+	    //       (ush)lc <= (ush)(MAX_MATCH-MIN_MATCH) &&
+	    //       (ush)d_code(dist) < (ush)D_CODES,  "_tr_tally: bad match");
+
+	    s.dyn_ltree[(_length_code[lc]+LITERALS+1) * 2]/*.Freq*/++;
+	    s.dyn_dtree[d_code(dist) * 2]/*.Freq*/++;
+	  }
+
+	// (!) This block is disabled in zlib defailts,
+	// don't enable it for binary compatibility
+
+	//#ifdef TRUNCATE_BLOCK
+	//  /* Try to guess if it is profitable to stop the current block here */
+	//  if ((s.last_lit & 0x1fff) === 0 && s.level > 2) {
+	//    /* Compute an upper bound for the compressed length */
+	//    out_length = s.last_lit*8;
+	//    in_length = s.strstart - s.block_start;
+	//
+	//    for (dcode = 0; dcode < D_CODES; dcode++) {
+	//      out_length += s.dyn_dtree[dcode*2]/*.Freq*/ * (5 + extra_dbits[dcode]);
+	//    }
+	//    out_length >>>= 3;
+	//    //Tracev((stderr,"\nlast_lit %u, in %ld, out ~%ld(%ld%%) ",
+	//    //       s->last_lit, in_length, out_length,
+	//    //       100L - out_length*100L/in_length));
+	//    if (s.matches < (s.last_lit>>1)/*int /2*/ && out_length < (in_length>>1)/*int /2*/) {
+	//      return true;
+	//    }
+	//  }
+	//#endif
+
+	  return (s.last_lit === s.lit_bufsize-1);
+	  /* We avoid equality with lit_bufsize because of wraparound at 64K
+	   * on 16 bit machines and because stored blocks are restricted to
+	   * 64K-1 bytes.
+	   */
+	}
+
+	exports._tr_init  = _tr_init;
+	exports._tr_stored_block = _tr_stored_block;
+	exports._tr_flush_block  = _tr_flush_block;
+	exports._tr_tally = _tr_tally;
+	exports._tr_align = _tr_align;
+
+
+/***/ },
+/* 54 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	// Note: adler32 takes 12% for level 0 and 2% for level 6.
+	// It doesn't worth to make additional optimizationa as in original.
+	// Small size is preferable.
+
+	function adler32(adler, buf, len, pos) {
+	  var s1 = (adler & 0xffff) |0,
+	      s2 = ((adler >>> 16) & 0xffff) |0,
+	      n = 0;
+
+	  while (len !== 0) {
+	    // Set limit ~ twice less than 5552, to keep
+	    // s2 in 31-bits, because we force signed ints.
+	    // in other case %= will fail.
+	    n = len > 2000 ? 2000 : len;
+	    len -= n;
+
+	    do {
+	      s1 = (s1 + buf[pos++]) |0;
+	      s2 = (s2 + s1) |0;
+	    } while (--n);
+
+	    s1 %= 65521;
+	    s2 %= 65521;
+	  }
+
+	  return (s1 | (s2 << 16)) |0;
+	}
+
+
+	module.exports = adler32;
+
+
+/***/ },
+/* 55 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	// Note: we can't get significant speed boost here.
+	// So write code to minimize size - no pregenerated tables
+	// and array tools dependencies.
+
+
+	// Use ordinary array, since untyped makes no boost here
+	function makeTable() {
+	  var c, table = [];
+
+	  for (var n =0; n < 256; n++) {
+	    c = n;
+	    for (var k =0; k < 8; k++) {
+	      c = ((c&1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+	    }
+	    table[n] = c;
+	  }
+
+	  return table;
+	}
+
+	// Create table on load. Just 255 signed longs. Not a problem.
+	var crcTable = makeTable();
+
+
+	function crc32(crc, buf, len, pos) {
+	  var t = crcTable,
+	      end = pos + len;
+
+	  crc = crc ^ (-1);
+
+	  for (var i = pos; i < end; i++) {
+	    crc = (crc >>> 8) ^ t[(crc ^ buf[i]) & 0xFF];
+	  }
+
+	  return (crc ^ (-1)); // >>> 0;
+	}
+
+
+	module.exports = crc32;
+
+
+/***/ },
+/* 56 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+
+	var utils = __webpack_require__(52);
+	var adler32 = __webpack_require__(54);
+	var crc32   = __webpack_require__(55);
+	var inflate_fast = __webpack_require__(57);
+	var inflate_table = __webpack_require__(58);
 
 	var CODES = 0;
 	var LENS = 1;
@@ -29385,3548 +25928,10 @@
 	exports.inflateUndermine = inflateUndermine;
 	*/
 
-/***/ },
-/* 76 */
-/***/ function(module, exports, __webpack_require__) {
-
-	module.exports = {
-
-	  /* Allowed flush values; see deflate() and inflate() below for details */
-	  Z_NO_FLUSH:         0,
-	  Z_PARTIAL_FLUSH:    1,
-	  Z_SYNC_FLUSH:       2,
-	  Z_FULL_FLUSH:       3,
-	  Z_FINISH:           4,
-	  Z_BLOCK:            5,
-	  Z_TREES:            6,
-
-	  /* Return codes for the compression/decompression functions. Negative values
-	  * are errors, positive values are used for special but normal events.
-	  */
-	  Z_OK:               0,
-	  Z_STREAM_END:       1,
-	  Z_NEED_DICT:        2,
-	  Z_ERRNO:           -1,
-	  Z_STREAM_ERROR:    -2,
-	  Z_DATA_ERROR:      -3,
-	  //Z_MEM_ERROR:     -4,
-	  Z_BUF_ERROR:       -5,
-	  //Z_VERSION_ERROR: -6,
-
-	  /* compression levels */
-	  Z_NO_COMPRESSION:         0,
-	  Z_BEST_SPEED:             1,
-	  Z_BEST_COMPRESSION:       9,
-	  Z_DEFAULT_COMPRESSION:   -1,
-
-
-	  Z_FILTERED:               1,
-	  Z_HUFFMAN_ONLY:           2,
-	  Z_RLE:                    3,
-	  Z_FIXED:                  4,
-	  Z_DEFAULT_STRATEGY:       0,
-
-	  /* Possible values of the data_type field (though see inflate()) */
-	  Z_BINARY:                 0,
-	  Z_TEXT:                   1,
-	  //Z_ASCII:                1, // = Z_TEXT (deprecated)
-	  Z_UNKNOWN:                2,
-
-	  /* The deflate compression method */
-	  Z_DEFLATED:               8
-	  //Z_NULL:                 null // Use -1 or null inline, depending on var type
-	};
 
 /***/ },
-/* 77 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-
-	function ZStream() {
-	  /* next input byte */
-	  this.input = null; // JS specific, because we have no pointers
-	  this.next_in = 0;
-	  /* number of bytes available at input */
-	  this.avail_in = 0;
-	  /* total number of input bytes read so far */
-	  this.total_in = 0;
-	  /* next output byte should be put there */
-	  this.output = null; // JS specific, because we have no pointers
-	  this.next_out = 0;
-	  /* remaining free space at output */
-	  this.avail_out = 0;
-	  /* total number of bytes output so far */
-	  this.total_out = 0;
-	  /* last error message, NULL if no error */
-	  this.msg = ''/*Z_NULL*/;
-	  /* not visible by applications */
-	  this.state = null;
-	  /* best guess about the data type: binary or text */
-	  this.data_type = 2/*Z_UNKNOWN*/;
-	  /* adler32 value of the uncompressed data */
-	  this.adler = 0;
-	}
-
-	module.exports = ZStream;
-
-/***/ },
-/* 78 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var DFont, Data, Directory, NameTable, fs;
-
-	  fs = __webpack_require__(10);
-
-	  Data = __webpack_require__(34);
-
-	  Directory = __webpack_require__(79);
-
-	  NameTable = __webpack_require__(80);
-
-	  DFont = (function() {
-	    DFont.open = function(filename) {
-	      var contents;
-	      contents = fs.readFileSync(filename);
-	      return new DFont(contents);
-	    };
-
-	    function DFont(contents) {
-	      this.contents = new Data(contents);
-	      this.parse(this.contents);
-	    }
-
-	    DFont.prototype.parse = function(data) {
-	      var attr, b2, b3, b4, dataLength, dataOffset, dataOfs, entry, font, handle, i, id, j, len, length, mapLength, mapOffset, maxIndex, maxTypeIndex, name, nameListOffset, nameOfs, p, pos, refListOffset, type, typeListOffset, _i, _j;
-	      dataOffset = data.readInt();
-	      mapOffset = data.readInt();
-	      dataLength = data.readInt();
-	      mapLength = data.readInt();
-	      this.map = {};
-	      data.pos = mapOffset + 24;
-	      typeListOffset = data.readShort() + mapOffset;
-	      nameListOffset = data.readShort() + mapOffset;
-	      data.pos = typeListOffset;
-	      maxIndex = data.readShort();
-	      for (i = _i = 0; _i <= maxIndex; i = _i += 1) {
-	        type = data.readString(4);
-	        maxTypeIndex = data.readShort();
-	        refListOffset = data.readShort();
-	        this.map[type] = {
-	          list: [],
-	          named: {}
-	        };
-	        pos = data.pos;
-	        data.pos = typeListOffset + refListOffset;
-	        for (j = _j = 0; _j <= maxTypeIndex; j = _j += 1) {
-	          id = data.readShort();
-	          nameOfs = data.readShort();
-	          attr = data.readByte();
-	          b2 = data.readByte() << 16;
-	          b3 = data.readByte() << 8;
-	          b4 = data.readByte();
-	          dataOfs = dataOffset + (0 | b2 | b3 | b4);
-	          handle = data.readUInt32();
-	          entry = {
-	            id: id,
-	            attributes: attr,
-	            offset: dataOfs,
-	            handle: handle
-	          };
-	          p = data.pos;
-	          if (nameOfs !== -1 && (nameListOffset + nameOfs < mapOffset + mapLength)) {
-	            data.pos = nameListOffset + nameOfs;
-	            len = data.readByte();
-	            entry.name = data.readString(len);
-	          } else if (type === 'sfnt') {
-	            data.pos = entry.offset;
-	            length = data.readUInt32();
-	            font = {};
-	            font.contents = new Data(data.slice(data.pos, data.pos + length));
-	            font.directory = new Directory(font.contents);
-	            name = new NameTable(font);
-	            entry.name = name.fontName[0].raw;
-	          }
-	          data.pos = p;
-	          this.map[type].list.push(entry);
-	          if (entry.name) {
-	            this.map[type].named[entry.name] = entry;
-	          }
-	        }
-	        data.pos = pos;
-	      }
-	    };
-
-	    DFont.prototype.getNamedFont = function(name) {
-	      var data, entry, length, pos, ret, _ref;
-	      data = this.contents;
-	      pos = data.pos;
-	      entry = (_ref = this.map.sfnt) != null ? _ref.named[name] : void 0;
-	      if (!entry) {
-	        throw new Error("Font " + name + " not found in DFont file.");
-	      }
-	      data.pos = entry.offset;
-	      length = data.readUInt32();
-	      ret = data.slice(data.pos, data.pos + length);
-	      data.pos = pos;
-	      return ret;
-	    };
-
-	    return DFont;
-
-	  })();
-
-	  module.exports = DFont;
-
-	}).call(this);
-
-
-/***/ },
-/* 79 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, Directory,
-	    __slice = [].slice;
-
-	  Data = __webpack_require__(34);
-
-	  Directory = (function() {
-	    var checksum;
-
-	    function Directory(data) {
-	      var entry, i, _i, _ref;
-	      this.scalarType = data.readInt();
-	      this.tableCount = data.readShort();
-	      this.searchRange = data.readShort();
-	      this.entrySelector = data.readShort();
-	      this.rangeShift = data.readShort();
-	      this.tables = {};
-	      for (i = _i = 0, _ref = this.tableCount; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        entry = {
-	          tag: data.readString(4),
-	          checksum: data.readInt(),
-	          offset: data.readInt(),
-	          length: data.readInt()
-	        };
-	        this.tables[entry.tag] = entry;
-	      }
-	    }
-
-	    Directory.prototype.encode = function(tables) {
-	      var adjustment, directory, directoryLength, entrySelector, headOffset, log2, offset, rangeShift, searchRange, sum, table, tableCount, tableData, tag;
-	      tableCount = Object.keys(tables).length;
-	      log2 = Math.log(2);
-	      searchRange = Math.floor(Math.log(tableCount) / log2) * 16;
-	      entrySelector = Math.floor(searchRange / log2);
-	      rangeShift = tableCount * 16 - searchRange;
-	      directory = new Data;
-	      directory.writeInt(this.scalarType);
-	      directory.writeShort(tableCount);
-	      directory.writeShort(searchRange);
-	      directory.writeShort(entrySelector);
-	      directory.writeShort(rangeShift);
-	      directoryLength = tableCount * 16;
-	      offset = directory.pos + directoryLength;
-	      headOffset = null;
-	      tableData = [];
-	      for (tag in tables) {
-	        table = tables[tag];
-	        directory.writeString(tag);
-	        directory.writeInt(checksum(table));
-	        directory.writeInt(offset);
-	        directory.writeInt(table.length);
-	        tableData = tableData.concat(table);
-	        if (tag === 'head') {
-	          headOffset = offset;
-	        }
-	        offset += table.length;
-	        while (offset % 4) {
-	          tableData.push(0);
-	          offset++;
-	        }
-	      }
-	      directory.write(tableData);
-	      sum = checksum(directory.data);
-	      adjustment = 0xB1B0AFBA - sum;
-	      directory.pos = headOffset + 8;
-	      directory.writeUInt32(adjustment);
-	      return new Buffer(directory.data);
-	    };
-
-	    checksum = function(data) {
-	      var i, sum, tmp, _i, _ref;
-	      data = __slice.call(data);
-	      while (data.length % 4) {
-	        data.push(0);
-	      }
-	      tmp = new Data(data);
-	      sum = 0;
-	      for (i = _i = 0, _ref = data.length; _i < _ref; i = _i += 4) {
-	        sum += tmp.readUInt32();
-	      }
-	      return sum & 0xFFFFFFFF;
-	    };
-
-	    return Directory;
-
-	  })();
-
-	  module.exports = Directory;
-
-	}).call(this);
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
-
-/***/ },
-/* 80 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, NameEntry, NameTable, Table, utils,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  utils = __webpack_require__(89);
-
-	  NameTable = (function(_super) {
-	    var subsetTag;
-
-	    __extends(NameTable, _super);
-
-	    function NameTable() {
-	      return NameTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    NameTable.prototype.tag = 'name';
-
-	    NameTable.prototype.parse = function(data) {
-	      var count, entries, entry, format, i, name, stringOffset, strings, text, _i, _j, _len, _name;
-	      data.pos = this.offset;
-	      format = data.readShort();
-	      count = data.readShort();
-	      stringOffset = data.readShort();
-	      entries = [];
-	      for (i = _i = 0; 0 <= count ? _i < count : _i > count; i = 0 <= count ? ++_i : --_i) {
-	        entries.push({
-	          platformID: data.readShort(),
-	          encodingID: data.readShort(),
-	          languageID: data.readShort(),
-	          nameID: data.readShort(),
-	          length: data.readShort(),
-	          offset: this.offset + stringOffset + data.readShort()
-	        });
-	      }
-	      strings = {};
-	      for (i = _j = 0, _len = entries.length; _j < _len; i = ++_j) {
-	        entry = entries[i];
-	        data.pos = entry.offset;
-	        text = data.readString(entry.length);
-	        name = new NameEntry(text, entry);
-	        if (strings[_name = entry.nameID] == null) {
-	          strings[_name] = [];
-	        }
-	        strings[entry.nameID].push(name);
-	      }
-	      this.strings = strings;
-	      this.copyright = strings[0];
-	      this.fontFamily = strings[1];
-	      this.fontSubfamily = strings[2];
-	      this.uniqueSubfamily = strings[3];
-	      this.fontName = strings[4];
-	      this.version = strings[5];
-	      this.postscriptName = strings[6][0].raw.replace(/[\x00-\x19\x80-\xff]/g, "");
-	      this.trademark = strings[7];
-	      this.manufacturer = strings[8];
-	      this.designer = strings[9];
-	      this.description = strings[10];
-	      this.vendorUrl = strings[11];
-	      this.designerUrl = strings[12];
-	      this.license = strings[13];
-	      this.licenseUrl = strings[14];
-	      this.preferredFamily = strings[15];
-	      this.preferredSubfamily = strings[17];
-	      this.compatibleFull = strings[18];
-	      return this.sampleText = strings[19];
-	    };
-
-	    subsetTag = "AAAAAA";
-
-	    NameTable.prototype.encode = function() {
-	      var id, list, nameID, nameTable, postscriptName, strCount, strTable, string, strings, table, val, _i, _len, _ref;
-	      strings = {};
-	      _ref = this.strings;
-	      for (id in _ref) {
-	        val = _ref[id];
-	        strings[id] = val;
-	      }
-	      postscriptName = new NameEntry("" + subsetTag + "+" + this.postscriptName, {
-	        platformID: 1,
-	        encodingID: 0,
-	        languageID: 0
-	      });
-	      strings[6] = [postscriptName];
-	      subsetTag = utils.successorOf(subsetTag);
-	      strCount = 0;
-	      for (id in strings) {
-	        list = strings[id];
-	        if (list != null) {
-	          strCount += list.length;
-	        }
-	      }
-	      table = new Data;
-	      strTable = new Data;
-	      table.writeShort(0);
-	      table.writeShort(strCount);
-	      table.writeShort(6 + 12 * strCount);
-	      for (nameID in strings) {
-	        list = strings[nameID];
-	        if (list != null) {
-	          for (_i = 0, _len = list.length; _i < _len; _i++) {
-	            string = list[_i];
-	            table.writeShort(string.platformID);
-	            table.writeShort(string.encodingID);
-	            table.writeShort(string.languageID);
-	            table.writeShort(nameID);
-	            table.writeShort(string.length);
-	            table.writeShort(strTable.pos);
-	            strTable.writeString(string.raw);
-	          }
-	        }
-	      }
-	      return nameTable = {
-	        postscriptName: postscriptName.raw,
-	        table: table.data.concat(strTable.data)
-	      };
-	    };
-
-	    return NameTable;
-
-	  })(Table);
-
-	  module.exports = NameTable;
-
-	  NameEntry = (function() {
-	    function NameEntry(raw, entry) {
-	      this.raw = raw;
-	      this.length = this.raw.length;
-	      this.platformID = entry.platformID;
-	      this.encodingID = entry.encodingID;
-	      this.languageID = entry.languageID;
-	    }
-
-	    return NameEntry;
-
-	  })();
-
-	}).call(this);
-
-
-/***/ },
-/* 81 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, HeadTable, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  HeadTable = (function(_super) {
-	    __extends(HeadTable, _super);
-
-	    function HeadTable() {
-	      return HeadTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    HeadTable.prototype.tag = 'head';
-
-	    HeadTable.prototype.parse = function(data) {
-	      data.pos = this.offset;
-	      this.version = data.readInt();
-	      this.revision = data.readInt();
-	      this.checkSumAdjustment = data.readInt();
-	      this.magicNumber = data.readInt();
-	      this.flags = data.readShort();
-	      this.unitsPerEm = data.readShort();
-	      this.created = data.readLongLong();
-	      this.modified = data.readLongLong();
-	      this.xMin = data.readShort();
-	      this.yMin = data.readShort();
-	      this.xMax = data.readShort();
-	      this.yMax = data.readShort();
-	      this.macStyle = data.readShort();
-	      this.lowestRecPPEM = data.readShort();
-	      this.fontDirectionHint = data.readShort();
-	      this.indexToLocFormat = data.readShort();
-	      return this.glyphDataFormat = data.readShort();
-	    };
-
-	    HeadTable.prototype.encode = function(loca) {
-	      var table;
-	      table = new Data;
-	      table.writeInt(this.version);
-	      table.writeInt(this.revision);
-	      table.writeInt(this.checkSumAdjustment);
-	      table.writeInt(this.magicNumber);
-	      table.writeShort(this.flags);
-	      table.writeShort(this.unitsPerEm);
-	      table.writeLongLong(this.created);
-	      table.writeLongLong(this.modified);
-	      table.writeShort(this.xMin);
-	      table.writeShort(this.yMin);
-	      table.writeShort(this.xMax);
-	      table.writeShort(this.yMax);
-	      table.writeShort(this.macStyle);
-	      table.writeShort(this.lowestRecPPEM);
-	      table.writeShort(this.fontDirectionHint);
-	      table.writeShort(loca.type);
-	      table.writeShort(this.glyphDataFormat);
-	      return table.data;
-	    };
-
-	    return HeadTable;
-
-	  })(Table);
-
-	  module.exports = HeadTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 82 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var CmapEntry, CmapTable, Data, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  CmapTable = (function(_super) {
-	    __extends(CmapTable, _super);
-
-	    function CmapTable() {
-	      return CmapTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    CmapTable.prototype.tag = 'cmap';
-
-	    CmapTable.prototype.parse = function(data) {
-	      var entry, i, tableCount, _i;
-	      data.pos = this.offset;
-	      this.version = data.readUInt16();
-	      tableCount = data.readUInt16();
-	      this.tables = [];
-	      this.unicode = null;
-	      for (i = _i = 0; 0 <= tableCount ? _i < tableCount : _i > tableCount; i = 0 <= tableCount ? ++_i : --_i) {
-	        entry = new CmapEntry(data, this.offset);
-	        this.tables.push(entry);
-	        if (entry.isUnicode) {
-	          if (this.unicode == null) {
-	            this.unicode = entry;
-	          }
-	        }
-	      }
-	      return true;
-	    };
-
-	    CmapTable.encode = function(charmap, encoding) {
-	      var result, table;
-	      if (encoding == null) {
-	        encoding = 'macroman';
-	      }
-	      result = CmapEntry.encode(charmap, encoding);
-	      table = new Data;
-	      table.writeUInt16(0);
-	      table.writeUInt16(1);
-	      result.table = table.data.concat(result.subtable);
-	      return result;
-	    };
-
-	    return CmapTable;
-
-	  })(Table);
-
-	  CmapEntry = (function() {
-	    function CmapEntry(data, offset) {
-	      var code, count, endCode, glyphId, glyphIds, i, idDelta, idRangeOffset, index, saveOffset, segCount, segCountX2, start, startCode, tail, _i, _j, _k, _len;
-	      this.platformID = data.readUInt16();
-	      this.encodingID = data.readShort();
-	      this.offset = offset + data.readInt();
-	      saveOffset = data.pos;
-	      data.pos = this.offset;
-	      this.format = data.readUInt16();
-	      this.length = data.readUInt16();
-	      this.language = data.readUInt16();
-	      this.isUnicode = (this.platformID === 3 && this.encodingID === 1 && this.format === 4) || this.platformID === 0 && this.format === 4;
-	      this.codeMap = {};
-	      switch (this.format) {
-	        case 0:
-	          for (i = _i = 0; _i < 256; i = ++_i) {
-	            this.codeMap[i] = data.readByte();
-	          }
-	          break;
-	        case 4:
-	          segCountX2 = data.readUInt16();
-	          segCount = segCountX2 / 2;
-	          data.pos += 6;
-	          endCode = (function() {
-	            var _j, _results;
-	            _results = [];
-	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
-	              _results.push(data.readUInt16());
-	            }
-	            return _results;
-	          })();
-	          data.pos += 2;
-	          startCode = (function() {
-	            var _j, _results;
-	            _results = [];
-	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
-	              _results.push(data.readUInt16());
-	            }
-	            return _results;
-	          })();
-	          idDelta = (function() {
-	            var _j, _results;
-	            _results = [];
-	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
-	              _results.push(data.readUInt16());
-	            }
-	            return _results;
-	          })();
-	          idRangeOffset = (function() {
-	            var _j, _results;
-	            _results = [];
-	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
-	              _results.push(data.readUInt16());
-	            }
-	            return _results;
-	          })();
-	          count = (this.length - data.pos + this.offset) / 2;
-	          glyphIds = (function() {
-	            var _j, _results;
-	            _results = [];
-	            for (i = _j = 0; 0 <= count ? _j < count : _j > count; i = 0 <= count ? ++_j : --_j) {
-	              _results.push(data.readUInt16());
-	            }
-	            return _results;
-	          })();
-	          for (i = _j = 0, _len = endCode.length; _j < _len; i = ++_j) {
-	            tail = endCode[i];
-	            start = startCode[i];
-	            for (code = _k = start; start <= tail ? _k <= tail : _k >= tail; code = start <= tail ? ++_k : --_k) {
-	              if (idRangeOffset[i] === 0) {
-	                glyphId = code + idDelta[i];
-	              } else {
-	                index = idRangeOffset[i] / 2 + (code - start) - (segCount - i);
-	                glyphId = glyphIds[index] || 0;
-	                if (glyphId !== 0) {
-	                  glyphId += idDelta[i];
-	                }
-	              }
-	              this.codeMap[code] = glyphId & 0xFFFF;
-	            }
-	          }
-	      }
-	      data.pos = saveOffset;
-	    }
-
-	    CmapEntry.encode = function(charmap, encoding) {
-	      var charMap, code, codeMap, codes, delta, deltas, diff, endCode, endCodes, entrySelector, glyphIDs, i, id, indexes, last, map, nextID, offset, old, rangeOffsets, rangeShift, result, searchRange, segCount, segCountX2, startCode, startCodes, startGlyph, subtable, _i, _j, _k, _l, _len, _len1, _len2, _len3, _len4, _len5, _len6, _len7, _m, _n, _name, _o, _p, _q;
-	      subtable = new Data;
-	      codes = Object.keys(charmap).sort(function(a, b) {
-	        return a - b;
-	      });
-	      switch (encoding) {
-	        case 'macroman':
-	          id = 0;
-	          indexes = (function() {
-	            var _i, _results;
-	            _results = [];
-	            for (i = _i = 0; _i < 256; i = ++_i) {
-	              _results.push(0);
-	            }
-	            return _results;
-	          })();
-	          map = {
-	            0: 0
-	          };
-	          codeMap = {};
-	          for (_i = 0, _len = codes.length; _i < _len; _i++) {
-	            code = codes[_i];
-	            if (map[_name = charmap[code]] == null) {
-	              map[_name] = ++id;
-	            }
-	            codeMap[code] = {
-	              old: charmap[code],
-	              "new": map[charmap[code]]
-	            };
-	            indexes[code] = map[charmap[code]];
-	          }
-	          subtable.writeUInt16(1);
-	          subtable.writeUInt16(0);
-	          subtable.writeUInt32(12);
-	          subtable.writeUInt16(0);
-	          subtable.writeUInt16(262);
-	          subtable.writeUInt16(0);
-	          subtable.write(indexes);
-	          return result = {
-	            charMap: codeMap,
-	            subtable: subtable.data,
-	            maxGlyphID: id + 1
-	          };
-	        case 'unicode':
-	          startCodes = [];
-	          endCodes = [];
-	          nextID = 0;
-	          map = {};
-	          charMap = {};
-	          last = diff = null;
-	          for (_j = 0, _len1 = codes.length; _j < _len1; _j++) {
-	            code = codes[_j];
-	            old = charmap[code];
-	            if (map[old] == null) {
-	              map[old] = ++nextID;
-	            }
-	            charMap[code] = {
-	              old: old,
-	              "new": map[old]
-	            };
-	            delta = map[old] - code;
-	            if ((last == null) || delta !== diff) {
-	              if (last) {
-	                endCodes.push(last);
-	              }
-	              startCodes.push(code);
-	              diff = delta;
-	            }
-	            last = code;
-	          }
-	          if (last) {
-	            endCodes.push(last);
-	          }
-	          endCodes.push(0xFFFF);
-	          startCodes.push(0xFFFF);
-	          segCount = startCodes.length;
-	          segCountX2 = segCount * 2;
-	          searchRange = 2 * Math.pow(Math.log(segCount) / Math.LN2, 2);
-	          entrySelector = Math.log(searchRange / 2) / Math.LN2;
-	          rangeShift = 2 * segCount - searchRange;
-	          deltas = [];
-	          rangeOffsets = [];
-	          glyphIDs = [];
-	          for (i = _k = 0, _len2 = startCodes.length; _k < _len2; i = ++_k) {
-	            startCode = startCodes[i];
-	            endCode = endCodes[i];
-	            if (startCode === 0xFFFF) {
-	              deltas.push(0);
-	              rangeOffsets.push(0);
-	              break;
-	            }
-	            startGlyph = charMap[startCode]["new"];
-	            if (startCode - startGlyph >= 0x8000) {
-	              deltas.push(0);
-	              rangeOffsets.push(2 * (glyphIDs.length + segCount - i));
-	              for (code = _l = startCode; startCode <= endCode ? _l <= endCode : _l >= endCode; code = startCode <= endCode ? ++_l : --_l) {
-	                glyphIDs.push(charMap[code]["new"]);
-	              }
-	            } else {
-	              deltas.push(startGlyph - startCode);
-	              rangeOffsets.push(0);
-	            }
-	          }
-	          subtable.writeUInt16(3);
-	          subtable.writeUInt16(1);
-	          subtable.writeUInt32(12);
-	          subtable.writeUInt16(4);
-	          subtable.writeUInt16(16 + segCount * 8 + glyphIDs.length * 2);
-	          subtable.writeUInt16(0);
-	          subtable.writeUInt16(segCountX2);
-	          subtable.writeUInt16(searchRange);
-	          subtable.writeUInt16(entrySelector);
-	          subtable.writeUInt16(rangeShift);
-	          for (_m = 0, _len3 = endCodes.length; _m < _len3; _m++) {
-	            code = endCodes[_m];
-	            subtable.writeUInt16(code);
-	          }
-	          subtable.writeUInt16(0);
-	          for (_n = 0, _len4 = startCodes.length; _n < _len4; _n++) {
-	            code = startCodes[_n];
-	            subtable.writeUInt16(code);
-	          }
-	          for (_o = 0, _len5 = deltas.length; _o < _len5; _o++) {
-	            delta = deltas[_o];
-	            subtable.writeUInt16(delta);
-	          }
-	          for (_p = 0, _len6 = rangeOffsets.length; _p < _len6; _p++) {
-	            offset = rangeOffsets[_p];
-	            subtable.writeUInt16(offset);
-	          }
-	          for (_q = 0, _len7 = glyphIDs.length; _q < _len7; _q++) {
-	            id = glyphIDs[_q];
-	            subtable.writeUInt16(id);
-	          }
-	          return result = {
-	            charMap: charMap,
-	            subtable: subtable.data,
-	            maxGlyphID: nextID + 1
-	          };
-	      }
-	    };
-
-	    return CmapEntry;
-
-	  })();
-
-	  module.exports = CmapTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 83 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, HmtxTable, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  HmtxTable = (function(_super) {
-	    __extends(HmtxTable, _super);
-
-	    function HmtxTable() {
-	      return HmtxTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    HmtxTable.prototype.tag = 'hmtx';
-
-	    HmtxTable.prototype.parse = function(data) {
-	      var i, last, lsbCount, m, _i, _j, _ref, _results;
-	      data.pos = this.offset;
-	      this.metrics = [];
-	      for (i = _i = 0, _ref = this.file.hhea.numberOfMetrics; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        this.metrics.push({
-	          advance: data.readUInt16(),
-	          lsb: data.readInt16()
-	        });
-	      }
-	      lsbCount = this.file.maxp.numGlyphs - this.file.hhea.numberOfMetrics;
-	      this.leftSideBearings = (function() {
-	        var _j, _results;
-	        _results = [];
-	        for (i = _j = 0; 0 <= lsbCount ? _j < lsbCount : _j > lsbCount; i = 0 <= lsbCount ? ++_j : --_j) {
-	          _results.push(data.readInt16());
-	        }
-	        return _results;
-	      })();
-	      this.widths = (function() {
-	        var _j, _len, _ref1, _results;
-	        _ref1 = this.metrics;
-	        _results = [];
-	        for (_j = 0, _len = _ref1.length; _j < _len; _j++) {
-	          m = _ref1[_j];
-	          _results.push(m.advance);
-	        }
-	        return _results;
-	      }).call(this);
-	      last = this.widths[this.widths.length - 1];
-	      _results = [];
-	      for (i = _j = 0; 0 <= lsbCount ? _j < lsbCount : _j > lsbCount; i = 0 <= lsbCount ? ++_j : --_j) {
-	        _results.push(this.widths.push(last));
-	      }
-	      return _results;
-	    };
-
-	    HmtxTable.prototype.forGlyph = function(id) {
-	      var metrics;
-	      if (id in this.metrics) {
-	        return this.metrics[id];
-	      }
-	      return metrics = {
-	        advance: this.metrics[this.metrics.length - 1].advance,
-	        lsb: this.leftSideBearings[id - this.metrics.length]
-	      };
-	    };
-
-	    HmtxTable.prototype.encode = function(mapping) {
-	      var id, metric, table, _i, _len;
-	      table = new Data;
-	      for (_i = 0, _len = mapping.length; _i < _len; _i++) {
-	        id = mapping[_i];
-	        metric = this.forGlyph(id);
-	        table.writeUInt16(metric.advance);
-	        table.writeUInt16(metric.lsb);
-	      }
-	      return table.data;
-	    };
-
-	    return HmtxTable;
-
-	  })(Table);
-
-	  module.exports = HmtxTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 84 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, HheaTable, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  HheaTable = (function(_super) {
-	    __extends(HheaTable, _super);
-
-	    function HheaTable() {
-	      return HheaTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    HheaTable.prototype.tag = 'hhea';
-
-	    HheaTable.prototype.parse = function(data) {
-	      data.pos = this.offset;
-	      this.version = data.readInt();
-	      this.ascender = data.readShort();
-	      this.decender = data.readShort();
-	      this.lineGap = data.readShort();
-	      this.advanceWidthMax = data.readShort();
-	      this.minLeftSideBearing = data.readShort();
-	      this.minRightSideBearing = data.readShort();
-	      this.xMaxExtent = data.readShort();
-	      this.caretSlopeRise = data.readShort();
-	      this.caretSlopeRun = data.readShort();
-	      this.caretOffset = data.readShort();
-	      data.pos += 4 * 2;
-	      this.metricDataFormat = data.readShort();
-	      return this.numberOfMetrics = data.readUInt16();
-	    };
-
-	    HheaTable.prototype.encode = function(ids) {
-	      var i, table, _i, _ref;
-	      table = new Data;
-	      table.writeInt(this.version);
-	      table.writeShort(this.ascender);
-	      table.writeShort(this.decender);
-	      table.writeShort(this.lineGap);
-	      table.writeShort(this.advanceWidthMax);
-	      table.writeShort(this.minLeftSideBearing);
-	      table.writeShort(this.minRightSideBearing);
-	      table.writeShort(this.xMaxExtent);
-	      table.writeShort(this.caretSlopeRise);
-	      table.writeShort(this.caretSlopeRun);
-	      table.writeShort(this.caretOffset);
-	      for (i = _i = 0, _ref = 4 * 2; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
-	        table.writeByte(0);
-	      }
-	      table.writeShort(this.metricDataFormat);
-	      table.writeUInt16(ids.length);
-	      return table.data;
-	    };
-
-	    return HheaTable;
-
-	  })(Table);
-
-	  module.exports = HheaTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 85 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, MaxpTable, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  MaxpTable = (function(_super) {
-	    __extends(MaxpTable, _super);
-
-	    function MaxpTable() {
-	      return MaxpTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    MaxpTable.prototype.tag = 'maxp';
-
-	    MaxpTable.prototype.parse = function(data) {
-	      data.pos = this.offset;
-	      this.version = data.readInt();
-	      this.numGlyphs = data.readUInt16();
-	      this.maxPoints = data.readUInt16();
-	      this.maxContours = data.readUInt16();
-	      this.maxCompositePoints = data.readUInt16();
-	      this.maxComponentContours = data.readUInt16();
-	      this.maxZones = data.readUInt16();
-	      this.maxTwilightPoints = data.readUInt16();
-	      this.maxStorage = data.readUInt16();
-	      this.maxFunctionDefs = data.readUInt16();
-	      this.maxInstructionDefs = data.readUInt16();
-	      this.maxStackElements = data.readUInt16();
-	      this.maxSizeOfInstructions = data.readUInt16();
-	      this.maxComponentElements = data.readUInt16();
-	      return this.maxComponentDepth = data.readUInt16();
-	    };
-
-	    MaxpTable.prototype.encode = function(ids) {
-	      var table;
-	      table = new Data;
-	      table.writeInt(this.version);
-	      table.writeUInt16(ids.length);
-	      table.writeUInt16(this.maxPoints);
-	      table.writeUInt16(this.maxContours);
-	      table.writeUInt16(this.maxCompositePoints);
-	      table.writeUInt16(this.maxComponentContours);
-	      table.writeUInt16(this.maxZones);
-	      table.writeUInt16(this.maxTwilightPoints);
-	      table.writeUInt16(this.maxStorage);
-	      table.writeUInt16(this.maxFunctionDefs);
-	      table.writeUInt16(this.maxInstructionDefs);
-	      table.writeUInt16(this.maxStackElements);
-	      table.writeUInt16(this.maxSizeOfInstructions);
-	      table.writeUInt16(this.maxComponentElements);
-	      table.writeUInt16(this.maxComponentDepth);
-	      return table.data;
-	    };
-
-	    return MaxpTable;
-
-	  })(Table);
-
-	  module.exports = MaxpTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 86 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, PostTable, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  PostTable = (function(_super) {
-	    var POSTSCRIPT_GLYPHS;
-
-	    __extends(PostTable, _super);
-
-	    function PostTable() {
-	      return PostTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    PostTable.prototype.tag = 'post';
-
-	    PostTable.prototype.parse = function(data) {
-	      var i, length, numberOfGlyphs, _i, _results;
-	      data.pos = this.offset;
-	      this.format = data.readInt();
-	      this.italicAngle = data.readInt();
-	      this.underlinePosition = data.readShort();
-	      this.underlineThickness = data.readShort();
-	      this.isFixedPitch = data.readInt();
-	      this.minMemType42 = data.readInt();
-	      this.maxMemType42 = data.readInt();
-	      this.minMemType1 = data.readInt();
-	      this.maxMemType1 = data.readInt();
-	      switch (this.format) {
-	        case 0x00010000:
-	          break;
-	        case 0x00020000:
-	          numberOfGlyphs = data.readUInt16();
-	          this.glyphNameIndex = [];
-	          for (i = _i = 0; 0 <= numberOfGlyphs ? _i < numberOfGlyphs : _i > numberOfGlyphs; i = 0 <= numberOfGlyphs ? ++_i : --_i) {
-	            this.glyphNameIndex.push(data.readUInt16());
-	          }
-	          this.names = [];
-	          _results = [];
-	          while (data.pos < this.offset + this.length) {
-	            length = data.readByte();
-	            _results.push(this.names.push(data.readString(length)));
-	          }
-	          return _results;
-	          break;
-	        case 0x00025000:
-	          numberOfGlyphs = data.readUInt16();
-	          return this.offsets = data.read(numberOfGlyphs);
-	        case 0x00030000:
-	          break;
-	        case 0x00040000:
-	          return this.map = (function() {
-	            var _j, _ref, _results1;
-	            _results1 = [];
-	            for (i = _j = 0, _ref = this.file.maxp.numGlyphs; 0 <= _ref ? _j < _ref : _j > _ref; i = 0 <= _ref ? ++_j : --_j) {
-	              _results1.push(data.readUInt32());
-	            }
-	            return _results1;
-	          }).call(this);
-	      }
-	    };
-
-	    PostTable.prototype.glyphFor = function(code) {
-	      var index;
-	      switch (this.format) {
-	        case 0x00010000:
-	          return POSTSCRIPT_GLYPHS[code] || '.notdef';
-	        case 0x00020000:
-	          index = this.glyphNameIndex[code];
-	          if (index <= 257) {
-	            return POSTSCRIPT_GLYPHS[index];
-	          } else {
-	            return this.names[index - 258] || '.notdef';
-	          }
-	          break;
-	        case 0x00025000:
-	          return POSTSCRIPT_GLYPHS[code + this.offsets[code]] || '.notdef';
-	        case 0x00030000:
-	          return '.notdef';
-	        case 0x00040000:
-	          return this.map[code] || 0xFFFF;
-	      }
-	    };
-
-	    PostTable.prototype.encode = function(mapping) {
-	      var id, index, indexes, position, post, raw, string, strings, table, _i, _j, _k, _len, _len1, _len2;
-	      if (!this.exists) {
-	        return null;
-	      }
-	      raw = this.raw();
-	      if (this.format === 0x00030000) {
-	        return raw;
-	      }
-	      table = new Data(raw.slice(0, 32));
-	      table.writeUInt32(0x00020000);
-	      table.pos = 32;
-	      indexes = [];
-	      strings = [];
-	      for (_i = 0, _len = mapping.length; _i < _len; _i++) {
-	        id = mapping[_i];
-	        post = this.glyphFor(id);
-	        position = POSTSCRIPT_GLYPHS.indexOf(post);
-	        if (position !== -1) {
-	          indexes.push(position);
-	        } else {
-	          indexes.push(257 + strings.length);
-	          strings.push(post);
-	        }
-	      }
-	      table.writeUInt16(Object.keys(mapping).length);
-	      for (_j = 0, _len1 = indexes.length; _j < _len1; _j++) {
-	        index = indexes[_j];
-	        table.writeUInt16(index);
-	      }
-	      for (_k = 0, _len2 = strings.length; _k < _len2; _k++) {
-	        string = strings[_k];
-	        table.writeByte(string.length);
-	        table.writeString(string);
-	      }
-	      return table.data;
-	    };
-
-	    POSTSCRIPT_GLYPHS = '.notdef .null nonmarkingreturn space exclam quotedbl numbersign dollar percent\nampersand quotesingle parenleft parenright asterisk plus comma hyphen period slash\nzero one two three four five six seven eight nine colon semicolon less equal greater\nquestion at A B C D E F G H I J K L M N O P Q R S T U V W X Y Z\nbracketleft backslash bracketright asciicircum underscore grave\na b c d e f g h i j k l m n o p q r s t u v w x y z\nbraceleft bar braceright asciitilde Adieresis Aring Ccedilla Eacute Ntilde Odieresis\nUdieresis aacute agrave acircumflex adieresis atilde aring ccedilla eacute egrave\necircumflex edieresis iacute igrave icircumflex idieresis ntilde oacute ograve\nocircumflex odieresis otilde uacute ugrave ucircumflex udieresis dagger degree cent\nsterling section bullet paragraph germandbls registered copyright trademark acute\ndieresis notequal AE Oslash infinity plusminus lessequal greaterequal yen mu\npartialdiff summation product pi integral ordfeminine ordmasculine Omega ae oslash\nquestiondown exclamdown logicalnot radical florin approxequal Delta guillemotleft\nguillemotright ellipsis nonbreakingspace Agrave Atilde Otilde OE oe endash emdash\nquotedblleft quotedblright quoteleft quoteright divide lozenge ydieresis Ydieresis\nfraction currency guilsinglleft guilsinglright fi fl daggerdbl periodcentered\nquotesinglbase quotedblbase perthousand Acircumflex Ecircumflex Aacute Edieresis\nEgrave Iacute Icircumflex Idieresis Igrave Oacute Ocircumflex apple Ograve Uacute\nUcircumflex Ugrave dotlessi circumflex tilde macron breve dotaccent ring cedilla\nhungarumlaut ogonek caron Lslash lslash Scaron scaron Zcaron zcaron brokenbar Eth\neth Yacute yacute Thorn thorn minus multiply onesuperior twosuperior threesuperior\nonehalf onequarter threequarters franc Gbreve gbreve Idotaccent Scedilla scedilla\nCacute cacute Ccaron ccaron dcroat'.split(/\s+/g);
-
-	    return PostTable;
-
-	  })(Table);
-
-	  module.exports = PostTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 87 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var OS2Table, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  OS2Table = (function(_super) {
-	    __extends(OS2Table, _super);
-
-	    function OS2Table() {
-	      return OS2Table.__super__.constructor.apply(this, arguments);
-	    }
-
-	    OS2Table.prototype.tag = 'OS/2';
-
-	    OS2Table.prototype.parse = function(data) {
-	      var i;
-	      data.pos = this.offset;
-	      this.version = data.readUInt16();
-	      this.averageCharWidth = data.readShort();
-	      this.weightClass = data.readUInt16();
-	      this.widthClass = data.readUInt16();
-	      this.type = data.readShort();
-	      this.ySubscriptXSize = data.readShort();
-	      this.ySubscriptYSize = data.readShort();
-	      this.ySubscriptXOffset = data.readShort();
-	      this.ySubscriptYOffset = data.readShort();
-	      this.ySuperscriptXSize = data.readShort();
-	      this.ySuperscriptYSize = data.readShort();
-	      this.ySuperscriptXOffset = data.readShort();
-	      this.ySuperscriptYOffset = data.readShort();
-	      this.yStrikeoutSize = data.readShort();
-	      this.yStrikeoutPosition = data.readShort();
-	      this.familyClass = data.readShort();
-	      this.panose = (function() {
-	        var _i, _results;
-	        _results = [];
-	        for (i = _i = 0; _i < 10; i = ++_i) {
-	          _results.push(data.readByte());
-	        }
-	        return _results;
-	      })();
-	      this.charRange = (function() {
-	        var _i, _results;
-	        _results = [];
-	        for (i = _i = 0; _i < 4; i = ++_i) {
-	          _results.push(data.readInt());
-	        }
-	        return _results;
-	      })();
-	      this.vendorID = data.readString(4);
-	      this.selection = data.readShort();
-	      this.firstCharIndex = data.readShort();
-	      this.lastCharIndex = data.readShort();
-	      if (this.version > 0) {
-	        this.ascent = data.readShort();
-	        this.descent = data.readShort();
-	        this.lineGap = data.readShort();
-	        this.winAscent = data.readShort();
-	        this.winDescent = data.readShort();
-	        this.codePageRange = (function() {
-	          var _i, _results;
-	          _results = [];
-	          for (i = _i = 0; _i < 2; i = ++_i) {
-	            _results.push(data.readInt());
-	          }
-	          return _results;
-	        })();
-	        if (this.version > 1) {
-	          this.xHeight = data.readShort();
-	          this.capHeight = data.readShort();
-	          this.defaultChar = data.readShort();
-	          this.breakChar = data.readShort();
-	          return this.maxContext = data.readShort();
-	        }
-	      }
-	    };
-
-	    OS2Table.prototype.encode = function() {
-	      return this.raw();
-	    };
-
-	    return OS2Table;
-
-	  })(Table);
-
-	  module.exports = OS2Table;
-
-	}).call(this);
-
-
-/***/ },
-/* 88 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Data, LocaTable, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  LocaTable = (function(_super) {
-	    __extends(LocaTable, _super);
-
-	    function LocaTable() {
-	      return LocaTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    LocaTable.prototype.tag = 'loca';
-
-	    LocaTable.prototype.parse = function(data) {
-	      var format, i;
-	      data.pos = this.offset;
-	      format = this.file.head.indexToLocFormat;
-	      if (format === 0) {
-	        return this.offsets = (function() {
-	          var _i, _ref, _results;
-	          _results = [];
-	          for (i = _i = 0, _ref = this.length; _i < _ref; i = _i += 2) {
-	            _results.push(data.readUInt16() * 2);
-	          }
-	          return _results;
-	        }).call(this);
-	      } else {
-	        return this.offsets = (function() {
-	          var _i, _ref, _results;
-	          _results = [];
-	          for (i = _i = 0, _ref = this.length; _i < _ref; i = _i += 4) {
-	            _results.push(data.readUInt32());
-	          }
-	          return _results;
-	        }).call(this);
-	      }
-	    };
-
-	    LocaTable.prototype.indexOf = function(id) {
-	      return this.offsets[id];
-	    };
-
-	    LocaTable.prototype.lengthOf = function(id) {
-	      return this.offsets[id + 1] - this.offsets[id];
-	    };
-
-	    LocaTable.prototype.encode = function(offsets) {
-	      var o, offset, ret, table, _i, _j, _k, _len, _len1, _len2, _ref;
-	      table = new Data;
-	      for (_i = 0, _len = offsets.length; _i < _len; _i++) {
-	        offset = offsets[_i];
-	        if (!(offset > 0xFFFF)) {
-	          continue;
-	        }
-	        _ref = this.offsets;
-	        for (_j = 0, _len1 = _ref.length; _j < _len1; _j++) {
-	          o = _ref[_j];
-	          table.writeUInt32(o);
-	        }
-	        return ret = {
-	          format: 1,
-	          table: table.data
-	        };
-	      }
-	      for (_k = 0, _len2 = offsets.length; _k < _len2; _k++) {
-	        o = offsets[_k];
-	        table.writeUInt16(o / 2);
-	      }
-	      return ret = {
-	        format: 0,
-	        table: table.data
-	      };
-	    };
-
-	    return LocaTable;
-
-	  })(Table);
-
-	  module.exports = LocaTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 89 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-
-	/*
-	 * An implementation of Ruby's string.succ method.
-	 * By Devon Govett
-	 *
-	 * Returns the successor to str. The successor is calculated by incrementing characters starting 
-	 * from the rightmost alphanumeric (or the rightmost character if there are no alphanumerics) in the
-	 * string. Incrementing a digit always results in another digit, and incrementing a letter results in
-	 * another letter of the same case.
-	 *
-	 * If the increment generates a carry, the character to the left of it is incremented. This 
-	 * process repeats until there is no carry, adding an additional character if necessary.
-	 *
-	 * succ("abcd")      == "abce"
-	 * succ("THX1138")   == "THX1139"
-	 * succ("<<koala>>") == "<<koalb>>"
-	 * succ("1999zzz")   == "2000aaa"
-	 * succ("ZZZ9999")   == "AAAA0000"
-	 */
-
-	(function() {
-	  exports.successorOf = function(input) {
-	    var added, alphabet, carry, i, index, isUpperCase, last, length, next, result;
-	    alphabet = 'abcdefghijklmnopqrstuvwxyz';
-	    length = alphabet.length;
-	    result = input;
-	    i = input.length;
-	    while (i >= 0) {
-	      last = input.charAt(--i);
-	      if (isNaN(last)) {
-	        index = alphabet.indexOf(last.toLowerCase());
-	        if (index === -1) {
-	          next = last;
-	          carry = true;
-	        } else {
-	          next = alphabet.charAt((index + 1) % length);
-	          isUpperCase = last === last.toUpperCase();
-	          if (isUpperCase) {
-	            next = next.toUpperCase();
-	          }
-	          carry = index + 1 >= length;
-	          if (carry && i === 0) {
-	            added = isUpperCase ? 'A' : 'a';
-	            result = added + next + result.slice(1);
-	            break;
-	          }
-	        }
-	      } else {
-	        next = +last + 1;
-	        carry = next > 9;
-	        if (carry) {
-	          next = 0;
-	        }
-	        if (carry && i === 0) {
-	          result = '1' + next + result.slice(1);
-	          break;
-	        }
-	      }
-	      result = result.slice(0, i) + next + result.slice(i + 1);
-	      if (!carry) {
-	        break;
-	      }
-	    }
-	    return result;
-	  };
-
-	  exports.invert = function(object) {
-	    var key, ret, val;
-	    ret = {};
-	    for (key in object) {
-	      val = object[key];
-	      ret[val] = key;
-	    }
-	    return ret;
-	  };
-
-	}).call(this);
-
-
-/***/ },
-/* 90 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var CompoundGlyph, Data, GlyfTable, SimpleGlyph, Table,
-	    __hasProp = {}.hasOwnProperty,
-	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-	    __slice = [].slice;
-
-	  Table = __webpack_require__(99);
-
-	  Data = __webpack_require__(34);
-
-	  GlyfTable = (function(_super) {
-	    __extends(GlyfTable, _super);
-
-	    function GlyfTable() {
-	      return GlyfTable.__super__.constructor.apply(this, arguments);
-	    }
-
-	    GlyfTable.prototype.tag = 'glyf';
-
-	    GlyfTable.prototype.parse = function(data) {
-	      return this.cache = {};
-	    };
-
-	    GlyfTable.prototype.glyphFor = function(id) {
-	      var data, index, length, loca, numberOfContours, raw, xMax, xMin, yMax, yMin;
-	      if (id in this.cache) {
-	        return this.cache[id];
-	      }
-	      loca = this.file.loca;
-	      data = this.file.contents;
-	      index = loca.indexOf(id);
-	      length = loca.lengthOf(id);
-	      if (length === 0) {
-	        return this.cache[id] = null;
-	      }
-	      data.pos = this.offset + index;
-	      raw = new Data(data.read(length));
-	      numberOfContours = raw.readShort();
-	      xMin = raw.readShort();
-	      yMin = raw.readShort();
-	      xMax = raw.readShort();
-	      yMax = raw.readShort();
-	      if (numberOfContours === -1) {
-	        this.cache[id] = new CompoundGlyph(raw, xMin, yMin, xMax, yMax);
-	      } else {
-	        this.cache[id] = new SimpleGlyph(raw, numberOfContours, xMin, yMin, xMax, yMax);
-	      }
-	      return this.cache[id];
-	    };
-
-	    GlyfTable.prototype.encode = function(glyphs, mapping, old2new) {
-	      var glyph, id, offsets, table, _i, _len;
-	      table = [];
-	      offsets = [];
-	      for (_i = 0, _len = mapping.length; _i < _len; _i++) {
-	        id = mapping[_i];
-	        glyph = glyphs[id];
-	        offsets.push(table.length);
-	        if (glyph) {
-	          table = table.concat(glyph.encode(old2new));
-	        }
-	      }
-	      offsets.push(table.length);
-	      return {
-	        table: table,
-	        offsets: offsets
-	      };
-	    };
-
-	    return GlyfTable;
-
-	  })(Table);
-
-	  SimpleGlyph = (function() {
-	    function SimpleGlyph(raw, numberOfContours, xMin, yMin, xMax, yMax) {
-	      this.raw = raw;
-	      this.numberOfContours = numberOfContours;
-	      this.xMin = xMin;
-	      this.yMin = yMin;
-	      this.xMax = xMax;
-	      this.yMax = yMax;
-	      this.compound = false;
-	    }
-
-	    SimpleGlyph.prototype.encode = function() {
-	      return this.raw.data;
-	    };
-
-	    return SimpleGlyph;
-
-	  })();
-
-	  CompoundGlyph = (function() {
-	    var ARG_1_AND_2_ARE_WORDS, MORE_COMPONENTS, WE_HAVE_AN_X_AND_Y_SCALE, WE_HAVE_A_SCALE, WE_HAVE_A_TWO_BY_TWO, WE_HAVE_INSTRUCTIONS;
-
-	    ARG_1_AND_2_ARE_WORDS = 0x0001;
-
-	    WE_HAVE_A_SCALE = 0x0008;
-
-	    MORE_COMPONENTS = 0x0020;
-
-	    WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
-
-	    WE_HAVE_A_TWO_BY_TWO = 0x0080;
-
-	    WE_HAVE_INSTRUCTIONS = 0x0100;
-
-	    function CompoundGlyph(raw, xMin, yMin, xMax, yMax) {
-	      var data, flags;
-	      this.raw = raw;
-	      this.xMin = xMin;
-	      this.yMin = yMin;
-	      this.xMax = xMax;
-	      this.yMax = yMax;
-	      this.compound = true;
-	      this.glyphIDs = [];
-	      this.glyphOffsets = [];
-	      data = this.raw;
-	      while (true) {
-	        flags = data.readShort();
-	        this.glyphOffsets.push(data.pos);
-	        this.glyphIDs.push(data.readShort());
-	        if (!(flags & MORE_COMPONENTS)) {
-	          break;
-	        }
-	        if (flags & ARG_1_AND_2_ARE_WORDS) {
-	          data.pos += 4;
-	        } else {
-	          data.pos += 2;
-	        }
-	        if (flags & WE_HAVE_A_TWO_BY_TWO) {
-	          data.pos += 8;
-	        } else if (flags & WE_HAVE_AN_X_AND_Y_SCALE) {
-	          data.pos += 4;
-	        } else if (flags & WE_HAVE_A_SCALE) {
-	          data.pos += 2;
-	        }
-	      }
-	    }
-
-	    CompoundGlyph.prototype.encode = function(mapping) {
-	      var i, id, result, _i, _len, _ref;
-	      result = new Data(__slice.call(this.raw.data));
-	      _ref = this.glyphIDs;
-	      for (i = _i = 0, _len = _ref.length; _i < _len; i = ++_i) {
-	        id = _ref[i];
-	        result.pos = this.glyphOffsets[i];
-	        result.writeShort(mapping[id]);
-	      }
-	      return result.data;
-	    };
-
-	    return CompoundGlyph;
-
-	  })();
-
-	  module.exports = GlyfTable;
-
-	}).call(this);
-
-
-/***/ },
-/* 91 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var CI_BRK, CP_BRK, DI_BRK, IN_BRK, PR_BRK;
-
-	  exports.DI_BRK = DI_BRK = 0;
-
-	  exports.IN_BRK = IN_BRK = 1;
-
-	  exports.CI_BRK = CI_BRK = 2;
-
-	  exports.CP_BRK = CP_BRK = 3;
-
-	  exports.PR_BRK = PR_BRK = 4;
-
-	  exports.pairTable = [[PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, CP_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, DI_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, DI_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, PR_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK]];
-
-	}).call(this);
-
-
-/***/ },
-/* 92 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var AI, AL, B2, BA, BB, BK, CB, CJ, CL, CM, CP, CR, EX, GL, H2, H3, HL, HY, ID, IN, IS, JL, JT, JV, LF, NL, NS, NU, OP, PO, PR, QU, RI, SA, SG, SP, SY, WJ, XX, ZW;
-
-	  exports.OP = OP = 0;
-
-	  exports.CL = CL = 1;
-
-	  exports.CP = CP = 2;
-
-	  exports.QU = QU = 3;
-
-	  exports.GL = GL = 4;
-
-	  exports.NS = NS = 5;
-
-	  exports.EX = EX = 6;
-
-	  exports.SY = SY = 7;
-
-	  exports.IS = IS = 8;
-
-	  exports.PR = PR = 9;
-
-	  exports.PO = PO = 10;
-
-	  exports.NU = NU = 11;
-
-	  exports.AL = AL = 12;
-
-	  exports.HL = HL = 13;
-
-	  exports.ID = ID = 14;
-
-	  exports.IN = IN = 15;
-
-	  exports.HY = HY = 16;
-
-	  exports.BA = BA = 17;
-
-	  exports.BB = BB = 18;
-
-	  exports.B2 = B2 = 19;
-
-	  exports.ZW = ZW = 20;
-
-	  exports.CM = CM = 21;
-
-	  exports.WJ = WJ = 22;
-
-	  exports.H2 = H2 = 23;
-
-	  exports.H3 = H3 = 24;
-
-	  exports.JL = JL = 25;
-
-	  exports.JV = JV = 26;
-
-	  exports.JT = JT = 27;
-
-	  exports.RI = RI = 28;
-
-	  exports.AI = AI = 29;
-
-	  exports.BK = BK = 30;
-
-	  exports.CB = CB = 31;
-
-	  exports.CJ = CJ = 32;
-
-	  exports.CR = CR = 33;
-
-	  exports.LF = LF = 34;
-
-	  exports.NL = NL = 35;
-
-	  exports.SA = SA = 36;
-
-	  exports.SG = SG = 37;
-
-	  exports.SP = SP = 38;
-
-	  exports.XX = XX = 39;
-
-	}).call(this);
-
-
-/***/ },
-/* 93 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* (ignored) */
-
-/***/ },
-/* 94 */
-/***/ function(module, exports, __webpack_require__) {
-
-	if (typeof Object.create === 'function') {
-	  // implementation from standard node.js 'util' module
-	  module.exports = function inherits(ctor, superCtor) {
-	    ctor.super_ = superCtor
-	    ctor.prototype = Object.create(superCtor.prototype, {
-	      constructor: {
-	        value: ctor,
-	        enumerable: false,
-	        writable: true,
-	        configurable: true
-	      }
-	    });
-	  };
-	} else {
-	  // old school shim for old browsers
-	  module.exports = function inherits(ctor, superCtor) {
-	    ctor.super_ = superCtor
-	    var TempCtor = function () {}
-	    TempCtor.prototype = superCtor.prototype
-	    ctor.prototype = new TempCtor()
-	    ctor.prototype.constructor = ctor
-	  }
-	}
-
-
-/***/ },
-/* 95 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-
-	var utils = __webpack_require__(98);
-
-	/* Public constants ==========================================================*/
-	/* ===========================================================================*/
-
-
-	//var Z_FILTERED          = 1;
-	//var Z_HUFFMAN_ONLY      = 2;
-	//var Z_RLE               = 3;
-	var Z_FIXED               = 4;
-	//var Z_DEFAULT_STRATEGY  = 0;
-
-	/* Possible values of the data_type field (though see inflate()) */
-	var Z_BINARY              = 0;
-	var Z_TEXT                = 1;
-	//var Z_ASCII             = 1; // = Z_TEXT
-	var Z_UNKNOWN             = 2;
-
-	/*============================================================================*/
-
-
-	function zero(buf) { var len = buf.length; while (--len >= 0) { buf[len] = 0; } }
-
-	// From zutil.h
-
-	var STORED_BLOCK = 0;
-	var STATIC_TREES = 1;
-	var DYN_TREES    = 2;
-	/* The three kinds of block type */
-
-	var MIN_MATCH    = 3;
-	var MAX_MATCH    = 258;
-	/* The minimum and maximum match lengths */
-
-	// From deflate.h
-	/* ===========================================================================
-	 * Internal compression state.
-	 */
-
-	var LENGTH_CODES  = 29;
-	/* number of length codes, not counting the special END_BLOCK code */
-
-	var LITERALS      = 256;
-	/* number of literal bytes 0..255 */
-
-	var L_CODES       = LITERALS + 1 + LENGTH_CODES;
-	/* number of Literal or Length codes, including the END_BLOCK code */
-
-	var D_CODES       = 30;
-	/* number of distance codes */
-
-	var BL_CODES      = 19;
-	/* number of codes used to transfer the bit lengths */
-
-	var HEAP_SIZE     = 2*L_CODES + 1;
-	/* maximum heap size */
-
-	var MAX_BITS      = 15;
-	/* All codes must not exceed MAX_BITS bits */
-
-	var Buf_size      = 16;
-	/* size of bit buffer in bi_buf */
-
-
-	/* ===========================================================================
-	 * Constants
-	 */
-
-	var MAX_BL_BITS = 7;
-	/* Bit length codes must not exceed MAX_BL_BITS bits */
-
-	var END_BLOCK   = 256;
-	/* end of block literal code */
-
-	var REP_3_6     = 16;
-	/* repeat previous bit length 3-6 times (2 bits of repeat count) */
-
-	var REPZ_3_10   = 17;
-	/* repeat a zero length 3-10 times  (3 bits of repeat count) */
-
-	var REPZ_11_138 = 18;
-	/* repeat a zero length 11-138 times  (7 bits of repeat count) */
-
-	var extra_lbits =   /* extra bits for each length code */
-	  [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
-
-	var extra_dbits =   /* extra bits for each distance code */
-	  [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
-
-	var extra_blbits =  /* extra bits for each bit length code */
-	  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,3,7];
-
-	var bl_order =
-	  [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
-	/* The lengths of the bit length codes are sent in order of decreasing
-	 * probability, to avoid transmitting the lengths for unused bit length codes.
-	 */
-
-	/* ===========================================================================
-	 * Local data. These are initialized only once.
-	 */
-
-	// We pre-fill arrays with 0 to avoid uninitialized gaps
-
-	var DIST_CODE_LEN = 512; /* see definition of array dist_code below */
-
-	// !!!! Use flat array insdead of structure, Freq = i*2, Len = i*2+1
-	var static_ltree  = new Array((L_CODES+2) * 2);
-	zero(static_ltree);
-	/* The static literal tree. Since the bit lengths are imposed, there is no
-	 * need for the L_CODES extra codes used during heap construction. However
-	 * The codes 286 and 287 are needed to build a canonical tree (see _tr_init
-	 * below).
-	 */
-
-	var static_dtree  = new Array(D_CODES * 2);
-	zero(static_dtree);
-	/* The static distance tree. (Actually a trivial tree since all codes use
-	 * 5 bits.)
-	 */
-
-	var _dist_code    = new Array(DIST_CODE_LEN);
-	zero(_dist_code);
-	/* Distance codes. The first 256 values correspond to the distances
-	 * 3 .. 258, the last 256 values correspond to the top 8 bits of
-	 * the 15 bit distances.
-	 */
-
-	var _length_code  = new Array(MAX_MATCH-MIN_MATCH+1);
-	zero(_length_code);
-	/* length code for each normalized match length (0 == MIN_MATCH) */
-
-	var base_length   = new Array(LENGTH_CODES);
-	zero(base_length);
-	/* First normalized length for each code (0 = MIN_MATCH) */
-
-	var base_dist     = new Array(D_CODES);
-	zero(base_dist);
-	/* First normalized distance for each code (0 = distance of 1) */
-
-
-	var StaticTreeDesc = function (static_tree, extra_bits, extra_base, elems, max_length) {
-
-	  this.static_tree  = static_tree;  /* static tree or NULL */
-	  this.extra_bits   = extra_bits;   /* extra bits for each code or NULL */
-	  this.extra_base   = extra_base;   /* base index for extra_bits */
-	  this.elems        = elems;        /* max number of elements in the tree */
-	  this.max_length   = max_length;   /* max bit length for the codes */
-
-	  // show if `static_tree` has data or dummy - needed for monomorphic objects
-	  this.has_stree    = static_tree && static_tree.length;
-	};
-
-
-	var static_l_desc;
-	var static_d_desc;
-	var static_bl_desc;
-
-
-	var TreeDesc = function(dyn_tree, stat_desc) {
-	  this.dyn_tree = dyn_tree;     /* the dynamic tree */
-	  this.max_code = 0;            /* largest code with non zero frequency */
-	  this.stat_desc = stat_desc;   /* the corresponding static tree */
-	};
-
-
-
-	function d_code(dist) {
-	  return dist < 256 ? _dist_code[dist] : _dist_code[256 + (dist >>> 7)];
-	}
-
-
-	/* ===========================================================================
-	 * Output a short LSB first on the stream.
-	 * IN assertion: there is enough room in pendingBuf.
-	 */
-	function put_short (s, w) {
-	//    put_byte(s, (uch)((w) & 0xff));
-	//    put_byte(s, (uch)((ush)(w) >> 8));
-	  s.pending_buf[s.pending++] = (w) & 0xff;
-	  s.pending_buf[s.pending++] = (w >>> 8) & 0xff;
-	}
-
-
-	/* ===========================================================================
-	 * Send a value on a given number of bits.
-	 * IN assertion: length <= 16 and value fits in length bits.
-	 */
-	function send_bits(s, value, length) {
-	  if (s.bi_valid > (Buf_size - length)) {
-	    s.bi_buf |= (value << s.bi_valid) & 0xffff;
-	    put_short(s, s.bi_buf);
-	    s.bi_buf = value >> (Buf_size - s.bi_valid);
-	    s.bi_valid += length - Buf_size;
-	  } else {
-	    s.bi_buf |= (value << s.bi_valid) & 0xffff;
-	    s.bi_valid += length;
-	  }
-	}
-
-
-	function send_code(s, c, tree) {
-	  send_bits(s, tree[c*2]/*.Code*/, tree[c*2 + 1]/*.Len*/);
-	}
-
-
-	/* ===========================================================================
-	 * Reverse the first len bits of a code, using straightforward code (a faster
-	 * method would use a table)
-	 * IN assertion: 1 <= len <= 15
-	 */
-	function bi_reverse(code, len) {
-	  var res = 0;
-	  do {
-	    res |= code & 1;
-	    code >>>= 1;
-	    res <<= 1;
-	  } while (--len > 0);
-	  return res >>> 1;
-	}
-
-
-	/* ===========================================================================
-	 * Flush the bit buffer, keeping at most 7 bits in it.
-	 */
-	function bi_flush(s) {
-	  if (s.bi_valid === 16) {
-	    put_short(s, s.bi_buf);
-	    s.bi_buf = 0;
-	    s.bi_valid = 0;
-
-	  } else if (s.bi_valid >= 8) {
-	    s.pending_buf[s.pending++] = s.bi_buf & 0xff;
-	    s.bi_buf >>= 8;
-	    s.bi_valid -= 8;
-	  }
-	}
-
-
-	/* ===========================================================================
-	 * Compute the optimal bit lengths for a tree and update the total bit length
-	 * for the current block.
-	 * IN assertion: the fields freq and dad are set, heap[heap_max] and
-	 *    above are the tree nodes sorted by increasing frequency.
-	 * OUT assertions: the field len is set to the optimal bit length, the
-	 *     array bl_count contains the frequencies for each bit length.
-	 *     The length opt_len is updated; static_len is also updated if stree is
-	 *     not null.
-	 */
-	function gen_bitlen(s, desc)
-	//    deflate_state *s;
-	//    tree_desc *desc;    /* the tree descriptor */
-	{
-	  var tree            = desc.dyn_tree;
-	  var max_code        = desc.max_code;
-	  var stree           = desc.stat_desc.static_tree;
-	  var has_stree       = desc.stat_desc.has_stree;
-	  var extra           = desc.stat_desc.extra_bits;
-	  var base            = desc.stat_desc.extra_base;
-	  var max_length      = desc.stat_desc.max_length;
-	  var h;              /* heap index */
-	  var n, m;           /* iterate over the tree elements */
-	  var bits;           /* bit length */
-	  var xbits;          /* extra bits */
-	  var f;              /* frequency */
-	  var overflow = 0;   /* number of elements with bit length too large */
-
-	  for (bits = 0; bits <= MAX_BITS; bits++) {
-	    s.bl_count[bits] = 0;
-	  }
-
-	  /* In a first pass, compute the optimal bit lengths (which may
-	   * overflow in the case of the bit length tree).
-	   */
-	  tree[s.heap[s.heap_max]*2 + 1]/*.Len*/ = 0; /* root of the heap */
-
-	  for (h = s.heap_max+1; h < HEAP_SIZE; h++) {
-	    n = s.heap[h];
-	    bits = tree[tree[n*2 +1]/*.Dad*/ * 2 + 1]/*.Len*/ + 1;
-	    if (bits > max_length) {
-	      bits = max_length;
-	      overflow++;
-	    }
-	    tree[n*2 + 1]/*.Len*/ = bits;
-	    /* We overwrite tree[n].Dad which is no longer needed */
-
-	    if (n > max_code) { continue; } /* not a leaf node */
-
-	    s.bl_count[bits]++;
-	    xbits = 0;
-	    if (n >= base) {
-	      xbits = extra[n-base];
-	    }
-	    f = tree[n * 2]/*.Freq*/;
-	    s.opt_len += f * (bits + xbits);
-	    if (has_stree) {
-	      s.static_len += f * (stree[n*2 + 1]/*.Len*/ + xbits);
-	    }
-	  }
-	  if (overflow === 0) { return; }
-
-	  // Trace((stderr,"\nbit length overflow\n"));
-	  /* This happens for example on obj2 and pic of the Calgary corpus */
-
-	  /* Find the first bit length which could increase: */
-	  do {
-	    bits = max_length-1;
-	    while (s.bl_count[bits] === 0) { bits--; }
-	    s.bl_count[bits]--;      /* move one leaf down the tree */
-	    s.bl_count[bits+1] += 2; /* move one overflow item as its brother */
-	    s.bl_count[max_length]--;
-	    /* The brother of the overflow item also moves one step up,
-	     * but this does not affect bl_count[max_length]
-	     */
-	    overflow -= 2;
-	  } while (overflow > 0);
-
-	  /* Now recompute all bit lengths, scanning in increasing frequency.
-	   * h is still equal to HEAP_SIZE. (It is simpler to reconstruct all
-	   * lengths instead of fixing only the wrong ones. This idea is taken
-	   * from 'ar' written by Haruhiko Okumura.)
-	   */
-	  for (bits = max_length; bits !== 0; bits--) {
-	    n = s.bl_count[bits];
-	    while (n !== 0) {
-	      m = s.heap[--h];
-	      if (m > max_code) { continue; }
-	      if (tree[m*2 + 1]/*.Len*/ !== bits) {
-	        // Trace((stderr,"code %d bits %d->%d\n", m, tree[m].Len, bits));
-	        s.opt_len += (bits - tree[m*2 + 1]/*.Len*/)*tree[m*2]/*.Freq*/;
-	        tree[m*2 + 1]/*.Len*/ = bits;
-	      }
-	      n--;
-	    }
-	  }
-	}
-
-
-	/* ===========================================================================
-	 * Generate the codes for a given tree and bit counts (which need not be
-	 * optimal).
-	 * IN assertion: the array bl_count contains the bit length statistics for
-	 * the given tree and the field len is set for all tree elements.
-	 * OUT assertion: the field code is set for all tree elements of non
-	 *     zero code length.
-	 */
-	function gen_codes(tree, max_code, bl_count)
-	//    ct_data *tree;             /* the tree to decorate */
-	//    int max_code;              /* largest code with non zero frequency */
-	//    ushf *bl_count;            /* number of codes at each bit length */
-	{
-	  var next_code = new Array(MAX_BITS+1); /* next code value for each bit length */
-	  var code = 0;              /* running code value */
-	  var bits;                  /* bit index */
-	  var n;                     /* code index */
-
-	  /* The distribution counts are first used to generate the code values
-	   * without bit reversal.
-	   */
-	  for (bits = 1; bits <= MAX_BITS; bits++) {
-	    next_code[bits] = code = (code + bl_count[bits-1]) << 1;
-	  }
-	  /* Check that the bit counts in bl_count are consistent. The last code
-	   * must be all ones.
-	   */
-	  //Assert (code + bl_count[MAX_BITS]-1 == (1<<MAX_BITS)-1,
-	  //        "inconsistent bit counts");
-	  //Tracev((stderr,"\ngen_codes: max_code %d ", max_code));
-
-	  for (n = 0;  n <= max_code; n++) {
-	    var len = tree[n*2 + 1]/*.Len*/;
-	    if (len === 0) { continue; }
-	    /* Now reverse the bits */
-	    tree[n*2]/*.Code*/ = bi_reverse(next_code[len]++, len);
-
-	    //Tracecv(tree != static_ltree, (stderr,"\nn %3d %c l %2d c %4x (%x) ",
-	    //     n, (isgraph(n) ? n : ' '), len, tree[n].Code, next_code[len]-1));
-	  }
-	}
-
-
-	/* ===========================================================================
-	 * Initialize the various 'constant' tables.
-	 */
-	function tr_static_init() {
-	  var n;        /* iterates over tree elements */
-	  var bits;     /* bit counter */
-	  var length;   /* length value */
-	  var code;     /* code value */
-	  var dist;     /* distance index */
-	  var bl_count = new Array(MAX_BITS+1);
-	  /* number of codes at each bit length for an optimal tree */
-
-	  // do check in _tr_init()
-	  //if (static_init_done) return;
-
-	  /* For some embedded targets, global variables are not initialized: */
-	/*#ifdef NO_INIT_GLOBAL_POINTERS
-	  static_l_desc.static_tree = static_ltree;
-	  static_l_desc.extra_bits = extra_lbits;
-	  static_d_desc.static_tree = static_dtree;
-	  static_d_desc.extra_bits = extra_dbits;
-	  static_bl_desc.extra_bits = extra_blbits;
-	#endif*/
-
-	  /* Initialize the mapping length (0..255) -> length code (0..28) */
-	  length = 0;
-	  for (code = 0; code < LENGTH_CODES-1; code++) {
-	    base_length[code] = length;
-	    for (n = 0; n < (1<<extra_lbits[code]); n++) {
-	      _length_code[length++] = code;
-	    }
-	  }
-	  //Assert (length == 256, "tr_static_init: length != 256");
-	  /* Note that the length 255 (match length 258) can be represented
-	   * in two different ways: code 284 + 5 bits or code 285, so we
-	   * overwrite length_code[255] to use the best encoding:
-	   */
-	  _length_code[length-1] = code;
-
-	  /* Initialize the mapping dist (0..32K) -> dist code (0..29) */
-	  dist = 0;
-	  for (code = 0 ; code < 16; code++) {
-	    base_dist[code] = dist;
-	    for (n = 0; n < (1<<extra_dbits[code]); n++) {
-	      _dist_code[dist++] = code;
-	    }
-	  }
-	  //Assert (dist == 256, "tr_static_init: dist != 256");
-	  dist >>= 7; /* from now on, all distances are divided by 128 */
-	  for ( ; code < D_CODES; code++) {
-	    base_dist[code] = dist << 7;
-	    for (n = 0; n < (1<<(extra_dbits[code]-7)); n++) {
-	      _dist_code[256 + dist++] = code;
-	    }
-	  }
-	  //Assert (dist == 256, "tr_static_init: 256+dist != 512");
-
-	  /* Construct the codes of the static literal tree */
-	  for (bits = 0; bits <= MAX_BITS; bits++) {
-	    bl_count[bits] = 0;
-	  }
-
-	  n = 0;
-	  while (n <= 143) {
-	    static_ltree[n*2 + 1]/*.Len*/ = 8;
-	    n++;
-	    bl_count[8]++;
-	  }
-	  while (n <= 255) {
-	    static_ltree[n*2 + 1]/*.Len*/ = 9;
-	    n++;
-	    bl_count[9]++;
-	  }
-	  while (n <= 279) {
-	    static_ltree[n*2 + 1]/*.Len*/ = 7;
-	    n++;
-	    bl_count[7]++;
-	  }
-	  while (n <= 287) {
-	    static_ltree[n*2 + 1]/*.Len*/ = 8;
-	    n++;
-	    bl_count[8]++;
-	  }
-	  /* Codes 286 and 287 do not exist, but we must include them in the
-	   * tree construction to get a canonical Huffman tree (longest code
-	   * all ones)
-	   */
-	  gen_codes(static_ltree, L_CODES+1, bl_count);
-
-	  /* The static distance tree is trivial: */
-	  for (n = 0; n < D_CODES; n++) {
-	    static_dtree[n*2 + 1]/*.Len*/ = 5;
-	    static_dtree[n*2]/*.Code*/ = bi_reverse(n, 5);
-	  }
-
-	  // Now data ready and we can init static trees
-	  static_l_desc = new StaticTreeDesc(static_ltree, extra_lbits, LITERALS+1, L_CODES, MAX_BITS);
-	  static_d_desc = new StaticTreeDesc(static_dtree, extra_dbits, 0,          D_CODES, MAX_BITS);
-	  static_bl_desc =new StaticTreeDesc(new Array(0), extra_blbits, 0,         BL_CODES, MAX_BL_BITS);
-
-	  //static_init_done = true;
-	}
-
-
-	/* ===========================================================================
-	 * Initialize a new block.
-	 */
-	function init_block(s) {
-	  var n; /* iterates over tree elements */
-
-	  /* Initialize the trees. */
-	  for (n = 0; n < L_CODES;  n++) { s.dyn_ltree[n*2]/*.Freq*/ = 0; }
-	  for (n = 0; n < D_CODES;  n++) { s.dyn_dtree[n*2]/*.Freq*/ = 0; }
-	  for (n = 0; n < BL_CODES; n++) { s.bl_tree[n*2]/*.Freq*/ = 0; }
-
-	  s.dyn_ltree[END_BLOCK*2]/*.Freq*/ = 1;
-	  s.opt_len = s.static_len = 0;
-	  s.last_lit = s.matches = 0;
-	}
-
-
-	/* ===========================================================================
-	 * Flush the bit buffer and align the output on a byte boundary
-	 */
-	function bi_windup(s)
-	{
-	  if (s.bi_valid > 8) {
-	    put_short(s, s.bi_buf);
-	  } else if (s.bi_valid > 0) {
-	    //put_byte(s, (Byte)s->bi_buf);
-	    s.pending_buf[s.pending++] = s.bi_buf;
-	  }
-	  s.bi_buf = 0;
-	  s.bi_valid = 0;
-	}
-
-	/* ===========================================================================
-	 * Copy a stored block, storing first the length and its
-	 * one's complement if requested.
-	 */
-	function copy_block(s, buf, len, header)
-	//DeflateState *s;
-	//charf    *buf;    /* the input data */
-	//unsigned len;     /* its length */
-	//int      header;  /* true if block header must be written */
-	{
-	  bi_windup(s);        /* align on byte boundary */
-
-	  if (header) {
-	    put_short(s, len);
-	    put_short(s, ~len);
-	  }
-	//  while (len--) {
-	//    put_byte(s, *buf++);
-	//  }
-	  utils.arraySet(s.pending_buf, s.window, buf, len, s.pending);
-	  s.pending += len;
-	}
-
-	/* ===========================================================================
-	 * Compares to subtrees, using the tree depth as tie breaker when
-	 * the subtrees have equal frequency. This minimizes the worst case length.
-	 */
-	function smaller(tree, n, m, depth) {
-	  var _n2 = n*2;
-	  var _m2 = m*2;
-	  return (tree[_n2]/*.Freq*/ < tree[_m2]/*.Freq*/ ||
-	         (tree[_n2]/*.Freq*/ === tree[_m2]/*.Freq*/ && depth[n] <= depth[m]));
-	}
-
-	/* ===========================================================================
-	 * Restore the heap property by moving down the tree starting at node k,
-	 * exchanging a node with the smallest of its two sons if necessary, stopping
-	 * when the heap property is re-established (each father smaller than its
-	 * two sons).
-	 */
-	function pqdownheap(s, tree, k)
-	//    deflate_state *s;
-	//    ct_data *tree;  /* the tree to restore */
-	//    int k;               /* node to move down */
-	{
-	  var v = s.heap[k];
-	  var j = k << 1;  /* left son of k */
-	  while (j <= s.heap_len) {
-	    /* Set j to the smallest of the two sons: */
-	    if (j < s.heap_len &&
-	      smaller(tree, s.heap[j+1], s.heap[j], s.depth)) {
-	      j++;
-	    }
-	    /* Exit if v is smaller than both sons */
-	    if (smaller(tree, v, s.heap[j], s.depth)) { break; }
-
-	    /* Exchange v with the smallest son */
-	    s.heap[k] = s.heap[j];
-	    k = j;
-
-	    /* And continue down the tree, setting j to the left son of k */
-	    j <<= 1;
-	  }
-	  s.heap[k] = v;
-	}
-
-
-	// inlined manually
-	// var SMALLEST = 1;
-
-	/* ===========================================================================
-	 * Send the block data compressed using the given Huffman trees
-	 */
-	function compress_block(s, ltree, dtree)
-	//    deflate_state *s;
-	//    const ct_data *ltree; /* literal tree */
-	//    const ct_data *dtree; /* distance tree */
-	{
-	  var dist;           /* distance of matched string */
-	  var lc;             /* match length or unmatched char (if dist == 0) */
-	  var lx = 0;         /* running index in l_buf */
-	  var code;           /* the code to send */
-	  var extra;          /* number of extra bits to send */
-
-	  if (s.last_lit !== 0) {
-	    do {
-	      dist = (s.pending_buf[s.d_buf + lx*2] << 8) | (s.pending_buf[s.d_buf + lx*2 + 1]);
-	      lc = s.pending_buf[s.l_buf + lx];
-	      lx++;
-
-	      if (dist === 0) {
-	        send_code(s, lc, ltree); /* send a literal byte */
-	        //Tracecv(isgraph(lc), (stderr," '%c' ", lc));
-	      } else {
-	        /* Here, lc is the match length - MIN_MATCH */
-	        code = _length_code[lc];
-	        send_code(s, code+LITERALS+1, ltree); /* send the length code */
-	        extra = extra_lbits[code];
-	        if (extra !== 0) {
-	          lc -= base_length[code];
-	          send_bits(s, lc, extra);       /* send the extra length bits */
-	        }
-	        dist--; /* dist is now the match distance - 1 */
-	        code = d_code(dist);
-	        //Assert (code < D_CODES, "bad d_code");
-
-	        send_code(s, code, dtree);       /* send the distance code */
-	        extra = extra_dbits[code];
-	        if (extra !== 0) {
-	          dist -= base_dist[code];
-	          send_bits(s, dist, extra);   /* send the extra distance bits */
-	        }
-	      } /* literal or match pair ? */
-
-	      /* Check that the overlay between pending_buf and d_buf+l_buf is ok: */
-	      //Assert((uInt)(s->pending) < s->lit_bufsize + 2*lx,
-	      //       "pendingBuf overflow");
-
-	    } while (lx < s.last_lit);
-	  }
-
-	  send_code(s, END_BLOCK, ltree);
-	}
-
-
-	/* ===========================================================================
-	 * Construct one Huffman tree and assigns the code bit strings and lengths.
-	 * Update the total bit length for the current block.
-	 * IN assertion: the field freq is set for all tree elements.
-	 * OUT assertions: the fields len and code are set to the optimal bit length
-	 *     and corresponding code. The length opt_len is updated; static_len is
-	 *     also updated if stree is not null. The field max_code is set.
-	 */
-	function build_tree(s, desc)
-	//    deflate_state *s;
-	//    tree_desc *desc; /* the tree descriptor */
-	{
-	  var tree     = desc.dyn_tree;
-	  var stree    = desc.stat_desc.static_tree;
-	  var has_stree = desc.stat_desc.has_stree;
-	  var elems    = desc.stat_desc.elems;
-	  var n, m;          /* iterate over heap elements */
-	  var max_code = -1; /* largest code with non zero frequency */
-	  var node;          /* new node being created */
-
-	  /* Construct the initial heap, with least frequent element in
-	   * heap[SMALLEST]. The sons of heap[n] are heap[2*n] and heap[2*n+1].
-	   * heap[0] is not used.
-	   */
-	  s.heap_len = 0;
-	  s.heap_max = HEAP_SIZE;
-
-	  for (n = 0; n < elems; n++) {
-	    if (tree[n * 2]/*.Freq*/ !== 0) {
-	      s.heap[++s.heap_len] = max_code = n;
-	      s.depth[n] = 0;
-
-	    } else {
-	      tree[n*2 + 1]/*.Len*/ = 0;
-	    }
-	  }
-
-	  /* The pkzip format requires that at least one distance code exists,
-	   * and that at least one bit should be sent even if there is only one
-	   * possible code. So to avoid special checks later on we force at least
-	   * two codes of non zero frequency.
-	   */
-	  while (s.heap_len < 2) {
-	    node = s.heap[++s.heap_len] = (max_code < 2 ? ++max_code : 0);
-	    tree[node * 2]/*.Freq*/ = 1;
-	    s.depth[node] = 0;
-	    s.opt_len--;
-
-	    if (has_stree) {
-	      s.static_len -= stree[node*2 + 1]/*.Len*/;
-	    }
-	    /* node is 0 or 1 so it does not have extra bits */
-	  }
-	  desc.max_code = max_code;
-
-	  /* The elements heap[heap_len/2+1 .. heap_len] are leaves of the tree,
-	   * establish sub-heaps of increasing lengths:
-	   */
-	  for (n = (s.heap_len >> 1/*int /2*/); n >= 1; n--) { pqdownheap(s, tree, n); }
-
-	  /* Construct the Huffman tree by repeatedly combining the least two
-	   * frequent nodes.
-	   */
-	  node = elems;              /* next internal node of the tree */
-	  do {
-	    //pqremove(s, tree, n);  /* n = node of least frequency */
-	    /*** pqremove ***/
-	    n = s.heap[1/*SMALLEST*/];
-	    s.heap[1/*SMALLEST*/] = s.heap[s.heap_len--];
-	    pqdownheap(s, tree, 1/*SMALLEST*/);
-	    /***/
-
-	    m = s.heap[1/*SMALLEST*/]; /* m = node of next least frequency */
-
-	    s.heap[--s.heap_max] = n; /* keep the nodes sorted by frequency */
-	    s.heap[--s.heap_max] = m;
-
-	    /* Create a new node father of n and m */
-	    tree[node * 2]/*.Freq*/ = tree[n * 2]/*.Freq*/ + tree[m * 2]/*.Freq*/;
-	    s.depth[node] = (s.depth[n] >= s.depth[m] ? s.depth[n] : s.depth[m]) + 1;
-	    tree[n*2 + 1]/*.Dad*/ = tree[m*2 + 1]/*.Dad*/ = node;
-
-	    /* and insert the new node in the heap */
-	    s.heap[1/*SMALLEST*/] = node++;
-	    pqdownheap(s, tree, 1/*SMALLEST*/);
-
-	  } while (s.heap_len >= 2);
-
-	  s.heap[--s.heap_max] = s.heap[1/*SMALLEST*/];
-
-	  /* At this point, the fields freq and dad are set. We can now
-	   * generate the bit lengths.
-	   */
-	  gen_bitlen(s, desc);
-
-	  /* The field len is now set, we can generate the bit codes */
-	  gen_codes(tree, max_code, s.bl_count);
-	}
-
-
-	/* ===========================================================================
-	 * Scan a literal or distance tree to determine the frequencies of the codes
-	 * in the bit length tree.
-	 */
-	function scan_tree(s, tree, max_code)
-	//    deflate_state *s;
-	//    ct_data *tree;   /* the tree to be scanned */
-	//    int max_code;    /* and its largest code of non zero frequency */
-	{
-	  var n;                     /* iterates over all tree elements */
-	  var prevlen = -1;          /* last emitted length */
-	  var curlen;                /* length of current code */
-
-	  var nextlen = tree[0*2 + 1]/*.Len*/; /* length of next code */
-
-	  var count = 0;             /* repeat count of the current code */
-	  var max_count = 7;         /* max repeat count */
-	  var min_count = 4;         /* min repeat count */
-
-	  if (nextlen === 0) {
-	    max_count = 138;
-	    min_count = 3;
-	  }
-	  tree[(max_code+1)*2 + 1]/*.Len*/ = 0xffff; /* guard */
-
-	  for (n = 0; n <= max_code; n++) {
-	    curlen = nextlen;
-	    nextlen = tree[(n+1)*2 + 1]/*.Len*/;
-
-	    if (++count < max_count && curlen === nextlen) {
-	      continue;
-
-	    } else if (count < min_count) {
-	      s.bl_tree[curlen * 2]/*.Freq*/ += count;
-
-	    } else if (curlen !== 0) {
-
-	      if (curlen !== prevlen) { s.bl_tree[curlen * 2]/*.Freq*/++; }
-	      s.bl_tree[REP_3_6*2]/*.Freq*/++;
-
-	    } else if (count <= 10) {
-	      s.bl_tree[REPZ_3_10*2]/*.Freq*/++;
-
-	    } else {
-	      s.bl_tree[REPZ_11_138*2]/*.Freq*/++;
-	    }
-
-	    count = 0;
-	    prevlen = curlen;
-
-	    if (nextlen === 0) {
-	      max_count = 138;
-	      min_count = 3;
-
-	    } else if (curlen === nextlen) {
-	      max_count = 6;
-	      min_count = 3;
-
-	    } else {
-	      max_count = 7;
-	      min_count = 4;
-	    }
-	  }
-	}
-
-
-	/* ===========================================================================
-	 * Send a literal or distance tree in compressed form, using the codes in
-	 * bl_tree.
-	 */
-	function send_tree(s, tree, max_code)
-	//    deflate_state *s;
-	//    ct_data *tree; /* the tree to be scanned */
-	//    int max_code;       /* and its largest code of non zero frequency */
-	{
-	  var n;                     /* iterates over all tree elements */
-	  var prevlen = -1;          /* last emitted length */
-	  var curlen;                /* length of current code */
-
-	  var nextlen = tree[0*2 + 1]/*.Len*/; /* length of next code */
-
-	  var count = 0;             /* repeat count of the current code */
-	  var max_count = 7;         /* max repeat count */
-	  var min_count = 4;         /* min repeat count */
-
-	  /* tree[max_code+1].Len = -1; */  /* guard already set */
-	  if (nextlen === 0) {
-	    max_count = 138;
-	    min_count = 3;
-	  }
-
-	  for (n = 0; n <= max_code; n++) {
-	    curlen = nextlen;
-	    nextlen = tree[(n+1)*2 + 1]/*.Len*/;
-
-	    if (++count < max_count && curlen === nextlen) {
-	      continue;
-
-	    } else if (count < min_count) {
-	      do { send_code(s, curlen, s.bl_tree); } while (--count !== 0);
-
-	    } else if (curlen !== 0) {
-	      if (curlen !== prevlen) {
-	        send_code(s, curlen, s.bl_tree);
-	        count--;
-	      }
-	      //Assert(count >= 3 && count <= 6, " 3_6?");
-	      send_code(s, REP_3_6, s.bl_tree);
-	      send_bits(s, count-3, 2);
-
-	    } else if (count <= 10) {
-	      send_code(s, REPZ_3_10, s.bl_tree);
-	      send_bits(s, count-3, 3);
-
-	    } else {
-	      send_code(s, REPZ_11_138, s.bl_tree);
-	      send_bits(s, count-11, 7);
-	    }
-
-	    count = 0;
-	    prevlen = curlen;
-	    if (nextlen === 0) {
-	      max_count = 138;
-	      min_count = 3;
-
-	    } else if (curlen === nextlen) {
-	      max_count = 6;
-	      min_count = 3;
-
-	    } else {
-	      max_count = 7;
-	      min_count = 4;
-	    }
-	  }
-	}
-
-
-	/* ===========================================================================
-	 * Construct the Huffman tree for the bit lengths and return the index in
-	 * bl_order of the last bit length code to send.
-	 */
-	function build_bl_tree(s) {
-	  var max_blindex;  /* index of last bit length code of non zero freq */
-
-	  /* Determine the bit length frequencies for literal and distance trees */
-	  scan_tree(s, s.dyn_ltree, s.l_desc.max_code);
-	  scan_tree(s, s.dyn_dtree, s.d_desc.max_code);
-
-	  /* Build the bit length tree: */
-	  build_tree(s, s.bl_desc);
-	  /* opt_len now includes the length of the tree representations, except
-	   * the lengths of the bit lengths codes and the 5+5+4 bits for the counts.
-	   */
-
-	  /* Determine the number of bit length codes to send. The pkzip format
-	   * requires that at least 4 bit length codes be sent. (appnote.txt says
-	   * 3 but the actual value used is 4.)
-	   */
-	  for (max_blindex = BL_CODES-1; max_blindex >= 3; max_blindex--) {
-	    if (s.bl_tree[bl_order[max_blindex]*2 + 1]/*.Len*/ !== 0) {
-	      break;
-	    }
-	  }
-	  /* Update opt_len to include the bit length tree and counts */
-	  s.opt_len += 3*(max_blindex+1) + 5+5+4;
-	  //Tracev((stderr, "\ndyn trees: dyn %ld, stat %ld",
-	  //        s->opt_len, s->static_len));
-
-	  return max_blindex;
-	}
-
-
-	/* ===========================================================================
-	 * Send the header for a block using dynamic Huffman trees: the counts, the
-	 * lengths of the bit length codes, the literal tree and the distance tree.
-	 * IN assertion: lcodes >= 257, dcodes >= 1, blcodes >= 4.
-	 */
-	function send_all_trees(s, lcodes, dcodes, blcodes)
-	//    deflate_state *s;
-	//    int lcodes, dcodes, blcodes; /* number of codes for each tree */
-	{
-	  var rank;                    /* index in bl_order */
-
-	  //Assert (lcodes >= 257 && dcodes >= 1 && blcodes >= 4, "not enough codes");
-	  //Assert (lcodes <= L_CODES && dcodes <= D_CODES && blcodes <= BL_CODES,
-	  //        "too many codes");
-	  //Tracev((stderr, "\nbl counts: "));
-	  send_bits(s, lcodes-257, 5); /* not +255 as stated in appnote.txt */
-	  send_bits(s, dcodes-1,   5);
-	  send_bits(s, blcodes-4,  4); /* not -3 as stated in appnote.txt */
-	  for (rank = 0; rank < blcodes; rank++) {
-	    //Tracev((stderr, "\nbl code %2d ", bl_order[rank]));
-	    send_bits(s, s.bl_tree[bl_order[rank]*2 + 1]/*.Len*/, 3);
-	  }
-	  //Tracev((stderr, "\nbl tree: sent %ld", s->bits_sent));
-
-	  send_tree(s, s.dyn_ltree, lcodes-1); /* literal tree */
-	  //Tracev((stderr, "\nlit tree: sent %ld", s->bits_sent));
-
-	  send_tree(s, s.dyn_dtree, dcodes-1); /* distance tree */
-	  //Tracev((stderr, "\ndist tree: sent %ld", s->bits_sent));
-	}
-
-
-	/* ===========================================================================
-	 * Check if the data type is TEXT or BINARY, using the following algorithm:
-	 * - TEXT if the two conditions below are satisfied:
-	 *    a) There are no non-portable control characters belonging to the
-	 *       "black list" (0..6, 14..25, 28..31).
-	 *    b) There is at least one printable character belonging to the
-	 *       "white list" (9 {TAB}, 10 {LF}, 13 {CR}, 32..255).
-	 * - BINARY otherwise.
-	 * - The following partially-portable control characters form a
-	 *   "gray list" that is ignored in this detection algorithm:
-	 *   (7 {BEL}, 8 {BS}, 11 {VT}, 12 {FF}, 26 {SUB}, 27 {ESC}).
-	 * IN assertion: the fields Freq of dyn_ltree are set.
-	 */
-	function detect_data_type(s) {
-	  /* black_mask is the bit mask of black-listed bytes
-	   * set bits 0..6, 14..25, and 28..31
-	   * 0xf3ffc07f = binary 11110011111111111100000001111111
-	   */
-	  var black_mask = 0xf3ffc07f;
-	  var n;
-
-	  /* Check for non-textual ("black-listed") bytes. */
-	  for (n = 0; n <= 31; n++, black_mask >>>= 1) {
-	    if ((black_mask & 1) && (s.dyn_ltree[n*2]/*.Freq*/ !== 0)) {
-	      return Z_BINARY;
-	    }
-	  }
-
-	  /* Check for textual ("white-listed") bytes. */
-	  if (s.dyn_ltree[9 * 2]/*.Freq*/ !== 0 || s.dyn_ltree[10 * 2]/*.Freq*/ !== 0 ||
-	      s.dyn_ltree[13 * 2]/*.Freq*/ !== 0) {
-	    return Z_TEXT;
-	  }
-	  for (n = 32; n < LITERALS; n++) {
-	    if (s.dyn_ltree[n * 2]/*.Freq*/ !== 0) {
-	      return Z_TEXT;
-	    }
-	  }
-
-	  /* There are no "black-listed" or "white-listed" bytes:
-	   * this stream either is empty or has tolerated ("gray-listed") bytes only.
-	   */
-	  return Z_BINARY;
-	}
-
-
-	var static_init_done = false;
-
-	/* ===========================================================================
-	 * Initialize the tree data structures for a new zlib stream.
-	 */
-	function _tr_init(s)
-	{
-
-	  if (!static_init_done) {
-	    tr_static_init();
-	    static_init_done = true;
-	  }
-
-	  s.l_desc  = new TreeDesc(s.dyn_ltree, static_l_desc);
-	  s.d_desc  = new TreeDesc(s.dyn_dtree, static_d_desc);
-	  s.bl_desc = new TreeDesc(s.bl_tree, static_bl_desc);
-
-	  s.bi_buf = 0;
-	  s.bi_valid = 0;
-
-	  /* Initialize the first block of the first file: */
-	  init_block(s);
-	}
-
-
-	/* ===========================================================================
-	 * Send a stored block
-	 */
-	function _tr_stored_block(s, buf, stored_len, last)
-	//DeflateState *s;
-	//charf *buf;       /* input block */
-	//ulg stored_len;   /* length of input block */
-	//int last;         /* one if this is the last block for a file */
-	{
-	  send_bits(s, (STORED_BLOCK<<1)+(last ? 1 : 0), 3);    /* send block type */
-	  copy_block(s, buf, stored_len, true); /* with header */
-	}
-
-
-	/* ===========================================================================
-	 * Send one empty static block to give enough lookahead for inflate.
-	 * This takes 10 bits, of which 7 may remain in the bit buffer.
-	 */
-	function _tr_align(s) {
-	  send_bits(s, STATIC_TREES<<1, 3);
-	  send_code(s, END_BLOCK, static_ltree);
-	  bi_flush(s);
-	}
-
-
-	/* ===========================================================================
-	 * Determine the best encoding for the current block: dynamic trees, static
-	 * trees or store, and output the encoded block to the zip file.
-	 */
-	function _tr_flush_block(s, buf, stored_len, last)
-	//DeflateState *s;
-	//charf *buf;       /* input block, or NULL if too old */
-	//ulg stored_len;   /* length of input block */
-	//int last;         /* one if this is the last block for a file */
-	{
-	  var opt_lenb, static_lenb;  /* opt_len and static_len in bytes */
-	  var max_blindex = 0;        /* index of last bit length code of non zero freq */
-
-	  /* Build the Huffman trees unless a stored block is forced */
-	  if (s.level > 0) {
-
-	    /* Check if the file is binary or text */
-	    if (s.strm.data_type === Z_UNKNOWN) {
-	      s.strm.data_type = detect_data_type(s);
-	    }
-
-	    /* Construct the literal and distance trees */
-	    build_tree(s, s.l_desc);
-	    // Tracev((stderr, "\nlit data: dyn %ld, stat %ld", s->opt_len,
-	    //        s->static_len));
-
-	    build_tree(s, s.d_desc);
-	    // Tracev((stderr, "\ndist data: dyn %ld, stat %ld", s->opt_len,
-	    //        s->static_len));
-	    /* At this point, opt_len and static_len are the total bit lengths of
-	     * the compressed block data, excluding the tree representations.
-	     */
-
-	    /* Build the bit length tree for the above two trees, and get the index
-	     * in bl_order of the last bit length code to send.
-	     */
-	    max_blindex = build_bl_tree(s);
-
-	    /* Determine the best encoding. Compute the block lengths in bytes. */
-	    opt_lenb = (s.opt_len+3+7) >>> 3;
-	    static_lenb = (s.static_len+3+7) >>> 3;
-
-	    // Tracev((stderr, "\nopt %lu(%lu) stat %lu(%lu) stored %lu lit %u ",
-	    //        opt_lenb, s->opt_len, static_lenb, s->static_len, stored_len,
-	    //        s->last_lit));
-
-	    if (static_lenb <= opt_lenb) { opt_lenb = static_lenb; }
-
-	  } else {
-	    // Assert(buf != (char*)0, "lost buf");
-	    opt_lenb = static_lenb = stored_len + 5; /* force a stored block */
-	  }
-
-	  if ((stored_len+4 <= opt_lenb) && (buf !== -1)) {
-	    /* 4: two words for the lengths */
-
-	    /* The test buf != NULL is only necessary if LIT_BUFSIZE > WSIZE.
-	     * Otherwise we can't have processed more than WSIZE input bytes since
-	     * the last block flush, because compression would have been
-	     * successful. If LIT_BUFSIZE <= WSIZE, it is never too late to
-	     * transform a block into a stored block.
-	     */
-	    _tr_stored_block(s, buf, stored_len, last);
-
-	  } else if (s.strategy === Z_FIXED || static_lenb === opt_lenb) {
-
-	    send_bits(s, (STATIC_TREES<<1) + (last ? 1 : 0), 3);
-	    compress_block(s, static_ltree, static_dtree);
-
-	  } else {
-	    send_bits(s, (DYN_TREES<<1) + (last ? 1 : 0), 3);
-	    send_all_trees(s, s.l_desc.max_code+1, s.d_desc.max_code+1, max_blindex+1);
-	    compress_block(s, s.dyn_ltree, s.dyn_dtree);
-	  }
-	  // Assert (s->compressed_len == s->bits_sent, "bad compressed size");
-	  /* The above check is made mod 2^32, for files larger than 512 MB
-	   * and uLong implemented on 32 bits.
-	   */
-	  init_block(s);
-
-	  if (last) {
-	    bi_windup(s);
-	  }
-	  // Tracev((stderr,"\ncomprlen %lu(%lu) ", s->compressed_len>>3,
-	  //       s->compressed_len-7*last));
-	}
-
-	/* ===========================================================================
-	 * Save the match info and tally the frequency counts. Return true if
-	 * the current block must be flushed.
-	 */
-	function _tr_tally(s, dist, lc)
-	//    deflate_state *s;
-	//    unsigned dist;  /* distance of matched string */
-	//    unsigned lc;    /* match length-MIN_MATCH or unmatched char (if dist==0) */
-	{
-	  //var out_length, in_length, dcode;
-
-	  s.pending_buf[s.d_buf + s.last_lit * 2]     = (dist >>> 8) & 0xff;
-	  s.pending_buf[s.d_buf + s.last_lit * 2 + 1] = dist & 0xff;
-
-	  s.pending_buf[s.l_buf + s.last_lit] = lc & 0xff;
-	  s.last_lit++;
-
-	  if (dist === 0) {
-	    /* lc is the unmatched char */
-	    s.dyn_ltree[lc*2]/*.Freq*/++;
-	  } else {
-	    s.matches++;
-	    /* Here, lc is the match length - MIN_MATCH */
-	    dist--;             /* dist = match distance - 1 */
-	    //Assert((ush)dist < (ush)MAX_DIST(s) &&
-	    //       (ush)lc <= (ush)(MAX_MATCH-MIN_MATCH) &&
-	    //       (ush)d_code(dist) < (ush)D_CODES,  "_tr_tally: bad match");
-
-	    s.dyn_ltree[(_length_code[lc]+LITERALS+1) * 2]/*.Freq*/++;
-	    s.dyn_dtree[d_code(dist) * 2]/*.Freq*/++;
-	  }
-
-	// (!) This block is disabled in zlib defailts,
-	// don't enable it for binary compatibility
-
-	//#ifdef TRUNCATE_BLOCK
-	//  /* Try to guess if it is profitable to stop the current block here */
-	//  if ((s.last_lit & 0x1fff) === 0 && s.level > 2) {
-	//    /* Compute an upper bound for the compressed length */
-	//    out_length = s.last_lit*8;
-	//    in_length = s.strstart - s.block_start;
-	//
-	//    for (dcode = 0; dcode < D_CODES; dcode++) {
-	//      out_length += s.dyn_dtree[dcode*2]/*.Freq*/ * (5 + extra_dbits[dcode]);
-	//    }
-	//    out_length >>>= 3;
-	//    //Tracev((stderr,"\nlast_lit %u, in %ld, out ~%ld(%ld%%) ",
-	//    //       s->last_lit, in_length, out_length,
-	//    //       100L - out_length*100L/in_length));
-	//    if (s.matches < (s.last_lit>>1)/*int /2*/ && out_length < (in_length>>1)/*int /2*/) {
-	//      return true;
-	//    }
-	//  }
-	//#endif
-
-	  return (s.last_lit === s.lit_bufsize-1);
-	  /* We avoid equality with lit_bufsize because of wraparound at 64K
-	   * on 16 bit machines and because stored blocks are restricted to
-	   * 64K-1 bytes.
-	   */
-	}
-
-	exports._tr_init  = _tr_init;
-	exports._tr_stored_block = _tr_stored_block;
-	exports._tr_flush_block  = _tr_flush_block;
-	exports._tr_tally = _tr_tally;
-	exports._tr_align = _tr_align;
-
-/***/ },
-/* 96 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	// Note: adler32 takes 12% for level 0 and 2% for level 6.
-	// It doesn't worth to make additional optimizationa as in original.
-	// Small size is preferable.
-
-	function adler32(adler, buf, len, pos) {
-	  var s1 = (adler & 0xffff) |0
-	    , s2 = ((adler >>> 16) & 0xffff) |0
-	    , n = 0;
-
-	  while (len !== 0) {
-	    // Set limit ~ twice less than 5552, to keep
-	    // s2 in 31-bits, because we force signed ints.
-	    // in other case %= will fail.
-	    n = len > 2000 ? 2000 : len;
-	    len -= n;
-
-	    do {
-	      s1 = (s1 + buf[pos++]) |0;
-	      s2 = (s2 + s1) |0;
-	    } while (--n);
-
-	    s1 %= 65521;
-	    s2 %= 65521;
-	  }
-
-	  return (s1 | (s2 << 16)) |0;
-	}
-
-
-	module.exports = adler32;
-
-/***/ },
-/* 97 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	// Note: we can't get significant speed boost here.
-	// So write code to minimize size - no pregenerated tables
-	// and array tools dependencies.
-
-
-	// Use ordinary array, since untyped makes no boost here
-	function makeTable() {
-	  var c, table = [];
-
-	  for(var n =0; n < 256; n++){
-	    c = n;
-	    for(var k =0; k < 8; k++){
-	      c = ((c&1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
-	    }
-	    table[n] = c;
-	  }
-
-	  return table;
-	}
-
-	// Create table on load. Just 255 signed longs. Not a problem.
-	var crcTable = makeTable();
-
-
-	function crc32(crc, buf, len, pos) {
-	  var t = crcTable
-	    , end = pos + len;
-
-	  crc = crc ^ (-1);
-
-	  for (var i = pos; i < end; i++ ) {
-	    crc = (crc >>> 8) ^ t[(crc ^ buf[i]) & 0xFF];
-	  }
-
-	  return (crc ^ (-1)); // >>> 0;
-	}
-
-
-	module.exports = crc32;
-
-/***/ },
-/* 98 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-
-	var TYPED_OK =  (typeof Uint8Array !== 'undefined') &&
-	                (typeof Uint16Array !== 'undefined') &&
-	                (typeof Int32Array !== 'undefined');
-
-
-	exports.assign = function (obj /*from1, from2, from3, ...*/) {
-	  var sources = Array.prototype.slice.call(arguments, 1);
-	  while (sources.length) {
-	    var source = sources.shift();
-	    if (!source) { continue; }
-
-	    if (typeof(source) !== 'object') {
-	      throw new TypeError(source + 'must be non-object');
-	    }
-
-	    for (var p in source) {
-	      if (source.hasOwnProperty(p)) {
-	        obj[p] = source[p];
-	      }
-	    }
-	  }
-
-	  return obj;
-	};
-
-
-	// reduce buffer size, avoiding mem copy
-	exports.shrinkBuf = function (buf, size) {
-	  if (buf.length === size) { return buf; }
-	  if (buf.subarray) { return buf.subarray(0, size); }
-	  buf.length = size;
-	  return buf;
-	};
-
-
-	var fnTyped = {
-	  arraySet: function (dest, src, src_offs, len, dest_offs) {
-	    if (src.subarray && dest.subarray) {
-	      dest.set(src.subarray(src_offs, src_offs+len), dest_offs);
-	      return;
-	    }
-	    // Fallback to ordinary array
-	    for(var i=0; i<len; i++) {
-	      dest[dest_offs + i] = src[src_offs + i];
-	    }
-	  },
-	  // Join array of chunks to single array.
-	  flattenChunks: function(chunks) {
-	    var i, l, len, pos, chunk, result;
-
-	    // calculate data length
-	    len = 0;
-	    for (i=0, l=chunks.length; i<l; i++) {
-	      len += chunks[i].length;
-	    }
-
-	    // join chunks
-	    result = new Uint8Array(len);
-	    pos = 0;
-	    for (i=0, l=chunks.length; i<l; i++) {
-	      chunk = chunks[i];
-	      result.set(chunk, pos);
-	      pos += chunk.length;
-	    }
-
-	    return result;
-	  }
-	};
-
-	var fnUntyped = {
-	  arraySet: function (dest, src, src_offs, len, dest_offs) {
-	    for(var i=0; i<len; i++) {
-	      dest[dest_offs + i] = src[src_offs + i];
-	    }
-	  },
-	  // Join array of chunks to single array.
-	  flattenChunks: function(chunks) {
-	    return [].concat.apply([], chunks);
-	  }
-	};
-
-
-	// Enable/Disable typed arrays use, for testing
-	//
-	exports.setTyped = function (on) {
-	  if (on) {
-	    exports.Buf8  = Uint8Array;
-	    exports.Buf16 = Uint16Array;
-	    exports.Buf32 = Int32Array;
-	    exports.assign(exports, fnTyped);
-	  } else {
-	    exports.Buf8  = Array;
-	    exports.Buf16 = Array;
-	    exports.Buf32 = Array;
-	    exports.assign(exports, fnUntyped);
-	  }
-	};
-
-	exports.setTyped(TYPED_OK);
-
-/***/ },
-/* 99 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	(function() {
-	  var Table;
-
-	  Table = (function() {
-	    function Table(file) {
-	      var info;
-	      this.file = file;
-	      info = this.file.directory.tables[this.tag];
-	      this.exists = !!info;
-	      if (info) {
-	        this.offset = info.offset, this.length = info.length;
-	        this.parse(this.file.contents);
-	      }
-	    }
-
-	    Table.prototype.parse = function() {};
-
-	    Table.prototype.encode = function() {};
-
-	    Table.prototype.raw = function() {
-	      if (!this.exists) {
-	        return null;
-	      }
-	      this.file.contents.pos = this.offset;
-	      return this.file.contents.read(this.length);
-	    };
-
-	    return Table;
-
-	  })();
-
-	  module.exports = Table;
-
-	}).call(this);
-
-
-/***/ },
-/* 100 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Generated by CoffeeScript 1.7.1
-	var UnicodeTrie,
-	  __slice = [].slice;
-
-	UnicodeTrie = (function() {
-	  var DATA_BLOCK_LENGTH, DATA_GRANULARITY, DATA_MASK, INDEX_1_OFFSET, INDEX_2_BLOCK_LENGTH, INDEX_2_BMP_LENGTH, INDEX_2_MASK, INDEX_SHIFT, LSCP_INDEX_2_LENGTH, LSCP_INDEX_2_OFFSET, OMITTED_BMP_INDEX_1_LENGTH, SHIFT_1, SHIFT_1_2, SHIFT_2, UTF8_2B_INDEX_2_LENGTH, UTF8_2B_INDEX_2_OFFSET;
-
-	  SHIFT_1 = 6 + 5;
-
-	  SHIFT_2 = 5;
-
-	  SHIFT_1_2 = SHIFT_1 - SHIFT_2;
-
-	  OMITTED_BMP_INDEX_1_LENGTH = 0x10000 >> SHIFT_1;
-
-	  INDEX_2_BLOCK_LENGTH = 1 << SHIFT_1_2;
-
-	  INDEX_2_MASK = INDEX_2_BLOCK_LENGTH - 1;
-
-	  INDEX_SHIFT = 2;
-
-	  DATA_BLOCK_LENGTH = 1 << SHIFT_2;
-
-	  DATA_MASK = DATA_BLOCK_LENGTH - 1;
-
-	  LSCP_INDEX_2_OFFSET = 0x10000 >> SHIFT_2;
-
-	  LSCP_INDEX_2_LENGTH = 0x400 >> SHIFT_2;
-
-	  INDEX_2_BMP_LENGTH = LSCP_INDEX_2_OFFSET + LSCP_INDEX_2_LENGTH;
-
-	  UTF8_2B_INDEX_2_OFFSET = INDEX_2_BMP_LENGTH;
-
-	  UTF8_2B_INDEX_2_LENGTH = 0x800 >> 6;
-
-	  INDEX_1_OFFSET = UTF8_2B_INDEX_2_OFFSET + UTF8_2B_INDEX_2_LENGTH;
-
-	  DATA_GRANULARITY = 1 << INDEX_SHIFT;
-
-	  function UnicodeTrie(json) {
-	    var _ref, _ref1;
-	    if (json == null) {
-	      json = {};
-	    }
-	    this.data = json.data || [];
-	    this.highStart = (_ref = json.highStart) != null ? _ref : 0;
-	    this.errorValue = (_ref1 = json.errorValue) != null ? _ref1 : -1;
-	  }
-
-	  UnicodeTrie.prototype.get = function(codePoint) {
-	    var index;
-	    if (codePoint < 0 || codePoint > 0x10ffff) {
-	      return this.errorValue;
-	    }
-	    if (codePoint < 0xd800 || (codePoint > 0xdbff && codePoint <= 0xffff)) {
-	      index = (this.data[codePoint >> SHIFT_2] << INDEX_SHIFT) + (codePoint & DATA_MASK);
-	      return this.data[index];
-	    }
-	    if (codePoint <= 0xffff) {
-	      index = (this.data[LSCP_INDEX_2_OFFSET + ((codePoint - 0xd800) >> SHIFT_2)] << INDEX_SHIFT) + (codePoint & DATA_MASK);
-	      return this.data[index];
-	    }
-	    if (codePoint < this.highStart) {
-	      index = this.data[(INDEX_1_OFFSET - OMITTED_BMP_INDEX_1_LENGTH) + (codePoint >> SHIFT_1)];
-	      index = this.data[index + ((codePoint >> SHIFT_2) & INDEX_2_MASK)];
-	      index = (index << INDEX_SHIFT) + (codePoint & DATA_MASK);
-	      return this.data[index];
-	    }
-	    return this.data[this.data.length - DATA_GRANULARITY];
-	  };
-
-	  UnicodeTrie.prototype.toJSON = function() {
-	    var res;
-	    res = {
-	      data: __slice.call(this.data),
-	      highStart: this.highStart,
-	      errorValue: this.errorValue
-	    };
-	    return res;
-	  };
-
-	  return UnicodeTrie;
-
-	})();
-
-	module.exports = UnicodeTrie;
-
-
-/***/ },
-/* 101 */
-/***/ function(module, exports, __webpack_require__) {
-
-	// Copyright Joyent, Inc. and other Node contributors.
-	//
-	// Permission is hereby granted, free of charge, to any person obtaining a
-	// copy of this software and associated documentation files (the
-	// "Software"), to deal in the Software without restriction, including
-	// without limitation the rights to use, copy, modify, merge, publish,
-	// distribute, sublicense, and/or sell copies of the Software, and to permit
-	// persons to whom the Software is furnished to do so, subject to the
-	// following conditions:
-	//
-	// The above copyright notice and this permission notice shall be included
-	// in all copies or substantial portions of the Software.
-	//
-	// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-	// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-	// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-	// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-	// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-	var Buffer = __webpack_require__(4).Buffer;
-
-	var isBufferEncoding = Buffer.isEncoding
-	  || function(encoding) {
-	       switch (encoding && encoding.toLowerCase()) {
-	         case 'hex': case 'utf8': case 'utf-8': case 'ascii': case 'binary': case 'base64': case 'ucs2': case 'ucs-2': case 'utf16le': case 'utf-16le': case 'raw': return true;
-	         default: return false;
-	       }
-	     }
-
-
-	function assertEncoding(encoding) {
-	  if (encoding && !isBufferEncoding(encoding)) {
-	    throw new Error('Unknown encoding: ' + encoding);
-	  }
-	}
-
-	// StringDecoder provides an interface for efficiently splitting a series of
-	// buffers into a series of JS strings without breaking apart multi-byte
-	// characters. CESU-8 is handled as part of the UTF-8 encoding.
-	//
-	// @TODO Handling all encodings inside a single object makes it very difficult
-	// to reason about this code, so it should be split up in the future.
-	// @TODO There should be a utf8-strict encoding that rejects invalid UTF-8 code
-	// points as used by CESU-8.
-	var StringDecoder = exports.StringDecoder = function(encoding) {
-	  this.encoding = (encoding || 'utf8').toLowerCase().replace(/[-_]/, '');
-	  assertEncoding(encoding);
-	  switch (this.encoding) {
-	    case 'utf8':
-	      // CESU-8 represents each of Surrogate Pair by 3-bytes
-	      this.surrogateSize = 3;
-	      break;
-	    case 'ucs2':
-	    case 'utf16le':
-	      // UTF-16 represents each of Surrogate Pair by 2-bytes
-	      this.surrogateSize = 2;
-	      this.detectIncompleteChar = utf16DetectIncompleteChar;
-	      break;
-	    case 'base64':
-	      // Base-64 stores 3 bytes in 4 chars, and pads the remainder.
-	      this.surrogateSize = 3;
-	      this.detectIncompleteChar = base64DetectIncompleteChar;
-	      break;
-	    default:
-	      this.write = passThroughWrite;
-	      return;
-	  }
-
-	  // Enough space to store all bytes of a single character. UTF-8 needs 4
-	  // bytes, but CESU-8 may require up to 6 (3 bytes per surrogate).
-	  this.charBuffer = new Buffer(6);
-	  // Number of bytes received for the current incomplete multi-byte character.
-	  this.charReceived = 0;
-	  // Number of bytes expected for the current incomplete multi-byte character.
-	  this.charLength = 0;
-	};
-
-
-	// write decodes the given buffer and returns it as JS string that is
-	// guaranteed to not contain any partial multi-byte characters. Any partial
-	// character found at the end of the buffer is buffered up, and will be
-	// returned when calling write again with the remaining bytes.
-	//
-	// Note: Converting a Buffer containing an orphan surrogate to a String
-	// currently works, but converting a String to a Buffer (via `new Buffer`, or
-	// Buffer#write) will replace incomplete surrogates with the unicode
-	// replacement character. See https://codereview.chromium.org/121173009/ .
-	StringDecoder.prototype.write = function(buffer) {
-	  var charStr = '';
-	  // if our last write ended with an incomplete multibyte character
-	  while (this.charLength) {
-	    // determine how many remaining bytes this buffer has to offer for this char
-	    var available = (buffer.length >= this.charLength - this.charReceived) ?
-	        this.charLength - this.charReceived :
-	        buffer.length;
-
-	    // add the new bytes to the char buffer
-	    buffer.copy(this.charBuffer, this.charReceived, 0, available);
-	    this.charReceived += available;
-
-	    if (this.charReceived < this.charLength) {
-	      // still not enough chars in this buffer? wait for more ...
-	      return '';
-	    }
-
-	    // remove bytes belonging to the current character from the buffer
-	    buffer = buffer.slice(available, buffer.length);
-
-	    // get the character that was split
-	    charStr = this.charBuffer.slice(0, this.charLength).toString(this.encoding);
-
-	    // CESU-8: lead surrogate (D800-DBFF) is also the incomplete character
-	    var charCode = charStr.charCodeAt(charStr.length - 1);
-	    if (charCode >= 0xD800 && charCode <= 0xDBFF) {
-	      this.charLength += this.surrogateSize;
-	      charStr = '';
-	      continue;
-	    }
-	    this.charReceived = this.charLength = 0;
-
-	    // if there are no more bytes in this buffer, just emit our char
-	    if (buffer.length === 0) {
-	      return charStr;
-	    }
-	    break;
-	  }
-
-	  // determine and set charLength / charReceived
-	  this.detectIncompleteChar(buffer);
-
-	  var end = buffer.length;
-	  if (this.charLength) {
-	    // buffer the incomplete character bytes we got
-	    buffer.copy(this.charBuffer, 0, buffer.length - this.charReceived, end);
-	    end -= this.charReceived;
-	  }
-
-	  charStr += buffer.toString(this.encoding, 0, end);
-
-	  var end = charStr.length - 1;
-	  var charCode = charStr.charCodeAt(end);
-	  // CESU-8: lead surrogate (D800-DBFF) is also the incomplete character
-	  if (charCode >= 0xD800 && charCode <= 0xDBFF) {
-	    var size = this.surrogateSize;
-	    this.charLength += size;
-	    this.charReceived += size;
-	    this.charBuffer.copy(this.charBuffer, size, 0, size);
-	    buffer.copy(this.charBuffer, 0, 0, size);
-	    return charStr.substring(0, end);
-	  }
-
-	  // or just emit the charStr
-	  return charStr;
-	};
-
-	// detectIncompleteChar determines if there is an incomplete UTF-8 character at
-	// the end of the given buffer. If so, it sets this.charLength to the byte
-	// length that character, and sets this.charReceived to the number of bytes
-	// that are available for this character.
-	StringDecoder.prototype.detectIncompleteChar = function(buffer) {
-	  // determine how many bytes we have to check at the end of this buffer
-	  var i = (buffer.length >= 3) ? 3 : buffer.length;
-
-	  // Figure out if one of the last i bytes of our buffer announces an
-	  // incomplete char.
-	  for (; i > 0; i--) {
-	    var c = buffer[buffer.length - i];
-
-	    // See http://en.wikipedia.org/wiki/UTF-8#Description
-
-	    // 110XXXXX
-	    if (i == 1 && c >> 5 == 0x06) {
-	      this.charLength = 2;
-	      break;
-	    }
-
-	    // 1110XXXX
-	    if (i <= 2 && c >> 4 == 0x0E) {
-	      this.charLength = 3;
-	      break;
-	    }
-
-	    // 11110XXX
-	    if (i <= 3 && c >> 3 == 0x1E) {
-	      this.charLength = 4;
-	      break;
-	    }
-	  }
-	  this.charReceived = i;
-	};
-
-	StringDecoder.prototype.end = function(buffer) {
-	  var res = '';
-	  if (buffer && buffer.length)
-	    res = this.write(buffer);
-
-	  if (this.charReceived) {
-	    var cr = this.charReceived;
-	    var buf = this.charBuffer;
-	    var enc = this.encoding;
-	    res += buf.slice(0, cr).toString(enc);
-	  }
-
-	  return res;
-	};
-
-	function passThroughWrite(buffer) {
-	  return buffer.toString(this.encoding);
-	}
-
-	function utf16DetectIncompleteChar(buffer) {
-	  this.charReceived = buffer.length % 2;
-	  this.charLength = this.charReceived ? 2 : 0;
-	}
-
-	function base64DetectIncompleteChar(buffer) {
-	  this.charReceived = buffer.length % 3;
-	  this.charLength = this.charReceived ? 3 : 0;
-	}
-
-
-/***/ },
-/* 102 */
-/***/ function(module, exports, __webpack_require__) {
+/* 57 */
+/***/ function(module, exports) {
 
 	'use strict';
 
@@ -33256,13 +26261,13 @@
 
 
 /***/ },
-/* 103 */
+/* 58 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 
-	var utils = __webpack_require__(98);
+	var utils = __webpack_require__(52);
 
 	var MAXBITS = 15;
 	var ENOUGH_LENS = 852;
@@ -33455,18 +26460,20 @@
 	  // poor man optimization - use if-else instead of switch,
 	  // to avoid deopts in old v8
 	  if (type === CODES) {
-	      base = extra = work;    /* dummy value--not used */
-	      end = 19;
+	    base = extra = work;    /* dummy value--not used */
+	    end = 19;
+
 	  } else if (type === LENS) {
-	      base = lbase;
-	      base_index -= 257;
-	      extra = lext;
-	      extra_index -= 257;
-	      end = 256;
+	    base = lbase;
+	    base_index -= 257;
+	    extra = lext;
+	    extra_index -= 257;
+	    end = 256;
+
 	  } else {                    /* DISTS */
-	      base = dbase;
-	      extra = dext;
-	      end = -1;
+	    base = dbase;
+	    extra = dext;
+	    end = -1;
 	  }
 
 	  /* initialize opts for loop */
@@ -33587,39 +26594,63 @@
 
 
 /***/ },
-/* 104 */
-/***/ function(module, exports, __webpack_require__) {
+/* 59 */
+/***/ function(module, exports) {
 
-	if (typeof Object.create === 'function') {
-	  // implementation from standard node.js 'util' module
-	  module.exports = function inherits(ctor, superCtor) {
-	    ctor.super_ = superCtor
-	    ctor.prototype = Object.create(superCtor.prototype, {
-	      constructor: {
-	        value: ctor,
-	        enumerable: false,
-	        writable: true,
-	        configurable: true
-	      }
-	    });
-	  };
-	} else {
-	  // old school shim for old browsers
-	  module.exports = function inherits(ctor, superCtor) {
-	    ctor.super_ = superCtor
-	    var TempCtor = function () {}
-	    TempCtor.prototype = superCtor.prototype
-	    ctor.prototype = new TempCtor()
-	    ctor.prototype.constructor = ctor
-	  }
-	}
+	module.exports = {
+
+	  /* Allowed flush values; see deflate() and inflate() below for details */
+	  Z_NO_FLUSH:         0,
+	  Z_PARTIAL_FLUSH:    1,
+	  Z_SYNC_FLUSH:       2,
+	  Z_FULL_FLUSH:       3,
+	  Z_FINISH:           4,
+	  Z_BLOCK:            5,
+	  Z_TREES:            6,
+
+	  /* Return codes for the compression/decompression functions. Negative values
+	  * are errors, positive values are used for special but normal events.
+	  */
+	  Z_OK:               0,
+	  Z_STREAM_END:       1,
+	  Z_NEED_DICT:        2,
+	  Z_ERRNO:           -1,
+	  Z_STREAM_ERROR:    -2,
+	  Z_DATA_ERROR:      -3,
+	  //Z_MEM_ERROR:     -4,
+	  Z_BUF_ERROR:       -5,
+	  //Z_VERSION_ERROR: -6,
+
+	  /* compression levels */
+	  Z_NO_COMPRESSION:         0,
+	  Z_BEST_SPEED:             1,
+	  Z_BEST_COMPRESSION:       9,
+	  Z_DEFAULT_COMPRESSION:   -1,
+
+
+	  Z_FILTERED:               1,
+	  Z_HUFFMAN_ONLY:           2,
+	  Z_RLE:                    3,
+	  Z_FIXED:                  4,
+	  Z_DEFAULT_STRATEGY:       0,
+
+	  /* Possible values of the data_type field (though see inflate()) */
+	  Z_BINARY:                 0,
+	  Z_TEXT:                   1,
+	  //Z_ASCII:                1, // = Z_TEXT (deprecated)
+	  Z_UNKNOWN:                2,
+
+	  /* The deflate compression method */
+	  Z_DEFLATED:               8
+	  //Z_NULL:                 null // Use -1 or null inline, depending on var type
+	};
 
 
 /***/ },
-/* 105 */
+/* 60 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/* WEBPACK VAR INJECTION */(function(Buffer) {// Copyright Joyent, Inc. and other Node contributors.
+	/* WEBPACK VAR INJECTION */(function(global, process) {// Copyright Joyent, Inc. and other Node contributors.
 	//
 	// Permission is hereby granted, free of charge, to any person obtaining a
 	// copy of this software and associated documentation files (the
@@ -33639,6 +26670,432 @@
 	// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 	// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 	// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	var formatRegExp = /%[sdj%]/g;
+	exports.format = function(f) {
+	  if (!isString(f)) {
+	    var objects = [];
+	    for (var i = 0; i < arguments.length; i++) {
+	      objects.push(inspect(arguments[i]));
+	    }
+	    return objects.join(' ');
+	  }
+
+	  var i = 1;
+	  var args = arguments;
+	  var len = args.length;
+	  var str = String(f).replace(formatRegExp, function(x) {
+	    if (x === '%%') return '%';
+	    if (i >= len) return x;
+	    switch (x) {
+	      case '%s': return String(args[i++]);
+	      case '%d': return Number(args[i++]);
+	      case '%j':
+	        try {
+	          return JSON.stringify(args[i++]);
+	        } catch (_) {
+	          return '[Circular]';
+	        }
+	      default:
+	        return x;
+	    }
+	  });
+	  for (var x = args[i]; i < len; x = args[++i]) {
+	    if (isNull(x) || !isObject(x)) {
+	      str += ' ' + x;
+	    } else {
+	      str += ' ' + inspect(x);
+	    }
+	  }
+	  return str;
+	};
+
+
+	// Mark that a method should not be used.
+	// Returns a modified function which warns once by default.
+	// If --no-deprecation is set, then it is a no-op.
+	exports.deprecate = function(fn, msg) {
+	  // Allow for deprecating things in the process of starting up.
+	  if (isUndefined(global.process)) {
+	    return function() {
+	      return exports.deprecate(fn, msg).apply(this, arguments);
+	    };
+	  }
+
+	  if (process.noDeprecation === true) {
+	    return fn;
+	  }
+
+	  var warned = false;
+	  function deprecated() {
+	    if (!warned) {
+	      if (process.throwDeprecation) {
+	        throw new Error(msg);
+	      } else if (process.traceDeprecation) {
+	        console.trace(msg);
+	      } else {
+	        console.error(msg);
+	      }
+	      warned = true;
+	    }
+	    return fn.apply(this, arguments);
+	  }
+
+	  return deprecated;
+	};
+
+
+	var debugs = {};
+	var debugEnviron;
+	exports.debuglog = function(set) {
+	  if (isUndefined(debugEnviron))
+	    debugEnviron = process.env.NODE_DEBUG || '';
+	  set = set.toUpperCase();
+	  if (!debugs[set]) {
+	    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+	      var pid = process.pid;
+	      debugs[set] = function() {
+	        var msg = exports.format.apply(exports, arguments);
+	        console.error('%s %d: %s', set, pid, msg);
+	      };
+	    } else {
+	      debugs[set] = function() {};
+	    }
+	  }
+	  return debugs[set];
+	};
+
+
+	/**
+	 * Echos the value of a value. Trys to print the value out
+	 * in the best way possible given the different types.
+	 *
+	 * @param {Object} obj The object to print out.
+	 * @param {Object} opts Optional options object that alters the output.
+	 */
+	/* legacy: obj, showHidden, depth, colors*/
+	function inspect(obj, opts) {
+	  // default options
+	  var ctx = {
+	    seen: [],
+	    stylize: stylizeNoColor
+	  };
+	  // legacy...
+	  if (arguments.length >= 3) ctx.depth = arguments[2];
+	  if (arguments.length >= 4) ctx.colors = arguments[3];
+	  if (isBoolean(opts)) {
+	    // legacy...
+	    ctx.showHidden = opts;
+	  } else if (opts) {
+	    // got an "options" object
+	    exports._extend(ctx, opts);
+	  }
+	  // set default options
+	  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+	  if (isUndefined(ctx.depth)) ctx.depth = 2;
+	  if (isUndefined(ctx.colors)) ctx.colors = false;
+	  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+	  if (ctx.colors) ctx.stylize = stylizeWithColor;
+	  return formatValue(ctx, obj, ctx.depth);
+	}
+	exports.inspect = inspect;
+
+
+	// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+	inspect.colors = {
+	  'bold' : [1, 22],
+	  'italic' : [3, 23],
+	  'underline' : [4, 24],
+	  'inverse' : [7, 27],
+	  'white' : [37, 39],
+	  'grey' : [90, 39],
+	  'black' : [30, 39],
+	  'blue' : [34, 39],
+	  'cyan' : [36, 39],
+	  'green' : [32, 39],
+	  'magenta' : [35, 39],
+	  'red' : [31, 39],
+	  'yellow' : [33, 39]
+	};
+
+	// Don't use 'blue' not visible on cmd.exe
+	inspect.styles = {
+	  'special': 'cyan',
+	  'number': 'yellow',
+	  'boolean': 'yellow',
+	  'undefined': 'grey',
+	  'null': 'bold',
+	  'string': 'green',
+	  'date': 'magenta',
+	  // "name": intentionally not styling
+	  'regexp': 'red'
+	};
+
+
+	function stylizeWithColor(str, styleType) {
+	  var style = inspect.styles[styleType];
+
+	  if (style) {
+	    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+	           '\u001b[' + inspect.colors[style][1] + 'm';
+	  } else {
+	    return str;
+	  }
+	}
+
+
+	function stylizeNoColor(str, styleType) {
+	  return str;
+	}
+
+
+	function arrayToHash(array) {
+	  var hash = {};
+
+	  array.forEach(function(val, idx) {
+	    hash[val] = true;
+	  });
+
+	  return hash;
+	}
+
+
+	function formatValue(ctx, value, recurseTimes) {
+	  // Provide a hook for user-specified inspect functions.
+	  // Check that value is an object with an inspect function on it
+	  if (ctx.customInspect &&
+	      value &&
+	      isFunction(value.inspect) &&
+	      // Filter out the util module, it's inspect function is special
+	      value.inspect !== exports.inspect &&
+	      // Also filter out any prototype objects using the circular check.
+	      !(value.constructor && value.constructor.prototype === value)) {
+	    var ret = value.inspect(recurseTimes, ctx);
+	    if (!isString(ret)) {
+	      ret = formatValue(ctx, ret, recurseTimes);
+	    }
+	    return ret;
+	  }
+
+	  // Primitive types cannot have properties
+	  var primitive = formatPrimitive(ctx, value);
+	  if (primitive) {
+	    return primitive;
+	  }
+
+	  // Look up the keys of the object.
+	  var keys = Object.keys(value);
+	  var visibleKeys = arrayToHash(keys);
+
+	  if (ctx.showHidden) {
+	    keys = Object.getOwnPropertyNames(value);
+	  }
+
+	  // IE doesn't make error fields non-enumerable
+	  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+	  if (isError(value)
+	      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+	    return formatError(value);
+	  }
+
+	  // Some type of object without properties can be shortcutted.
+	  if (keys.length === 0) {
+	    if (isFunction(value)) {
+	      var name = value.name ? ': ' + value.name : '';
+	      return ctx.stylize('[Function' + name + ']', 'special');
+	    }
+	    if (isRegExp(value)) {
+	      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+	    }
+	    if (isDate(value)) {
+	      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+	    }
+	    if (isError(value)) {
+	      return formatError(value);
+	    }
+	  }
+
+	  var base = '', array = false, braces = ['{', '}'];
+
+	  // Make Array say that they are Array
+	  if (isArray(value)) {
+	    array = true;
+	    braces = ['[', ']'];
+	  }
+
+	  // Make functions say that they are functions
+	  if (isFunction(value)) {
+	    var n = value.name ? ': ' + value.name : '';
+	    base = ' [Function' + n + ']';
+	  }
+
+	  // Make RegExps say that they are RegExps
+	  if (isRegExp(value)) {
+	    base = ' ' + RegExp.prototype.toString.call(value);
+	  }
+
+	  // Make dates with properties first say the date
+	  if (isDate(value)) {
+	    base = ' ' + Date.prototype.toUTCString.call(value);
+	  }
+
+	  // Make error with message first say the error
+	  if (isError(value)) {
+	    base = ' ' + formatError(value);
+	  }
+
+	  if (keys.length === 0 && (!array || value.length == 0)) {
+	    return braces[0] + base + braces[1];
+	  }
+
+	  if (recurseTimes < 0) {
+	    if (isRegExp(value)) {
+	      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+	    } else {
+	      return ctx.stylize('[Object]', 'special');
+	    }
+	  }
+
+	  ctx.seen.push(value);
+
+	  var output;
+	  if (array) {
+	    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+	  } else {
+	    output = keys.map(function(key) {
+	      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+	    });
+	  }
+
+	  ctx.seen.pop();
+
+	  return reduceToSingleString(output, base, braces);
+	}
+
+
+	function formatPrimitive(ctx, value) {
+	  if (isUndefined(value))
+	    return ctx.stylize('undefined', 'undefined');
+	  if (isString(value)) {
+	    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+	                                             .replace(/'/g, "\\'")
+	                                             .replace(/\\"/g, '"') + '\'';
+	    return ctx.stylize(simple, 'string');
+	  }
+	  if (isNumber(value))
+	    return ctx.stylize('' + value, 'number');
+	  if (isBoolean(value))
+	    return ctx.stylize('' + value, 'boolean');
+	  // For some reason typeof null is "object", so special case here.
+	  if (isNull(value))
+	    return ctx.stylize('null', 'null');
+	}
+
+
+	function formatError(value) {
+	  return '[' + Error.prototype.toString.call(value) + ']';
+	}
+
+
+	function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+	  var output = [];
+	  for (var i = 0, l = value.length; i < l; ++i) {
+	    if (hasOwnProperty(value, String(i))) {
+	      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+	          String(i), true));
+	    } else {
+	      output.push('');
+	    }
+	  }
+	  keys.forEach(function(key) {
+	    if (!key.match(/^\d+$/)) {
+	      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+	          key, true));
+	    }
+	  });
+	  return output;
+	}
+
+
+	function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+	  var name, str, desc;
+	  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+	  if (desc.get) {
+	    if (desc.set) {
+	      str = ctx.stylize('[Getter/Setter]', 'special');
+	    } else {
+	      str = ctx.stylize('[Getter]', 'special');
+	    }
+	  } else {
+	    if (desc.set) {
+	      str = ctx.stylize('[Setter]', 'special');
+	    }
+	  }
+	  if (!hasOwnProperty(visibleKeys, key)) {
+	    name = '[' + key + ']';
+	  }
+	  if (!str) {
+	    if (ctx.seen.indexOf(desc.value) < 0) {
+	      if (isNull(recurseTimes)) {
+	        str = formatValue(ctx, desc.value, null);
+	      } else {
+	        str = formatValue(ctx, desc.value, recurseTimes - 1);
+	      }
+	      if (str.indexOf('\n') > -1) {
+	        if (array) {
+	          str = str.split('\n').map(function(line) {
+	            return '  ' + line;
+	          }).join('\n').substr(2);
+	        } else {
+	          str = '\n' + str.split('\n').map(function(line) {
+	            return '   ' + line;
+	          }).join('\n');
+	        }
+	      }
+	    } else {
+	      str = ctx.stylize('[Circular]', 'special');
+	    }
+	  }
+	  if (isUndefined(name)) {
+	    if (array && key.match(/^\d+$/)) {
+	      return str;
+	    }
+	    name = JSON.stringify('' + key);
+	    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+	      name = name.substr(1, name.length - 2);
+	      name = ctx.stylize(name, 'name');
+	    } else {
+	      name = name.replace(/'/g, "\\'")
+	                 .replace(/\\"/g, '"')
+	                 .replace(/(^"|"$)/g, "'");
+	      name = ctx.stylize(name, 'string');
+	    }
+	  }
+
+	  return name + ': ' + str;
+	}
+
+
+	function reduceToSingleString(output, base, braces) {
+	  var numLinesEst = 0;
+	  var length = output.reduce(function(prev, cur) {
+	    numLinesEst++;
+	    if (cur.indexOf('\n') >= 0) numLinesEst++;
+	    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+	  }, 0);
+
+	  if (length > 60) {
+	    return braces[0] +
+	           (base === '' ? '' : base + '\n ') +
+	           ' ' +
+	           output.join(',\n  ') +
+	           ' ' +
+	           braces[1];
+	  }
+
+	  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+	}
+
 
 	// NOTE: These type checking functions intentionally don't use `instanceof`
 	// because it is fragile and can be easily faked with `Object.create()`.
@@ -33718,19 +27175,5261 @@
 	}
 	exports.isPrimitive = isPrimitive;
 
-	function isBuffer(arg) {
-	  return Buffer.isBuffer(arg);
-	}
-	exports.isBuffer = isBuffer;
+	exports.isBuffer = __webpack_require__(61);
 
 	function objectToString(o) {
 	  return Object.prototype.toString.call(o);
 	}
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(4).Buffer))
+
+
+	function pad(n) {
+	  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+	}
+
+
+	var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+	              'Oct', 'Nov', 'Dec'];
+
+	// 26 Feb 16:19:34
+	function timestamp() {
+	  var d = new Date();
+	  var time = [pad(d.getHours()),
+	              pad(d.getMinutes()),
+	              pad(d.getSeconds())].join(':');
+	  return [d.getDate(), months[d.getMonth()], time].join(' ');
+	}
+
+
+	// log is just a thin wrapper to console.log that prepends a timestamp
+	exports.log = function() {
+	  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
+	};
+
+
+	/**
+	 * Inherit the prototype methods from one constructor into another.
+	 *
+	 * The Function.prototype.inherits from lang.js rewritten as a standalone
+	 * function (not on Function.prototype). NOTE: If this file is to be loaded
+	 * during bootstrapping this function needs to be rewritten using some native
+	 * functions as prototype setup using normal JavaScript does not work as
+	 * expected during bootstrapping (see mirror.js in r114903).
+	 *
+	 * @param {function} ctor Constructor function which needs to inherit the
+	 *     prototype.
+	 * @param {function} superCtor Constructor function to inherit prototype from.
+	 */
+	exports.inherits = __webpack_require__(62);
+
+	exports._extend = function(origin, add) {
+	  // Don't do anything if add isn't an object
+	  if (!add || !isObject(add)) return origin;
+
+	  var keys = Object.keys(add);
+	  var i = keys.length;
+	  while (i--) {
+	    origin[keys[i]] = add[keys[i]];
+	  }
+	  return origin;
+	};
+
+	function hasOwnProperty(obj, prop) {
+	  return Object.prototype.hasOwnProperty.call(obj, prop);
+	}
+
+	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }()), __webpack_require__(30)))
 
 /***/ },
-/* 106 */
+/* 61 */
+/***/ function(module, exports) {
+
+	module.exports = function isBuffer(arg) {
+	  return arg && typeof arg === 'object'
+	    && typeof arg.copy === 'function'
+	    && typeof arg.fill === 'function'
+	    && typeof arg.readUInt8 === 'function';
+	}
+
+/***/ },
+/* 62 */
+/***/ function(module, exports) {
+
+	if (typeof Object.create === 'function') {
+	  // implementation from standard node.js 'util' module
+	  module.exports = function inherits(ctor, superCtor) {
+	    ctor.super_ = superCtor
+	    ctor.prototype = Object.create(superCtor.prototype, {
+	      constructor: {
+	        value: ctor,
+	        enumerable: false,
+	        writable: true,
+	        configurable: true
+	      }
+	    });
+	  };
+	} else {
+	  // old school shim for old browsers
+	  module.exports = function inherits(ctor, superCtor) {
+	    ctor.super_ = superCtor
+	    var TempCtor = function () {}
+	    TempCtor.prototype = superCtor.prototype
+	    ctor.prototype = new TempCtor()
+	    ctor.prototype.constructor = ctor
+	  }
+	}
+
+
+/***/ },
+/* 63 */
 /***/ function(module, exports, __webpack_require__) {
+
+	// http://wiki.commonjs.org/wiki/Unit_Testing/1.0
+	//
+	// THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
+	//
+	// Originally from narwhal.js (http://narwhaljs.org)
+	// Copyright (c) 2009 Thomas Robinson <280north.com>
+	//
+	// Permission is hereby granted, free of charge, to any person obtaining a copy
+	// of this software and associated documentation files (the 'Software'), to
+	// deal in the Software without restriction, including without limitation the
+	// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+	// sell copies of the Software, and to permit persons to whom the Software is
+	// furnished to do so, subject to the following conditions:
+	//
+	// The above copyright notice and this permission notice shall be included in
+	// all copies or substantial portions of the Software.
+	//
+	// THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	// AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+	// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+	// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	// when used in node, this will actually load the util module we depend on
+	// versus loading the builtin util module as happens otherwise
+	// this is a bug in node module loading as far as I am concerned
+	var util = __webpack_require__(60);
+
+	var pSlice = Array.prototype.slice;
+	var hasOwn = Object.prototype.hasOwnProperty;
+
+	// 1. The assert module provides functions that throw
+	// AssertionError's when particular conditions are not met. The
+	// assert module must conform to the following interface.
+
+	var assert = module.exports = ok;
+
+	// 2. The AssertionError is defined in assert.
+	// new assert.AssertionError({ message: message,
+	//                             actual: actual,
+	//                             expected: expected })
+
+	assert.AssertionError = function AssertionError(options) {
+	  this.name = 'AssertionError';
+	  this.actual = options.actual;
+	  this.expected = options.expected;
+	  this.operator = options.operator;
+	  if (options.message) {
+	    this.message = options.message;
+	    this.generatedMessage = false;
+	  } else {
+	    this.message = getMessage(this);
+	    this.generatedMessage = true;
+	  }
+	  var stackStartFunction = options.stackStartFunction || fail;
+
+	  if (Error.captureStackTrace) {
+	    Error.captureStackTrace(this, stackStartFunction);
+	  }
+	  else {
+	    // non v8 browsers so we can have a stacktrace
+	    var err = new Error();
+	    if (err.stack) {
+	      var out = err.stack;
+
+	      // try to strip useless frames
+	      var fn_name = stackStartFunction.name;
+	      var idx = out.indexOf('\n' + fn_name);
+	      if (idx >= 0) {
+	        // once we have located the function frame
+	        // we need to strip out everything before it (and its line)
+	        var next_line = out.indexOf('\n', idx + 1);
+	        out = out.substring(next_line + 1);
+	      }
+
+	      this.stack = out;
+	    }
+	  }
+	};
+
+	// assert.AssertionError instanceof Error
+	util.inherits(assert.AssertionError, Error);
+
+	function replacer(key, value) {
+	  if (util.isUndefined(value)) {
+	    return '' + value;
+	  }
+	  if (util.isNumber(value) && !isFinite(value)) {
+	    return value.toString();
+	  }
+	  if (util.isFunction(value) || util.isRegExp(value)) {
+	    return value.toString();
+	  }
+	  return value;
+	}
+
+	function truncate(s, n) {
+	  if (util.isString(s)) {
+	    return s.length < n ? s : s.slice(0, n);
+	  } else {
+	    return s;
+	  }
+	}
+
+	function getMessage(self) {
+	  return truncate(JSON.stringify(self.actual, replacer), 128) + ' ' +
+	         self.operator + ' ' +
+	         truncate(JSON.stringify(self.expected, replacer), 128);
+	}
+
+	// At present only the three keys mentioned above are used and
+	// understood by the spec. Implementations or sub modules can pass
+	// other keys to the AssertionError's constructor - they will be
+	// ignored.
+
+	// 3. All of the following functions must throw an AssertionError
+	// when a corresponding condition is not met, with a message that
+	// may be undefined if not provided.  All assertion methods provide
+	// both the actual and expected values to the assertion error for
+	// display purposes.
+
+	function fail(actual, expected, message, operator, stackStartFunction) {
+	  throw new assert.AssertionError({
+	    message: message,
+	    actual: actual,
+	    expected: expected,
+	    operator: operator,
+	    stackStartFunction: stackStartFunction
+	  });
+	}
+
+	// EXTENSION! allows for well behaved errors defined elsewhere.
+	assert.fail = fail;
+
+	// 4. Pure assertion tests whether a value is truthy, as determined
+	// by !!guard.
+	// assert.ok(guard, message_opt);
+	// This statement is equivalent to assert.equal(true, !!guard,
+	// message_opt);. To test strictly for the value true, use
+	// assert.strictEqual(true, guard, message_opt);.
+
+	function ok(value, message) {
+	  if (!value) fail(value, true, message, '==', assert.ok);
+	}
+	assert.ok = ok;
+
+	// 5. The equality assertion tests shallow, coercive equality with
+	// ==.
+	// assert.equal(actual, expected, message_opt);
+
+	assert.equal = function equal(actual, expected, message) {
+	  if (actual != expected) fail(actual, expected, message, '==', assert.equal);
+	};
+
+	// 6. The non-equality assertion tests for whether two objects are not equal
+	// with != assert.notEqual(actual, expected, message_opt);
+
+	assert.notEqual = function notEqual(actual, expected, message) {
+	  if (actual == expected) {
+	    fail(actual, expected, message, '!=', assert.notEqual);
+	  }
+	};
+
+	// 7. The equivalence assertion tests a deep equality relation.
+	// assert.deepEqual(actual, expected, message_opt);
+
+	assert.deepEqual = function deepEqual(actual, expected, message) {
+	  if (!_deepEqual(actual, expected)) {
+	    fail(actual, expected, message, 'deepEqual', assert.deepEqual);
+	  }
+	};
+
+	function _deepEqual(actual, expected) {
+	  // 7.1. All identical values are equivalent, as determined by ===.
+	  if (actual === expected) {
+	    return true;
+
+	  } else if (util.isBuffer(actual) && util.isBuffer(expected)) {
+	    if (actual.length != expected.length) return false;
+
+	    for (var i = 0; i < actual.length; i++) {
+	      if (actual[i] !== expected[i]) return false;
+	    }
+
+	    return true;
+
+	  // 7.2. If the expected value is a Date object, the actual value is
+	  // equivalent if it is also a Date object that refers to the same time.
+	  } else if (util.isDate(actual) && util.isDate(expected)) {
+	    return actual.getTime() === expected.getTime();
+
+	  // 7.3 If the expected value is a RegExp object, the actual value is
+	  // equivalent if it is also a RegExp object with the same source and
+	  // properties (`global`, `multiline`, `lastIndex`, `ignoreCase`).
+	  } else if (util.isRegExp(actual) && util.isRegExp(expected)) {
+	    return actual.source === expected.source &&
+	           actual.global === expected.global &&
+	           actual.multiline === expected.multiline &&
+	           actual.lastIndex === expected.lastIndex &&
+	           actual.ignoreCase === expected.ignoreCase;
+
+	  // 7.4. Other pairs that do not both pass typeof value == 'object',
+	  // equivalence is determined by ==.
+	  } else if (!util.isObject(actual) && !util.isObject(expected)) {
+	    return actual == expected;
+
+	  // 7.5 For all other Object pairs, including Array objects, equivalence is
+	  // determined by having the same number of owned properties (as verified
+	  // with Object.prototype.hasOwnProperty.call), the same set of keys
+	  // (although not necessarily the same order), equivalent values for every
+	  // corresponding key, and an identical 'prototype' property. Note: this
+	  // accounts for both named and indexed properties on Arrays.
+	  } else {
+	    return objEquiv(actual, expected);
+	  }
+	}
+
+	function isArguments(object) {
+	  return Object.prototype.toString.call(object) == '[object Arguments]';
+	}
+
+	function objEquiv(a, b) {
+	  if (util.isNullOrUndefined(a) || util.isNullOrUndefined(b))
+	    return false;
+	  // an identical 'prototype' property.
+	  if (a.prototype !== b.prototype) return false;
+	  // if one is a primitive, the other must be same
+	  if (util.isPrimitive(a) || util.isPrimitive(b)) {
+	    return a === b;
+	  }
+	  var aIsArgs = isArguments(a),
+	      bIsArgs = isArguments(b);
+	  if ((aIsArgs && !bIsArgs) || (!aIsArgs && bIsArgs))
+	    return false;
+	  if (aIsArgs) {
+	    a = pSlice.call(a);
+	    b = pSlice.call(b);
+	    return _deepEqual(a, b);
+	  }
+	  var ka = objectKeys(a),
+	      kb = objectKeys(b),
+	      key, i;
+	  // having the same number of owned properties (keys incorporates
+	  // hasOwnProperty)
+	  if (ka.length != kb.length)
+	    return false;
+	  //the same set of keys (although not necessarily the same order),
+	  ka.sort();
+	  kb.sort();
+	  //~~~cheap key test
+	  for (i = ka.length - 1; i >= 0; i--) {
+	    if (ka[i] != kb[i])
+	      return false;
+	  }
+	  //equivalent values for every corresponding key, and
+	  //~~~possibly expensive deep test
+	  for (i = ka.length - 1; i >= 0; i--) {
+	    key = ka[i];
+	    if (!_deepEqual(a[key], b[key])) return false;
+	  }
+	  return true;
+	}
+
+	// 8. The non-equivalence assertion tests for any deep inequality.
+	// assert.notDeepEqual(actual, expected, message_opt);
+
+	assert.notDeepEqual = function notDeepEqual(actual, expected, message) {
+	  if (_deepEqual(actual, expected)) {
+	    fail(actual, expected, message, 'notDeepEqual', assert.notDeepEqual);
+	  }
+	};
+
+	// 9. The strict equality assertion tests strict equality, as determined by ===.
+	// assert.strictEqual(actual, expected, message_opt);
+
+	assert.strictEqual = function strictEqual(actual, expected, message) {
+	  if (actual !== expected) {
+	    fail(actual, expected, message, '===', assert.strictEqual);
+	  }
+	};
+
+	// 10. The strict non-equality assertion tests for strict inequality, as
+	// determined by !==.  assert.notStrictEqual(actual, expected, message_opt);
+
+	assert.notStrictEqual = function notStrictEqual(actual, expected, message) {
+	  if (actual === expected) {
+	    fail(actual, expected, message, '!==', assert.notStrictEqual);
+	  }
+	};
+
+	function expectedException(actual, expected) {
+	  if (!actual || !expected) {
+	    return false;
+	  }
+
+	  if (Object.prototype.toString.call(expected) == '[object RegExp]') {
+	    return expected.test(actual);
+	  } else if (actual instanceof expected) {
+	    return true;
+	  } else if (expected.call({}, actual) === true) {
+	    return true;
+	  }
+
+	  return false;
+	}
+
+	function _throws(shouldThrow, block, expected, message) {
+	  var actual;
+
+	  if (util.isString(expected)) {
+	    message = expected;
+	    expected = null;
+	  }
+
+	  try {
+	    block();
+	  } catch (e) {
+	    actual = e;
+	  }
+
+	  message = (expected && expected.name ? ' (' + expected.name + ').' : '.') +
+	            (message ? ' ' + message : '.');
+
+	  if (shouldThrow && !actual) {
+	    fail(actual, expected, 'Missing expected exception' + message);
+	  }
+
+	  if (!shouldThrow && expectedException(actual, expected)) {
+	    fail(actual, expected, 'Got unwanted exception' + message);
+	  }
+
+	  if ((shouldThrow && actual && expected &&
+	      !expectedException(actual, expected)) || (!shouldThrow && actual)) {
+	    throw actual;
+	  }
+	}
+
+	// 11. Expected to throw an error:
+	// assert.throws(block, Error_opt, message_opt);
+
+	assert.throws = function(block, /*optional*/error, /*optional*/message) {
+	  _throws.apply(this, [true].concat(pSlice.call(arguments)));
+	};
+
+	// EXTENSION! This is annoying to write outside this module.
+	assert.doesNotThrow = function(block, /*optional*/message) {
+	  _throws.apply(this, [false].concat(pSlice.call(arguments)));
+	};
+
+	assert.ifError = function(err) { if (err) {throw err;}};
+
+	var objectKeys = Object.keys || function (obj) {
+	  var keys = [];
+	  for (var key in obj) {
+	    if (hasOwn.call(obj, key)) keys.push(key);
+	  }
+	  return keys;
+	};
+
+
+/***/ },
+/* 64 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+
+	/*
+	PDFPage - represents a single page in the PDF document
+	By Devon Govett
+	 */
+
+	(function() {
+	  var PDFPage;
+
+	  PDFPage = (function() {
+	    var DEFAULT_MARGINS, SIZES;
+
+	    function PDFPage(document, options) {
+	      var dimensions;
+	      this.document = document;
+	      if (options == null) {
+	        options = {};
+	      }
+	      this.size = options.size || 'letter';
+	      this.layout = options.layout || 'portrait';
+	      if (typeof options.margin === 'number') {
+	        this.margins = {
+	          top: options.margin,
+	          left: options.margin,
+	          bottom: options.margin,
+	          right: options.margin
+	        };
+	      } else {
+	        this.margins = options.margins || DEFAULT_MARGINS;
+	      }
+	      dimensions = Array.isArray(this.size) ? this.size : SIZES[this.size.toUpperCase()];
+	      this.width = dimensions[this.layout === 'portrait' ? 0 : 1];
+	      this.height = dimensions[this.layout === 'portrait' ? 1 : 0];
+	      this.content = this.document.ref();
+	      this.resources = this.document.ref({
+	        ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI']
+	      });
+	      Object.defineProperties(this, {
+	        fonts: {
+	          get: (function(_this) {
+	            return function() {
+	              var _base;
+	              return (_base = _this.resources.data).Font != null ? _base.Font : _base.Font = {};
+	            };
+	          })(this)
+	        },
+	        xobjects: {
+	          get: (function(_this) {
+	            return function() {
+	              var _base;
+	              return (_base = _this.resources.data).XObject != null ? _base.XObject : _base.XObject = {};
+	            };
+	          })(this)
+	        },
+	        ext_gstates: {
+	          get: (function(_this) {
+	            return function() {
+	              var _base;
+	              return (_base = _this.resources.data).ExtGState != null ? _base.ExtGState : _base.ExtGState = {};
+	            };
+	          })(this)
+	        },
+	        patterns: {
+	          get: (function(_this) {
+	            return function() {
+	              var _base;
+	              return (_base = _this.resources.data).Pattern != null ? _base.Pattern : _base.Pattern = {};
+	            };
+	          })(this)
+	        },
+	        annotations: {
+	          get: (function(_this) {
+	            return function() {
+	              var _base;
+	              return (_base = _this.dictionary.data).Annots != null ? _base.Annots : _base.Annots = [];
+	            };
+	          })(this)
+	        }
+	      });
+	      this.dictionary = this.document.ref({
+	        Type: 'Page',
+	        Parent: this.document._root.data.Pages,
+	        MediaBox: [0, 0, this.width, this.height],
+	        Contents: this.content,
+	        Resources: this.resources
+	      });
+	    }
+
+	    PDFPage.prototype.maxY = function() {
+	      return this.height - this.margins.bottom;
+	    };
+
+	    PDFPage.prototype.write = function(chunk) {
+	      return this.content.write(chunk);
+	    };
+
+	    PDFPage.prototype.end = function() {
+	      this.dictionary.end();
+	      this.resources.end();
+	      return this.content.end();
+	    };
+
+	    DEFAULT_MARGINS = {
+	      top: 72,
+	      left: 72,
+	      bottom: 72,
+	      right: 72
+	    };
+
+	    SIZES = {
+	      '4A0': [4767.87, 6740.79],
+	      '2A0': [3370.39, 4767.87],
+	      A0: [2383.94, 3370.39],
+	      A1: [1683.78, 2383.94],
+	      A2: [1190.55, 1683.78],
+	      A3: [841.89, 1190.55],
+	      A4: [595.28, 841.89],
+	      A5: [419.53, 595.28],
+	      A6: [297.64, 419.53],
+	      A7: [209.76, 297.64],
+	      A8: [147.40, 209.76],
+	      A9: [104.88, 147.40],
+	      A10: [73.70, 104.88],
+	      B0: [2834.65, 4008.19],
+	      B1: [2004.09, 2834.65],
+	      B2: [1417.32, 2004.09],
+	      B3: [1000.63, 1417.32],
+	      B4: [708.66, 1000.63],
+	      B5: [498.90, 708.66],
+	      B6: [354.33, 498.90],
+	      B7: [249.45, 354.33],
+	      B8: [175.75, 249.45],
+	      B9: [124.72, 175.75],
+	      B10: [87.87, 124.72],
+	      C0: [2599.37, 3676.54],
+	      C1: [1836.85, 2599.37],
+	      C2: [1298.27, 1836.85],
+	      C3: [918.43, 1298.27],
+	      C4: [649.13, 918.43],
+	      C5: [459.21, 649.13],
+	      C6: [323.15, 459.21],
+	      C7: [229.61, 323.15],
+	      C8: [161.57, 229.61],
+	      C9: [113.39, 161.57],
+	      C10: [79.37, 113.39],
+	      RA0: [2437.80, 3458.27],
+	      RA1: [1729.13, 2437.80],
+	      RA2: [1218.90, 1729.13],
+	      RA3: [864.57, 1218.90],
+	      RA4: [609.45, 864.57],
+	      SRA0: [2551.18, 3628.35],
+	      SRA1: [1814.17, 2551.18],
+	      SRA2: [1275.59, 1814.17],
+	      SRA3: [907.09, 1275.59],
+	      SRA4: [637.80, 907.09],
+	      EXECUTIVE: [521.86, 756.00],
+	      FOLIO: [612.00, 936.00],
+	      LEGAL: [612.00, 1008.00],
+	      LETTER: [612.00, 792.00],
+	      TABLOID: [792.00, 1224.00]
+	    };
+
+	    return PDFPage;
+
+	  })();
+
+	  module.exports = PDFPage;
+
+	}).call(this);
+
+
+/***/ },
+/* 65 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var PDFGradient, PDFLinearGradient, PDFRadialGradient, namedColors, _ref;
+
+	  _ref = __webpack_require__(66), PDFGradient = _ref.PDFGradient, PDFLinearGradient = _ref.PDFLinearGradient, PDFRadialGradient = _ref.PDFRadialGradient;
+
+	  module.exports = {
+	    initColor: function() {
+	      this._opacityRegistry = {};
+	      this._opacityCount = 0;
+	      return this._gradCount = 0;
+	    },
+	    _normalizeColor: function(color) {
+	      var hex, part;
+	      if (color instanceof PDFGradient) {
+	        return color;
+	      }
+	      if (typeof color === 'string') {
+	        if (color.charAt(0) === '#') {
+	          if (color.length === 4) {
+	            color = color.replace(/#([0-9A-F])([0-9A-F])([0-9A-F])/i, "#$1$1$2$2$3$3");
+	          }
+	          hex = parseInt(color.slice(1), 16);
+	          color = [hex >> 16, hex >> 8 & 0xff, hex & 0xff];
+	        } else if (namedColors[color]) {
+	          color = namedColors[color];
+	        }
+	      }
+	      if (Array.isArray(color)) {
+	        if (color.length === 3) {
+	          color = (function() {
+	            var _i, _len, _results;
+	            _results = [];
+	            for (_i = 0, _len = color.length; _i < _len; _i++) {
+	              part = color[_i];
+	              _results.push(part / 255);
+	            }
+	            return _results;
+	          })();
+	        } else if (color.length === 4) {
+	          color = (function() {
+	            var _i, _len, _results;
+	            _results = [];
+	            for (_i = 0, _len = color.length; _i < _len; _i++) {
+	              part = color[_i];
+	              _results.push(part / 100);
+	            }
+	            return _results;
+	          })();
+	        }
+	        return color;
+	      }
+	      return null;
+	    },
+	    _setColor: function(color, stroke) {
+	      var gstate, name, op, space;
+	      color = this._normalizeColor(color);
+	      if (!color) {
+	        return false;
+	      }
+	      if (this._sMasked) {
+	        gstate = this.ref({
+	          Type: 'ExtGState',
+	          SMask: 'None'
+	        });
+	        gstate.end();
+	        name = "Gs" + (++this._opacityCount);
+	        this.page.ext_gstates[name] = gstate;
+	        this.addContent("/" + name + " gs");
+	        this._sMasked = false;
+	      }
+	      op = stroke ? 'SCN' : 'scn';
+	      if (color instanceof PDFGradient) {
+	        this._setColorSpace('Pattern', stroke);
+	        color.apply(op);
+	      } else {
+	        space = color.length === 4 ? 'DeviceCMYK' : 'DeviceRGB';
+	        this._setColorSpace(space, stroke);
+	        color = color.join(' ');
+	        this.addContent("" + color + " " + op);
+	      }
+	      return true;
+	    },
+	    _setColorSpace: function(space, stroke) {
+	      var op;
+	      op = stroke ? 'CS' : 'cs';
+	      return this.addContent("/" + space + " " + op);
+	    },
+	    fillColor: function(color, opacity) {
+	      var set;
+	      if (opacity == null) {
+	        opacity = 1;
+	      }
+	      set = this._setColor(color, false);
+	      if (set) {
+	        this.fillOpacity(opacity);
+	      }
+	      this._fillColor = [color, opacity];
+	      return this;
+	    },
+	    strokeColor: function(color, opacity) {
+	      var set;
+	      if (opacity == null) {
+	        opacity = 1;
+	      }
+	      set = this._setColor(color, true);
+	      if (set) {
+	        this.strokeOpacity(opacity);
+	      }
+	      return this;
+	    },
+	    opacity: function(opacity) {
+	      this._doOpacity(opacity, opacity);
+	      return this;
+	    },
+	    fillOpacity: function(opacity) {
+	      this._doOpacity(opacity, null);
+	      return this;
+	    },
+	    strokeOpacity: function(opacity) {
+	      this._doOpacity(null, opacity);
+	      return this;
+	    },
+	    _doOpacity: function(fillOpacity, strokeOpacity) {
+	      var dictionary, id, key, name, _ref1;
+	      if (!((fillOpacity != null) || (strokeOpacity != null))) {
+	        return;
+	      }
+	      if (fillOpacity != null) {
+	        fillOpacity = Math.max(0, Math.min(1, fillOpacity));
+	      }
+	      if (strokeOpacity != null) {
+	        strokeOpacity = Math.max(0, Math.min(1, strokeOpacity));
+	      }
+	      key = "" + fillOpacity + "_" + strokeOpacity;
+	      if (this._opacityRegistry[key]) {
+	        _ref1 = this._opacityRegistry[key], dictionary = _ref1[0], name = _ref1[1];
+	      } else {
+	        dictionary = {
+	          Type: 'ExtGState'
+	        };
+	        if (fillOpacity != null) {
+	          dictionary.ca = fillOpacity;
+	        }
+	        if (strokeOpacity != null) {
+	          dictionary.CA = strokeOpacity;
+	        }
+	        dictionary = this.ref(dictionary);
+	        dictionary.end();
+	        id = ++this._opacityCount;
+	        name = "Gs" + id;
+	        this._opacityRegistry[key] = [dictionary, name];
+	      }
+	      this.page.ext_gstates[name] = dictionary;
+	      return this.addContent("/" + name + " gs");
+	    },
+	    linearGradient: function(x1, y1, x2, y2) {
+	      return new PDFLinearGradient(this, x1, y1, x2, y2);
+	    },
+	    radialGradient: function(x1, y1, r1, x2, y2, r2) {
+	      return new PDFRadialGradient(this, x1, y1, r1, x2, y2, r2);
+	    }
+	  };
+
+	  namedColors = {
+	    aliceblue: [240, 248, 255],
+	    antiquewhite: [250, 235, 215],
+	    aqua: [0, 255, 255],
+	    aquamarine: [127, 255, 212],
+	    azure: [240, 255, 255],
+	    beige: [245, 245, 220],
+	    bisque: [255, 228, 196],
+	    black: [0, 0, 0],
+	    blanchedalmond: [255, 235, 205],
+	    blue: [0, 0, 255],
+	    blueviolet: [138, 43, 226],
+	    brown: [165, 42, 42],
+	    burlywood: [222, 184, 135],
+	    cadetblue: [95, 158, 160],
+	    chartreuse: [127, 255, 0],
+	    chocolate: [210, 105, 30],
+	    coral: [255, 127, 80],
+	    cornflowerblue: [100, 149, 237],
+	    cornsilk: [255, 248, 220],
+	    crimson: [220, 20, 60],
+	    cyan: [0, 255, 255],
+	    darkblue: [0, 0, 139],
+	    darkcyan: [0, 139, 139],
+	    darkgoldenrod: [184, 134, 11],
+	    darkgray: [169, 169, 169],
+	    darkgreen: [0, 100, 0],
+	    darkgrey: [169, 169, 169],
+	    darkkhaki: [189, 183, 107],
+	    darkmagenta: [139, 0, 139],
+	    darkolivegreen: [85, 107, 47],
+	    darkorange: [255, 140, 0],
+	    darkorchid: [153, 50, 204],
+	    darkred: [139, 0, 0],
+	    darksalmon: [233, 150, 122],
+	    darkseagreen: [143, 188, 143],
+	    darkslateblue: [72, 61, 139],
+	    darkslategray: [47, 79, 79],
+	    darkslategrey: [47, 79, 79],
+	    darkturquoise: [0, 206, 209],
+	    darkviolet: [148, 0, 211],
+	    deeppink: [255, 20, 147],
+	    deepskyblue: [0, 191, 255],
+	    dimgray: [105, 105, 105],
+	    dimgrey: [105, 105, 105],
+	    dodgerblue: [30, 144, 255],
+	    firebrick: [178, 34, 34],
+	    floralwhite: [255, 250, 240],
+	    forestgreen: [34, 139, 34],
+	    fuchsia: [255, 0, 255],
+	    gainsboro: [220, 220, 220],
+	    ghostwhite: [248, 248, 255],
+	    gold: [255, 215, 0],
+	    goldenrod: [218, 165, 32],
+	    gray: [128, 128, 128],
+	    grey: [128, 128, 128],
+	    green: [0, 128, 0],
+	    greenyellow: [173, 255, 47],
+	    honeydew: [240, 255, 240],
+	    hotpink: [255, 105, 180],
+	    indianred: [205, 92, 92],
+	    indigo: [75, 0, 130],
+	    ivory: [255, 255, 240],
+	    khaki: [240, 230, 140],
+	    lavender: [230, 230, 250],
+	    lavenderblush: [255, 240, 245],
+	    lawngreen: [124, 252, 0],
+	    lemonchiffon: [255, 250, 205],
+	    lightblue: [173, 216, 230],
+	    lightcoral: [240, 128, 128],
+	    lightcyan: [224, 255, 255],
+	    lightgoldenrodyellow: [250, 250, 210],
+	    lightgray: [211, 211, 211],
+	    lightgreen: [144, 238, 144],
+	    lightgrey: [211, 211, 211],
+	    lightpink: [255, 182, 193],
+	    lightsalmon: [255, 160, 122],
+	    lightseagreen: [32, 178, 170],
+	    lightskyblue: [135, 206, 250],
+	    lightslategray: [119, 136, 153],
+	    lightslategrey: [119, 136, 153],
+	    lightsteelblue: [176, 196, 222],
+	    lightyellow: [255, 255, 224],
+	    lime: [0, 255, 0],
+	    limegreen: [50, 205, 50],
+	    linen: [250, 240, 230],
+	    magenta: [255, 0, 255],
+	    maroon: [128, 0, 0],
+	    mediumaquamarine: [102, 205, 170],
+	    mediumblue: [0, 0, 205],
+	    mediumorchid: [186, 85, 211],
+	    mediumpurple: [147, 112, 219],
+	    mediumseagreen: [60, 179, 113],
+	    mediumslateblue: [123, 104, 238],
+	    mediumspringgreen: [0, 250, 154],
+	    mediumturquoise: [72, 209, 204],
+	    mediumvioletred: [199, 21, 133],
+	    midnightblue: [25, 25, 112],
+	    mintcream: [245, 255, 250],
+	    mistyrose: [255, 228, 225],
+	    moccasin: [255, 228, 181],
+	    navajowhite: [255, 222, 173],
+	    navy: [0, 0, 128],
+	    oldlace: [253, 245, 230],
+	    olive: [128, 128, 0],
+	    olivedrab: [107, 142, 35],
+	    orange: [255, 165, 0],
+	    orangered: [255, 69, 0],
+	    orchid: [218, 112, 214],
+	    palegoldenrod: [238, 232, 170],
+	    palegreen: [152, 251, 152],
+	    paleturquoise: [175, 238, 238],
+	    palevioletred: [219, 112, 147],
+	    papayawhip: [255, 239, 213],
+	    peachpuff: [255, 218, 185],
+	    peru: [205, 133, 63],
+	    pink: [255, 192, 203],
+	    plum: [221, 160, 221],
+	    powderblue: [176, 224, 230],
+	    purple: [128, 0, 128],
+	    red: [255, 0, 0],
+	    rosybrown: [188, 143, 143],
+	    royalblue: [65, 105, 225],
+	    saddlebrown: [139, 69, 19],
+	    salmon: [250, 128, 114],
+	    sandybrown: [244, 164, 96],
+	    seagreen: [46, 139, 87],
+	    seashell: [255, 245, 238],
+	    sienna: [160, 82, 45],
+	    silver: [192, 192, 192],
+	    skyblue: [135, 206, 235],
+	    slateblue: [106, 90, 205],
+	    slategray: [112, 128, 144],
+	    slategrey: [112, 128, 144],
+	    snow: [255, 250, 250],
+	    springgreen: [0, 255, 127],
+	    steelblue: [70, 130, 180],
+	    tan: [210, 180, 140],
+	    teal: [0, 128, 128],
+	    thistle: [216, 191, 216],
+	    tomato: [255, 99, 71],
+	    turquoise: [64, 224, 208],
+	    violet: [238, 130, 238],
+	    wheat: [245, 222, 179],
+	    white: [255, 255, 255],
+	    whitesmoke: [245, 245, 245],
+	    yellow: [255, 255, 0],
+	    yellowgreen: [154, 205, 50]
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 66 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var PDFGradient, PDFLinearGradient, PDFRadialGradient,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  PDFGradient = (function() {
+	    function PDFGradient(doc) {
+	      this.doc = doc;
+	      this.stops = [];
+	      this.embedded = false;
+	      this.transform = [1, 0, 0, 1, 0, 0];
+	      this._colorSpace = 'DeviceRGB';
+	    }
+
+	    PDFGradient.prototype.stop = function(pos, color, opacity) {
+	      if (opacity == null) {
+	        opacity = 1;
+	      }
+	      opacity = Math.max(0, Math.min(1, opacity));
+	      this.stops.push([pos, this.doc._normalizeColor(color), opacity]);
+	      return this;
+	    };
+
+	    PDFGradient.prototype.embed = function() {
+	      var bounds, dx, dy, encode, fn, form, grad, group, gstate, i, last, m, m0, m1, m11, m12, m2, m21, m22, m3, m4, m5, name, pattern, resources, sMask, shader, stop, stops, v, _i, _j, _len, _ref, _ref1, _ref2;
+	      if (this.embedded || this.stops.length === 0) {
+	        return;
+	      }
+	      this.embedded = true;
+	      last = this.stops[this.stops.length - 1];
+	      if (last[0] < 1) {
+	        this.stops.push([1, last[1], last[2]]);
+	      }
+	      bounds = [];
+	      encode = [];
+	      stops = [];
+	      for (i = _i = 0, _ref = this.stops.length - 1; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        encode.push(0, 1);
+	        if (i + 2 !== this.stops.length) {
+	          bounds.push(this.stops[i + 1][0]);
+	        }
+	        fn = this.doc.ref({
+	          FunctionType: 2,
+	          Domain: [0, 1],
+	          C0: this.stops[i + 0][1],
+	          C1: this.stops[i + 1][1],
+	          N: 1
+	        });
+	        stops.push(fn);
+	        fn.end();
+	      }
+	      if (stops.length === 1) {
+	        fn = stops[0];
+	      } else {
+	        fn = this.doc.ref({
+	          FunctionType: 3,
+	          Domain: [0, 1],
+	          Functions: stops,
+	          Bounds: bounds,
+	          Encode: encode
+	        });
+	        fn.end();
+	      }
+	      this.id = 'Sh' + (++this.doc._gradCount);
+	      m = this.doc._ctm.slice();
+	      m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5];
+	      _ref1 = this.transform, m11 = _ref1[0], m12 = _ref1[1], m21 = _ref1[2], m22 = _ref1[3], dx = _ref1[4], dy = _ref1[5];
+	      m[0] = m0 * m11 + m2 * m12;
+	      m[1] = m1 * m11 + m3 * m12;
+	      m[2] = m0 * m21 + m2 * m22;
+	      m[3] = m1 * m21 + m3 * m22;
+	      m[4] = m0 * dx + m2 * dy + m4;
+	      m[5] = m1 * dx + m3 * dy + m5;
+	      shader = this.shader(fn);
+	      shader.end();
+	      pattern = this.doc.ref({
+	        Type: 'Pattern',
+	        PatternType: 2,
+	        Shading: shader,
+	        Matrix: (function() {
+	          var _j, _len, _results;
+	          _results = [];
+	          for (_j = 0, _len = m.length; _j < _len; _j++) {
+	            v = m[_j];
+	            _results.push(+v.toFixed(5));
+	          }
+	          return _results;
+	        })()
+	      });
+	      this.doc.page.patterns[this.id] = pattern;
+	      pattern.end();
+	      if (this.stops.some(function(stop) {
+	        return stop[2] < 1;
+	      })) {
+	        grad = this.opacityGradient();
+	        grad._colorSpace = 'DeviceGray';
+	        _ref2 = this.stops;
+	        for (_j = 0, _len = _ref2.length; _j < _len; _j++) {
+	          stop = _ref2[_j];
+	          grad.stop(stop[0], [stop[2]]);
+	        }
+	        grad = grad.embed();
+	        group = this.doc.ref({
+	          Type: 'Group',
+	          S: 'Transparency',
+	          CS: 'DeviceGray'
+	        });
+	        group.end();
+	        resources = this.doc.ref({
+	          ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
+	          Shading: {
+	            Sh1: grad.data.Shading
+	          }
+	        });
+	        resources.end();
+	        form = this.doc.ref({
+	          Type: 'XObject',
+	          Subtype: 'Form',
+	          FormType: 1,
+	          BBox: [0, 0, this.doc.page.width, this.doc.page.height],
+	          Group: group,
+	          Resources: resources
+	        });
+	        form.end("/Sh1 sh");
+	        sMask = this.doc.ref({
+	          Type: 'Mask',
+	          S: 'Luminosity',
+	          G: form
+	        });
+	        sMask.end();
+	        gstate = this.doc.ref({
+	          Type: 'ExtGState',
+	          SMask: sMask
+	        });
+	        this.opacity_id = ++this.doc._opacityCount;
+	        name = "Gs" + this.opacity_id;
+	        this.doc.page.ext_gstates[name] = gstate;
+	        gstate.end();
+	      }
+	      return pattern;
+	    };
+
+	    PDFGradient.prototype.apply = function(op) {
+	      if (!this.embedded) {
+	        this.embed();
+	      }
+	      this.doc.addContent("/" + this.id + " " + op);
+	      if (this.opacity_id) {
+	        this.doc.addContent("/Gs" + this.opacity_id + " gs");
+	        return this.doc._sMasked = true;
+	      }
+	    };
+
+	    return PDFGradient;
+
+	  })();
+
+	  PDFLinearGradient = (function(_super) {
+	    __extends(PDFLinearGradient, _super);
+
+	    function PDFLinearGradient(doc, x1, y1, x2, y2) {
+	      this.doc = doc;
+	      this.x1 = x1;
+	      this.y1 = y1;
+	      this.x2 = x2;
+	      this.y2 = y2;
+	      PDFLinearGradient.__super__.constructor.apply(this, arguments);
+	    }
+
+	    PDFLinearGradient.prototype.shader = function(fn) {
+	      return this.doc.ref({
+	        ShadingType: 2,
+	        ColorSpace: this._colorSpace,
+	        Coords: [this.x1, this.y1, this.x2, this.y2],
+	        Function: fn,
+	        Extend: [true, true]
+	      });
+	    };
+
+	    PDFLinearGradient.prototype.opacityGradient = function() {
+	      return new PDFLinearGradient(this.doc, this.x1, this.y1, this.x2, this.y2);
+	    };
+
+	    return PDFLinearGradient;
+
+	  })(PDFGradient);
+
+	  PDFRadialGradient = (function(_super) {
+	    __extends(PDFRadialGradient, _super);
+
+	    function PDFRadialGradient(doc, x1, y1, r1, x2, y2, r2) {
+	      this.doc = doc;
+	      this.x1 = x1;
+	      this.y1 = y1;
+	      this.r1 = r1;
+	      this.x2 = x2;
+	      this.y2 = y2;
+	      this.r2 = r2;
+	      PDFRadialGradient.__super__.constructor.apply(this, arguments);
+	    }
+
+	    PDFRadialGradient.prototype.shader = function(fn) {
+	      return this.doc.ref({
+	        ShadingType: 3,
+	        ColorSpace: this._colorSpace,
+	        Coords: [this.x1, this.y1, this.r1, this.x2, this.y2, this.r2],
+	        Function: fn,
+	        Extend: [true, true]
+	      });
+	    };
+
+	    PDFRadialGradient.prototype.opacityGradient = function() {
+	      return new PDFRadialGradient(this.doc, this.x1, this.y1, this.r1, this.x2, this.y2, this.r2);
+	    };
+
+	    return PDFRadialGradient;
+
+	  })(PDFGradient);
+
+	  module.exports = {
+	    PDFGradient: PDFGradient,
+	    PDFLinearGradient: PDFLinearGradient,
+	    PDFRadialGradient: PDFRadialGradient
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 67 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var KAPPA, SVGPath,
+	    __slice = [].slice;
+
+	  SVGPath = __webpack_require__(68);
+
+	  KAPPA = 4.0 * ((Math.sqrt(2) - 1.0) / 3.0);
+
+	  module.exports = {
+	    initVector: function() {
+	      this._ctm = [1, 0, 0, 1, 0, 0];
+	      return this._ctmStack = [];
+	    },
+	    save: function() {
+	      this._ctmStack.push(this._ctm.slice());
+	      return this.addContent('q');
+	    },
+	    restore: function() {
+	      this._ctm = this._ctmStack.pop() || [1, 0, 0, 1, 0, 0];
+	      return this.addContent('Q');
+	    },
+	    closePath: function() {
+	      return this.addContent('h');
+	    },
+	    lineWidth: function(w) {
+	      return this.addContent("" + w + " w");
+	    },
+	    _CAP_STYLES: {
+	      BUTT: 0,
+	      ROUND: 1,
+	      SQUARE: 2
+	    },
+	    lineCap: function(c) {
+	      if (typeof c === 'string') {
+	        c = this._CAP_STYLES[c.toUpperCase()];
+	      }
+	      return this.addContent("" + c + " J");
+	    },
+	    _JOIN_STYLES: {
+	      MITER: 0,
+	      ROUND: 1,
+	      BEVEL: 2
+	    },
+	    lineJoin: function(j) {
+	      if (typeof j === 'string') {
+	        j = this._JOIN_STYLES[j.toUpperCase()];
+	      }
+	      return this.addContent("" + j + " j");
+	    },
+	    miterLimit: function(m) {
+	      return this.addContent("" + m + " M");
+	    },
+	    dash: function(length, options) {
+	      var phase, space, _ref;
+	      if (options == null) {
+	        options = {};
+	      }
+	      if (length == null) {
+	        return this;
+	      }
+	      space = (_ref = options.space) != null ? _ref : length;
+	      phase = options.phase || 0;
+	      return this.addContent("[" + length + " " + space + "] " + phase + " d");
+	    },
+	    undash: function() {
+	      return this.addContent("[] 0 d");
+	    },
+	    moveTo: function(x, y) {
+	      return this.addContent("" + x + " " + y + " m");
+	    },
+	    lineTo: function(x, y) {
+	      return this.addContent("" + x + " " + y + " l");
+	    },
+	    bezierCurveTo: function(cp1x, cp1y, cp2x, cp2y, x, y) {
+	      return this.addContent("" + cp1x + " " + cp1y + " " + cp2x + " " + cp2y + " " + x + " " + y + " c");
+	    },
+	    quadraticCurveTo: function(cpx, cpy, x, y) {
+	      return this.addContent("" + cpx + " " + cpy + " " + x + " " + y + " v");
+	    },
+	    rect: function(x, y, w, h) {
+	      return this.addContent("" + x + " " + y + " " + w + " " + h + " re");
+	    },
+	    roundedRect: function(x, y, w, h, r) {
+	      if (r == null) {
+	        r = 0;
+	      }
+	      this.moveTo(x + r, y);
+	      this.lineTo(x + w - r, y);
+	      this.quadraticCurveTo(x + w, y, x + w, y + r);
+	      this.lineTo(x + w, y + h - r);
+	      this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+	      this.lineTo(x + r, y + h);
+	      this.quadraticCurveTo(x, y + h, x, y + h - r);
+	      this.lineTo(x, y + r);
+	      return this.quadraticCurveTo(x, y, x + r, y);
+	    },
+	    ellipse: function(x, y, r1, r2) {
+	      var ox, oy, xe, xm, ye, ym;
+	      if (r2 == null) {
+	        r2 = r1;
+	      }
+	      x -= r1;
+	      y -= r2;
+	      ox = r1 * KAPPA;
+	      oy = r2 * KAPPA;
+	      xe = x + r1 * 2;
+	      ye = y + r2 * 2;
+	      xm = x + r1;
+	      ym = y + r2;
+	      this.moveTo(x, ym);
+	      this.bezierCurveTo(x, ym - oy, xm - ox, y, xm, y);
+	      this.bezierCurveTo(xm + ox, y, xe, ym - oy, xe, ym);
+	      this.bezierCurveTo(xe, ym + oy, xm + ox, ye, xm, ye);
+	      this.bezierCurveTo(xm - ox, ye, x, ym + oy, x, ym);
+	      return this.closePath();
+	    },
+	    circle: function(x, y, radius) {
+	      return this.ellipse(x, y, radius);
+	    },
+	    polygon: function() {
+	      var point, points, _i, _len;
+	      points = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+	      this.moveTo.apply(this, points.shift());
+	      for (_i = 0, _len = points.length; _i < _len; _i++) {
+	        point = points[_i];
+	        this.lineTo.apply(this, point);
+	      }
+	      return this.closePath();
+	    },
+	    path: function(path) {
+	      SVGPath.apply(this, path);
+	      return this;
+	    },
+	    _windingRule: function(rule) {
+	      if (/even-?odd/.test(rule)) {
+	        return '*';
+	      }
+	      return '';
+	    },
+	    fill: function(color, rule) {
+	      if (/(even-?odd)|(non-?zero)/.test(color)) {
+	        rule = color;
+	        color = null;
+	      }
+	      if (color) {
+	        this.fillColor(color);
+	      }
+	      return this.addContent('f' + this._windingRule(rule));
+	    },
+	    stroke: function(color) {
+	      if (color) {
+	        this.strokeColor(color);
+	      }
+	      return this.addContent('S');
+	    },
+	    fillAndStroke: function(fillColor, strokeColor, rule) {
+	      var isFillRule;
+	      if (strokeColor == null) {
+	        strokeColor = fillColor;
+	      }
+	      isFillRule = /(even-?odd)|(non-?zero)/;
+	      if (isFillRule.test(fillColor)) {
+	        rule = fillColor;
+	        fillColor = null;
+	      }
+	      if (isFillRule.test(strokeColor)) {
+	        rule = strokeColor;
+	        strokeColor = fillColor;
+	      }
+	      if (fillColor) {
+	        this.fillColor(fillColor);
+	        this.strokeColor(strokeColor);
+	      }
+	      return this.addContent('B' + this._windingRule(rule));
+	    },
+	    clip: function(rule) {
+	      return this.addContent('W' + this._windingRule(rule) + ' n');
+	    },
+	    transform: function(m11, m12, m21, m22, dx, dy) {
+	      var m, m0, m1, m2, m3, m4, m5, v, values;
+	      m = this._ctm;
+	      m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5];
+	      m[0] = m0 * m11 + m2 * m12;
+	      m[1] = m1 * m11 + m3 * m12;
+	      m[2] = m0 * m21 + m2 * m22;
+	      m[3] = m1 * m21 + m3 * m22;
+	      m[4] = m0 * dx + m2 * dy + m4;
+	      m[5] = m1 * dx + m3 * dy + m5;
+	      values = ((function() {
+	        var _i, _len, _ref, _results;
+	        _ref = [m11, m12, m21, m22, dx, dy];
+	        _results = [];
+	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	          v = _ref[_i];
+	          _results.push(+v.toFixed(5));
+	        }
+	        return _results;
+	      })()).join(' ');
+	      return this.addContent("" + values + " cm");
+	    },
+	    translate: function(x, y) {
+	      return this.transform(1, 0, 0, 1, x, y);
+	    },
+	    rotate: function(angle, options) {
+	      var cos, rad, sin, x, x1, y, y1, _ref;
+	      if (options == null) {
+	        options = {};
+	      }
+	      rad = angle * Math.PI / 180;
+	      cos = Math.cos(rad);
+	      sin = Math.sin(rad);
+	      x = y = 0;
+	      if (options.origin != null) {
+	        _ref = options.origin, x = _ref[0], y = _ref[1];
+	        x1 = x * cos - y * sin;
+	        y1 = x * sin + y * cos;
+	        x -= x1;
+	        y -= y1;
+	      }
+	      return this.transform(cos, sin, -sin, cos, x, y);
+	    },
+	    scale: function(xFactor, yFactor, options) {
+	      var x, y, _ref;
+	      if (yFactor == null) {
+	        yFactor = xFactor;
+	      }
+	      if (options == null) {
+	        options = {};
+	      }
+	      if (arguments.length === 2) {
+	        yFactor = xFactor;
+	        options = yFactor;
+	      }
+	      x = y = 0;
+	      if (options.origin != null) {
+	        _ref = options.origin, x = _ref[0], y = _ref[1];
+	        x -= xFactor * x;
+	        y -= yFactor * y;
+	      }
+	      return this.transform(xFactor, 0, 0, yFactor, x, y);
+	    }
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 68 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var SVGPath;
+
+	  SVGPath = (function() {
+	    var apply, arcToSegments, cx, cy, parameters, parse, px, py, runners, segmentToBezier, solveArc, sx, sy;
+
+	    function SVGPath() {}
+
+	    SVGPath.apply = function(doc, path) {
+	      var commands;
+	      commands = parse(path);
+	      return apply(commands, doc);
+	    };
+
+	    parameters = {
+	      A: 7,
+	      a: 7,
+	      C: 6,
+	      c: 6,
+	      H: 1,
+	      h: 1,
+	      L: 2,
+	      l: 2,
+	      M: 2,
+	      m: 2,
+	      Q: 4,
+	      q: 4,
+	      S: 4,
+	      s: 4,
+	      T: 2,
+	      t: 2,
+	      V: 1,
+	      v: 1,
+	      Z: 0,
+	      z: 0
+	    };
+
+	    parse = function(path) {
+	      var args, c, cmd, curArg, foundDecimal, params, ret, _i, _len;
+	      ret = [];
+	      args = [];
+	      curArg = "";
+	      foundDecimal = false;
+	      params = 0;
+	      for (_i = 0, _len = path.length; _i < _len; _i++) {
+	        c = path[_i];
+	        if (parameters[c] != null) {
+	          params = parameters[c];
+	          if (cmd) {
+	            if (curArg.length > 0) {
+	              args[args.length] = +curArg;
+	            }
+	            ret[ret.length] = {
+	              cmd: cmd,
+	              args: args
+	            };
+	            args = [];
+	            curArg = "";
+	            foundDecimal = false;
+	          }
+	          cmd = c;
+	        } else if ((c === " " || c === ",") || (c === "-" && curArg.length > 0 && curArg[curArg.length - 1] !== 'e') || (c === "." && foundDecimal)) {
+	          if (curArg.length === 0) {
+	            continue;
+	          }
+	          if (args.length === params) {
+	            ret[ret.length] = {
+	              cmd: cmd,
+	              args: args
+	            };
+	            args = [+curArg];
+	            if (cmd === "M") {
+	              cmd = "L";
+	            }
+	            if (cmd === "m") {
+	              cmd = "l";
+	            }
+	          } else {
+	            args[args.length] = +curArg;
+	          }
+	          foundDecimal = c === ".";
+	          curArg = c === '-' || c === '.' ? c : '';
+	        } else {
+	          curArg += c;
+	          if (c === '.') {
+	            foundDecimal = true;
+	          }
+	        }
+	      }
+	      if (curArg.length > 0) {
+	        if (args.length === params) {
+	          ret[ret.length] = {
+	            cmd: cmd,
+	            args: args
+	          };
+	          args = [+curArg];
+	          if (cmd === "M") {
+	            cmd = "L";
+	          }
+	          if (cmd === "m") {
+	            cmd = "l";
+	          }
+	        } else {
+	          args[args.length] = +curArg;
+	        }
+	      }
+	      ret[ret.length] = {
+	        cmd: cmd,
+	        args: args
+	      };
+	      return ret;
+	    };
+
+	    cx = cy = px = py = sx = sy = 0;
+
+	    apply = function(commands, doc) {
+	      var c, i, _i, _len, _name;
+	      cx = cy = px = py = sx = sy = 0;
+	      for (i = _i = 0, _len = commands.length; _i < _len; i = ++_i) {
+	        c = commands[i];
+	        if (typeof runners[_name = c.cmd] === "function") {
+	          runners[_name](doc, c.args);
+	        }
+	      }
+	      return cx = cy = px = py = 0;
+	    };
+
+	    runners = {
+	      M: function(doc, a) {
+	        cx = a[0];
+	        cy = a[1];
+	        px = py = null;
+	        sx = cx;
+	        sy = cy;
+	        return doc.moveTo(cx, cy);
+	      },
+	      m: function(doc, a) {
+	        cx += a[0];
+	        cy += a[1];
+	        px = py = null;
+	        sx = cx;
+	        sy = cy;
+	        return doc.moveTo(cx, cy);
+	      },
+	      C: function(doc, a) {
+	        cx = a[4];
+	        cy = a[5];
+	        px = a[2];
+	        py = a[3];
+	        return doc.bezierCurveTo.apply(doc, a);
+	      },
+	      c: function(doc, a) {
+	        doc.bezierCurveTo(a[0] + cx, a[1] + cy, a[2] + cx, a[3] + cy, a[4] + cx, a[5] + cy);
+	        px = cx + a[2];
+	        py = cy + a[3];
+	        cx += a[4];
+	        return cy += a[5];
+	      },
+	      S: function(doc, a) {
+	        if (px === null) {
+	          px = cx;
+	          py = cy;
+	        }
+	        doc.bezierCurveTo(cx - (px - cx), cy - (py - cy), a[0], a[1], a[2], a[3]);
+	        px = a[0];
+	        py = a[1];
+	        cx = a[2];
+	        return cy = a[3];
+	      },
+	      s: function(doc, a) {
+	        if (px === null) {
+	          px = cx;
+	          py = cy;
+	        }
+	        doc.bezierCurveTo(cx - (px - cx), cy - (py - cy), cx + a[0], cy + a[1], cx + a[2], cy + a[3]);
+	        px = cx + a[0];
+	        py = cy + a[1];
+	        cx += a[2];
+	        return cy += a[3];
+	      },
+	      Q: function(doc, a) {
+	        px = a[0];
+	        py = a[1];
+	        cx = a[2];
+	        cy = a[3];
+	        return doc.quadraticCurveTo(a[0], a[1], cx, cy);
+	      },
+	      q: function(doc, a) {
+	        doc.quadraticCurveTo(a[0] + cx, a[1] + cy, a[2] + cx, a[3] + cy);
+	        px = cx + a[0];
+	        py = cy + a[1];
+	        cx += a[2];
+	        return cy += a[3];
+	      },
+	      T: function(doc, a) {
+	        if (px === null) {
+	          px = cx;
+	          py = cy;
+	        } else {
+	          px = cx - (px - cx);
+	          py = cy - (py - cy);
+	        }
+	        doc.quadraticCurveTo(px, py, a[0], a[1]);
+	        px = cx - (px - cx);
+	        py = cy - (py - cy);
+	        cx = a[0];
+	        return cy = a[1];
+	      },
+	      t: function(doc, a) {
+	        if (px === null) {
+	          px = cx;
+	          py = cy;
+	        } else {
+	          px = cx - (px - cx);
+	          py = cy - (py - cy);
+	        }
+	        doc.quadraticCurveTo(px, py, cx + a[0], cy + a[1]);
+	        cx += a[0];
+	        return cy += a[1];
+	      },
+	      A: function(doc, a) {
+	        solveArc(doc, cx, cy, a);
+	        cx = a[5];
+	        return cy = a[6];
+	      },
+	      a: function(doc, a) {
+	        a[5] += cx;
+	        a[6] += cy;
+	        solveArc(doc, cx, cy, a);
+	        cx = a[5];
+	        return cy = a[6];
+	      },
+	      L: function(doc, a) {
+	        cx = a[0];
+	        cy = a[1];
+	        px = py = null;
+	        return doc.lineTo(cx, cy);
+	      },
+	      l: function(doc, a) {
+	        cx += a[0];
+	        cy += a[1];
+	        px = py = null;
+	        return doc.lineTo(cx, cy);
+	      },
+	      H: function(doc, a) {
+	        cx = a[0];
+	        px = py = null;
+	        return doc.lineTo(cx, cy);
+	      },
+	      h: function(doc, a) {
+	        cx += a[0];
+	        px = py = null;
+	        return doc.lineTo(cx, cy);
+	      },
+	      V: function(doc, a) {
+	        cy = a[0];
+	        px = py = null;
+	        return doc.lineTo(cx, cy);
+	      },
+	      v: function(doc, a) {
+	        cy += a[0];
+	        px = py = null;
+	        return doc.lineTo(cx, cy);
+	      },
+	      Z: function(doc) {
+	        doc.closePath();
+	        cx = sx;
+	        return cy = sy;
+	      },
+	      z: function(doc) {
+	        doc.closePath();
+	        cx = sx;
+	        return cy = sy;
+	      }
+	    };
+
+	    solveArc = function(doc, x, y, coords) {
+	      var bez, ex, ey, large, rot, rx, ry, seg, segs, sweep, _i, _len, _results;
+	      rx = coords[0], ry = coords[1], rot = coords[2], large = coords[3], sweep = coords[4], ex = coords[5], ey = coords[6];
+	      segs = arcToSegments(ex, ey, rx, ry, large, sweep, rot, x, y);
+	      _results = [];
+	      for (_i = 0, _len = segs.length; _i < _len; _i++) {
+	        seg = segs[_i];
+	        bez = segmentToBezier.apply(null, seg);
+	        _results.push(doc.bezierCurveTo.apply(doc, bez));
+	      }
+	      return _results;
+	    };
+
+	    arcToSegments = function(x, y, rx, ry, large, sweep, rotateX, ox, oy) {
+	      var a00, a01, a10, a11, cos_th, d, i, pl, result, segments, sfactor, sfactor_sq, sin_th, th, th0, th1, th2, th3, th_arc, x0, x1, xc, y0, y1, yc, _i;
+	      th = rotateX * (Math.PI / 180);
+	      sin_th = Math.sin(th);
+	      cos_th = Math.cos(th);
+	      rx = Math.abs(rx);
+	      ry = Math.abs(ry);
+	      px = cos_th * (ox - x) * 0.5 + sin_th * (oy - y) * 0.5;
+	      py = cos_th * (oy - y) * 0.5 - sin_th * (ox - x) * 0.5;
+	      pl = (px * px) / (rx * rx) + (py * py) / (ry * ry);
+	      if (pl > 1) {
+	        pl = Math.sqrt(pl);
+	        rx *= pl;
+	        ry *= pl;
+	      }
+	      a00 = cos_th / rx;
+	      a01 = sin_th / rx;
+	      a10 = (-sin_th) / ry;
+	      a11 = cos_th / ry;
+	      x0 = a00 * ox + a01 * oy;
+	      y0 = a10 * ox + a11 * oy;
+	      x1 = a00 * x + a01 * y;
+	      y1 = a10 * x + a11 * y;
+	      d = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
+	      sfactor_sq = 1 / d - 0.25;
+	      if (sfactor_sq < 0) {
+	        sfactor_sq = 0;
+	      }
+	      sfactor = Math.sqrt(sfactor_sq);
+	      if (sweep === large) {
+	        sfactor = -sfactor;
+	      }
+	      xc = 0.5 * (x0 + x1) - sfactor * (y1 - y0);
+	      yc = 0.5 * (y0 + y1) + sfactor * (x1 - x0);
+	      th0 = Math.atan2(y0 - yc, x0 - xc);
+	      th1 = Math.atan2(y1 - yc, x1 - xc);
+	      th_arc = th1 - th0;
+	      if (th_arc < 0 && sweep === 1) {
+	        th_arc += 2 * Math.PI;
+	      } else if (th_arc > 0 && sweep === 0) {
+	        th_arc -= 2 * Math.PI;
+	      }
+	      segments = Math.ceil(Math.abs(th_arc / (Math.PI * 0.5 + 0.001)));
+	      result = [];
+	      for (i = _i = 0; 0 <= segments ? _i < segments : _i > segments; i = 0 <= segments ? ++_i : --_i) {
+	        th2 = th0 + i * th_arc / segments;
+	        th3 = th0 + (i + 1) * th_arc / segments;
+	        result[i] = [xc, yc, th2, th3, rx, ry, sin_th, cos_th];
+	      }
+	      return result;
+	    };
+
+	    segmentToBezier = function(cx, cy, th0, th1, rx, ry, sin_th, cos_th) {
+	      var a00, a01, a10, a11, t, th_half, x1, x2, x3, y1, y2, y3;
+	      a00 = cos_th * rx;
+	      a01 = -sin_th * ry;
+	      a10 = sin_th * rx;
+	      a11 = cos_th * ry;
+	      th_half = 0.5 * (th1 - th0);
+	      t = (8 / 3) * Math.sin(th_half * 0.5) * Math.sin(th_half * 0.5) / Math.sin(th_half);
+	      x1 = cx + Math.cos(th0) - t * Math.sin(th0);
+	      y1 = cy + Math.sin(th0) + t * Math.cos(th0);
+	      x3 = cx + Math.cos(th1);
+	      y3 = cy + Math.sin(th1);
+	      x2 = x3 + t * Math.sin(th1);
+	      y2 = y3 - t * Math.cos(th1);
+	      return [a00 * x1 + a01 * y1, a10 * x1 + a11 * y1, a00 * x2 + a01 * y2, a10 * x2 + a11 * y2, a00 * x3 + a01 * y3, a10 * x3 + a11 * y3];
+	    };
+
+	    return SVGPath;
+
+	  })();
+
+	  module.exports = SVGPath;
+
+	}).call(this);
+
+
+/***/ },
+/* 69 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var PDFFont;
+
+	  PDFFont = __webpack_require__(70);
+
+	  module.exports = {
+	    initFonts: function() {
+	      this._fontFamilies = {};
+	      this._fontCount = 0;
+	      this._fontSize = 12;
+	      this._font = null;
+	      this._registeredFonts = {};
+	      
+	    },
+	    font: function(src, family, size) {
+	      var cacheKey, font, id, _ref;
+	      if (typeof family === 'number') {
+	        size = family;
+	        family = null;
+	      }
+	      if (typeof src === 'string' && this._registeredFonts[src]) {
+	        cacheKey = src;
+	        _ref = this._registeredFonts[src], src = _ref.src, family = _ref.family;
+	      } else {
+	        cacheKey = family || src;
+	        if (typeof cacheKey !== 'string') {
+	          cacheKey = null;
+	        }
+	      }
+	      if (size != null) {
+	        this.fontSize(size);
+	      }
+	      if (font = this._fontFamilies[cacheKey]) {
+	        this._font = font;
+	        return this;
+	      }
+	      id = 'F' + (++this._fontCount);
+	      this._font = new PDFFont(this, src, family, id);
+	      if (font = this._fontFamilies[this._font.name]) {
+	        this._font = font;
+	        return this;
+	      }
+	      if (cacheKey) {
+	        this._fontFamilies[cacheKey] = this._font;
+	      }
+	      this._fontFamilies[this._font.name] = this._font;
+	      return this;
+	    },
+	    fontSize: function(_fontSize) {
+	      this._fontSize = _fontSize;
+	      return this;
+	    },
+	    currentLineHeight: function(includeGap) {
+	      if (includeGap == null) {
+	        includeGap = false;
+	      }
+	      return this._font.lineHeight(this._fontSize, includeGap);
+	    },
+	    registerFont: function(name, src, family) {
+	      this._registeredFonts[name] = {
+	        src: src,
+	        family: family
+	      };
+	      return this;
+	    }
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 70 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer, __dirname) {// Generated by CoffeeScript 1.7.1
+
+	/*
+	PDFFont - embeds fonts in PDF documents
+	By Devon Govett
+	 */
+
+	(function() {
+	  var AFMFont, PDFFont, Subset, TTFFont, fs;
+
+	  TTFFont = __webpack_require__(71);
+
+	  AFMFont = __webpack_require__(87);
+
+	  Subset = __webpack_require__(88);
+
+	  fs = __webpack_require__(44);
+
+	  PDFFont = (function() {
+	    var STANDARD_FONTS, toUnicodeCmap;
+
+	    function PDFFont(document, src, family, id) {
+	      this.document = document;
+	      this.id = id;
+	      if (typeof src === 'string') {
+	        if (src in STANDARD_FONTS) {
+	          this.isAFM = true;
+	          this.font = new AFMFont(STANDARD_FONTS[src]());
+	          this.registerAFM(src);
+	          return;
+	        } else if (/\.(ttf|ttc)$/i.test(src)) {
+	          this.font = TTFFont.open(src, family);
+	        } else if (/\.dfont$/i.test(src)) {
+	          this.font = TTFFont.fromDFont(src, family);
+	        } else {
+	          throw new Error('Not a supported font format or standard PDF font.');
+	        }
+	      } else if (Buffer.isBuffer(src)) {
+	        this.font = TTFFont.fromBuffer(src, family);
+	      } else if (src instanceof Uint8Array) {
+	        this.font = TTFFont.fromBuffer(new Buffer(src), family);
+	      } else if (src instanceof ArrayBuffer) {
+	        this.font = TTFFont.fromBuffer(new Buffer(new Uint8Array(src)), family);
+	      } else {
+	        throw new Error('Not a supported font format or standard PDF font.');
+	      }
+	      this.subset = new Subset(this.font);
+	      this.registerTTF();
+	    }
+
+	    STANDARD_FONTS = {
+	      "Courier": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Courier.afm", 'utf8');
+	      },
+	      "Courier-Bold": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Courier-Bold.afm", 'utf8');
+	      },
+	      "Courier-Oblique": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Courier-Oblique.afm", 'utf8');
+	      },
+	      "Courier-BoldOblique": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Courier-BoldOblique.afm", 'utf8');
+	      },
+	      "Helvetica": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Helvetica.afm", 'utf8');
+	      },
+	      "Helvetica-Bold": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Helvetica-Bold.afm", 'utf8');
+	      },
+	      "Helvetica-Oblique": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Helvetica-Oblique.afm", 'utf8');
+	      },
+	      "Helvetica-BoldOblique": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Helvetica-BoldOblique.afm", 'utf8');
+	      },
+	      "Times-Roman": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Times-Roman.afm", 'utf8');
+	      },
+	      "Times-Bold": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Times-Bold.afm", 'utf8');
+	      },
+	      "Times-Italic": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Times-Italic.afm", 'utf8');
+	      },
+	      "Times-BoldItalic": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Times-BoldItalic.afm", 'utf8');
+	      },
+	      "Symbol": function() {
+	        return fs.readFileSync(__dirname + "/font/data/Symbol.afm", 'utf8');
+	      },
+	      "ZapfDingbats": function() {
+	        return fs.readFileSync(__dirname + "/font/data/ZapfDingbats.afm", 'utf8');
+	      }
+	    };
+
+	    PDFFont.prototype.use = function(characters) {
+	      var _ref;
+	      return (_ref = this.subset) != null ? _ref.use(characters) : void 0;
+	    };
+
+	    PDFFont.prototype.embed = function() {
+	      if (this.embedded || (this.dictionary == null)) {
+	        return;
+	      }
+	      if (this.isAFM) {
+	        this.embedAFM();
+	      } else {
+	        this.embedTTF();
+	      }
+	      return this.embedded = true;
+	    };
+
+	    PDFFont.prototype.encode = function(text) {
+	      var _ref;
+	      if (this.isAFM) {
+	        return this.font.encodeText(text);
+	      } else {
+	        return ((_ref = this.subset) != null ? _ref.encodeText(text) : void 0) || text;
+	      }
+	    };
+
+	    PDFFont.prototype.ref = function() {
+	      return this.dictionary != null ? this.dictionary : this.dictionary = this.document.ref();
+	    };
+
+	    PDFFont.prototype.registerTTF = function() {
+	      var e, hi, low, raw, _ref;
+	      this.name = this.font.name.postscriptName;
+	      this.scaleFactor = 1000.0 / this.font.head.unitsPerEm;
+	      this.bbox = (function() {
+	        var _i, _len, _ref, _results;
+	        _ref = this.font.bbox;
+	        _results = [];
+	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	          e = _ref[_i];
+	          _results.push(Math.round(e * this.scaleFactor));
+	        }
+	        return _results;
+	      }).call(this);
+	      this.stemV = 0;
+	      if (this.font.post.exists) {
+	        raw = this.font.post.italic_angle;
+	        hi = raw >> 16;
+	        low = raw & 0xFF;
+	        if (hi & 0x8000 !== 0) {
+	          hi = -((hi ^ 0xFFFF) + 1);
+	        }
+	        this.italicAngle = +("" + hi + "." + low);
+	      } else {
+	        this.italicAngle = 0;
+	      }
+	      this.ascender = Math.round(this.font.ascender * this.scaleFactor);
+	      this.decender = Math.round(this.font.decender * this.scaleFactor);
+	      this.lineGap = Math.round(this.font.lineGap * this.scaleFactor);
+	      this.capHeight = (this.font.os2.exists && this.font.os2.capHeight) || this.ascender;
+	      this.xHeight = (this.font.os2.exists && this.font.os2.xHeight) || 0;
+	      this.familyClass = (this.font.os2.exists && this.font.os2.familyClass || 0) >> 8;
+	      this.isSerif = (_ref = this.familyClass) === 1 || _ref === 2 || _ref === 3 || _ref === 4 || _ref === 5 || _ref === 7;
+	      this.isScript = this.familyClass === 10;
+	      this.flags = 0;
+	      if (this.font.post.isFixedPitch) {
+	        this.flags |= 1 << 0;
+	      }
+	      if (this.isSerif) {
+	        this.flags |= 1 << 1;
+	      }
+	      if (this.isScript) {
+	        this.flags |= 1 << 3;
+	      }
+	      if (this.italicAngle !== 0) {
+	        this.flags |= 1 << 6;
+	      }
+	      this.flags |= 1 << 5;
+	      if (!this.font.cmap.unicode) {
+	        throw new Error('No unicode cmap for font');
+	      }
+	    };
+
+	    PDFFont.prototype.embedTTF = function() {
+	      var charWidths, cmap, code, data, descriptor, firstChar, fontfile, glyph;
+	      data = this.subset.encode();
+	      fontfile = this.document.ref();
+	      fontfile.write(data);
+	      fontfile.data.Length1 = fontfile.uncompressedLength;
+	      fontfile.end();
+	      descriptor = this.document.ref({
+	        Type: 'FontDescriptor',
+	        FontName: this.subset.postscriptName,
+	        FontFile2: fontfile,
+	        FontBBox: this.bbox,
+	        Flags: this.flags,
+	        StemV: this.stemV,
+	        ItalicAngle: this.italicAngle,
+	        Ascent: this.ascender,
+	        Descent: this.decender,
+	        CapHeight: this.capHeight,
+	        XHeight: this.xHeight
+	      });
+	      descriptor.end();
+	      firstChar = +Object.keys(this.subset.cmap)[0];
+	      charWidths = (function() {
+	        var _ref, _results;
+	        _ref = this.subset.cmap;
+	        _results = [];
+	        for (code in _ref) {
+	          glyph = _ref[code];
+	          _results.push(Math.round(this.font.widthOfGlyph(glyph)));
+	        }
+	        return _results;
+	      }).call(this);
+	      cmap = this.document.ref();
+	      cmap.end(toUnicodeCmap(this.subset.subset));
+	      this.dictionary.data = {
+	        Type: 'Font',
+	        BaseFont: this.subset.postscriptName,
+	        Subtype: 'TrueType',
+	        FontDescriptor: descriptor,
+	        FirstChar: firstChar,
+	        LastChar: firstChar + charWidths.length - 1,
+	        Widths: charWidths,
+	        Encoding: 'MacRomanEncoding',
+	        ToUnicode: cmap
+	      };
+	      return this.dictionary.end();
+	    };
+
+	    toUnicodeCmap = function(map) {
+	      var code, codes, range, unicode, unicodeMap, _i, _len;
+	      unicodeMap = '/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo <<\n  /Registry (Adobe)\n  /Ordering (UCS)\n  /Supplement 0\n>> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00><ff>\nendcodespacerange';
+	      codes = Object.keys(map).sort(function(a, b) {
+	        return a - b;
+	      });
+	      range = [];
+	      for (_i = 0, _len = codes.length; _i < _len; _i++) {
+	        code = codes[_i];
+	        if (range.length >= 100) {
+	          unicodeMap += "\n" + range.length + " beginbfchar\n" + (range.join('\n')) + "\nendbfchar";
+	          range = [];
+	        }
+	        unicode = ('0000' + map[code].toString(16)).slice(-4);
+	        code = (+code).toString(16);
+	        range.push("<" + code + "><" + unicode + ">");
+	      }
+	      if (range.length) {
+	        unicodeMap += "\n" + range.length + " beginbfchar\n" + (range.join('\n')) + "\nendbfchar\n";
+	      }
+	      return unicodeMap += 'endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend';
+	    };
+
+	    PDFFont.prototype.registerAFM = function(name) {
+	      var _ref;
+	      this.name = name;
+	      return _ref = this.font, this.ascender = _ref.ascender, this.decender = _ref.decender, this.bbox = _ref.bbox, this.lineGap = _ref.lineGap, _ref;
+	    };
+
+	    PDFFont.prototype.embedAFM = function() {
+	      this.dictionary.data = {
+	        Type: 'Font',
+	        BaseFont: this.name,
+	        Subtype: 'Type1',
+	        Encoding: 'WinAnsiEncoding'
+	      };
+	      return this.dictionary.end();
+	    };
+
+	    PDFFont.prototype.widthOfString = function(string, size) {
+	      var charCode, i, scale, width, _i, _ref;
+	      string = '' + string;
+	      width = 0;
+	      for (i = _i = 0, _ref = string.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        charCode = string.charCodeAt(i);
+	        width += this.font.widthOfGlyph(this.font.characterToGlyph(charCode)) || 0;
+	      }
+	      scale = size / 1000;
+	      return width * scale;
+	    };
+
+	    PDFFont.prototype.lineHeight = function(size, includeGap) {
+	      var gap;
+	      if (includeGap == null) {
+	        includeGap = false;
+	      }
+	      gap = includeGap ? this.lineGap : 0;
+	      return (this.ascender + gap - this.decender) / 1000 * size;
+	    };
+
+	    return PDFFont;
+
+	  })();
+
+	  module.exports = PDFFont;
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer, "/"))
+
+/***/ },
+/* 71 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var CmapTable, DFont, Data, Directory, GlyfTable, HeadTable, HheaTable, HmtxTable, LocaTable, MaxpTable, NameTable, OS2Table, PostTable, TTFFont, fs;
+
+	  fs = __webpack_require__(44);
+
+	  Data = __webpack_require__(72);
+
+	  DFont = __webpack_require__(73);
+
+	  Directory = __webpack_require__(74);
+
+	  NameTable = __webpack_require__(75);
+
+	  HeadTable = __webpack_require__(78);
+
+	  CmapTable = __webpack_require__(79);
+
+	  HmtxTable = __webpack_require__(80);
+
+	  HheaTable = __webpack_require__(81);
+
+	  MaxpTable = __webpack_require__(82);
+
+	  PostTable = __webpack_require__(83);
+
+	  OS2Table = __webpack_require__(84);
+
+	  LocaTable = __webpack_require__(85);
+
+	  GlyfTable = __webpack_require__(86);
+
+	  TTFFont = (function() {
+	    TTFFont.open = function(filename, name) {
+	      var contents;
+	      contents = fs.readFileSync(filename);
+	      return new TTFFont(contents, name);
+	    };
+
+	    TTFFont.fromDFont = function(filename, family) {
+	      var dfont;
+	      dfont = DFont.open(filename);
+	      return new TTFFont(dfont.getNamedFont(family));
+	    };
+
+	    TTFFont.fromBuffer = function(buffer, family) {
+	      var dfont, e, ttf;
+	      try {
+	        ttf = new TTFFont(buffer, family);
+	        if (!(ttf.head.exists && ttf.name.exists && ttf.cmap.exists)) {
+	          dfont = new DFont(buffer);
+	          ttf = new TTFFont(dfont.getNamedFont(family));
+	          if (!(ttf.head.exists && ttf.name.exists && ttf.cmap.exists)) {
+	            throw new Error('Invalid TTF file in DFont');
+	          }
+	        }
+	        return ttf;
+	      } catch (_error) {
+	        e = _error;
+	        throw new Error('Unknown font format in buffer: ' + e.message);
+	      }
+	    };
+
+	    function TTFFont(rawData, name) {
+	      var data, i, numFonts, offset, offsets, version, _i, _j, _len;
+	      this.rawData = rawData;
+	      data = this.contents = new Data(this.rawData);
+	      if (data.readString(4) === 'ttcf') {
+	        if (!name) {
+	          throw new Error("Must specify a font name for TTC files.");
+	        }
+	        version = data.readInt();
+	        numFonts = data.readInt();
+	        offsets = [];
+	        for (i = _i = 0; 0 <= numFonts ? _i < numFonts : _i > numFonts; i = 0 <= numFonts ? ++_i : --_i) {
+	          offsets[i] = data.readInt();
+	        }
+	        for (i = _j = 0, _len = offsets.length; _j < _len; i = ++_j) {
+	          offset = offsets[i];
+	          data.pos = offset;
+	          this.parse();
+	          if (this.name.postscriptName === name) {
+	            return;
+	          }
+	        }
+	        throw new Error("Font " + name + " not found in TTC file.");
+	      } else {
+	        data.pos = 0;
+	        this.parse();
+	      }
+	    }
+
+	    TTFFont.prototype.parse = function() {
+	      this.directory = new Directory(this.contents);
+	      this.head = new HeadTable(this);
+	      this.name = new NameTable(this);
+	      this.cmap = new CmapTable(this);
+	      this.hhea = new HheaTable(this);
+	      this.maxp = new MaxpTable(this);
+	      this.hmtx = new HmtxTable(this);
+	      this.post = new PostTable(this);
+	      this.os2 = new OS2Table(this);
+	      this.loca = new LocaTable(this);
+	      this.glyf = new GlyfTable(this);
+	      this.ascender = (this.os2.exists && this.os2.ascender) || this.hhea.ascender;
+	      this.decender = (this.os2.exists && this.os2.decender) || this.hhea.decender;
+	      this.lineGap = (this.os2.exists && this.os2.lineGap) || this.hhea.lineGap;
+	      return this.bbox = [this.head.xMin, this.head.yMin, this.head.xMax, this.head.yMax];
+	    };
+
+	    TTFFont.prototype.characterToGlyph = function(character) {
+	      var _ref;
+	      return ((_ref = this.cmap.unicode) != null ? _ref.codeMap[character] : void 0) || 0;
+	    };
+
+	    TTFFont.prototype.widthOfGlyph = function(glyph) {
+	      var scale;
+	      scale = 1000.0 / this.head.unitsPerEm;
+	      return this.hmtx.forGlyph(glyph).advance * scale;
+	    };
+
+	    return TTFFont;
+
+	  })();
+
+	  module.exports = TTFFont;
+
+	}).call(this);
+
+
+/***/ },
+/* 72 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data;
+
+	  Data = (function() {
+	    function Data(data) {
+	      this.data = data != null ? data : [];
+	      this.pos = 0;
+	      this.length = this.data.length;
+	    }
+
+	    Data.prototype.readByte = function() {
+	      return this.data[this.pos++];
+	    };
+
+	    Data.prototype.writeByte = function(byte) {
+	      return this.data[this.pos++] = byte;
+	    };
+
+	    Data.prototype.byteAt = function(index) {
+	      return this.data[index];
+	    };
+
+	    Data.prototype.readBool = function() {
+	      return !!this.readByte();
+	    };
+
+	    Data.prototype.writeBool = function(val) {
+	      return this.writeByte(val ? 1 : 0);
+	    };
+
+	    Data.prototype.readUInt32 = function() {
+	      var b1, b2, b3, b4;
+	      b1 = this.readByte() * 0x1000000;
+	      b2 = this.readByte() << 16;
+	      b3 = this.readByte() << 8;
+	      b4 = this.readByte();
+	      return b1 + b2 + b3 + b4;
+	    };
+
+	    Data.prototype.writeUInt32 = function(val) {
+	      this.writeByte((val >>> 24) & 0xff);
+	      this.writeByte((val >> 16) & 0xff);
+	      this.writeByte((val >> 8) & 0xff);
+	      return this.writeByte(val & 0xff);
+	    };
+
+	    Data.prototype.readInt32 = function() {
+	      var int;
+	      int = this.readUInt32();
+	      if (int >= 0x80000000) {
+	        return int - 0x100000000;
+	      } else {
+	        return int;
+	      }
+	    };
+
+	    Data.prototype.writeInt32 = function(val) {
+	      if (val < 0) {
+	        val += 0x100000000;
+	      }
+	      return this.writeUInt32(val);
+	    };
+
+	    Data.prototype.readUInt16 = function() {
+	      var b1, b2;
+	      b1 = this.readByte() << 8;
+	      b2 = this.readByte();
+	      return b1 | b2;
+	    };
+
+	    Data.prototype.writeUInt16 = function(val) {
+	      this.writeByte((val >> 8) & 0xff);
+	      return this.writeByte(val & 0xff);
+	    };
+
+	    Data.prototype.readInt16 = function() {
+	      var int;
+	      int = this.readUInt16();
+	      if (int >= 0x8000) {
+	        return int - 0x10000;
+	      } else {
+	        return int;
+	      }
+	    };
+
+	    Data.prototype.writeInt16 = function(val) {
+	      if (val < 0) {
+	        val += 0x10000;
+	      }
+	      return this.writeUInt16(val);
+	    };
+
+	    Data.prototype.readString = function(length) {
+	      var i, ret, _i;
+	      ret = [];
+	      for (i = _i = 0; 0 <= length ? _i < length : _i > length; i = 0 <= length ? ++_i : --_i) {
+	        ret[i] = String.fromCharCode(this.readByte());
+	      }
+	      return ret.join('');
+	    };
+
+	    Data.prototype.writeString = function(val) {
+	      var i, _i, _ref, _results;
+	      _results = [];
+	      for (i = _i = 0, _ref = val.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        _results.push(this.writeByte(val.charCodeAt(i)));
+	      }
+	      return _results;
+	    };
+
+	    Data.prototype.stringAt = function(pos, length) {
+	      this.pos = pos;
+	      return this.readString(length);
+	    };
+
+	    Data.prototype.readShort = function() {
+	      return this.readInt16();
+	    };
+
+	    Data.prototype.writeShort = function(val) {
+	      return this.writeInt16(val);
+	    };
+
+	    Data.prototype.readLongLong = function() {
+	      var b1, b2, b3, b4, b5, b6, b7, b8;
+	      b1 = this.readByte();
+	      b2 = this.readByte();
+	      b3 = this.readByte();
+	      b4 = this.readByte();
+	      b5 = this.readByte();
+	      b6 = this.readByte();
+	      b7 = this.readByte();
+	      b8 = this.readByte();
+	      if (b1 & 0x80) {
+	        return ((b1 ^ 0xff) * 0x100000000000000 + (b2 ^ 0xff) * 0x1000000000000 + (b3 ^ 0xff) * 0x10000000000 + (b4 ^ 0xff) * 0x100000000 + (b5 ^ 0xff) * 0x1000000 + (b6 ^ 0xff) * 0x10000 + (b7 ^ 0xff) * 0x100 + (b8 ^ 0xff) + 1) * -1;
+	      }
+	      return b1 * 0x100000000000000 + b2 * 0x1000000000000 + b3 * 0x10000000000 + b4 * 0x100000000 + b5 * 0x1000000 + b6 * 0x10000 + b7 * 0x100 + b8;
+	    };
+
+	    Data.prototype.writeLongLong = function(val) {
+	      var high, low;
+	      high = Math.floor(val / 0x100000000);
+	      low = val & 0xffffffff;
+	      this.writeByte((high >> 24) & 0xff);
+	      this.writeByte((high >> 16) & 0xff);
+	      this.writeByte((high >> 8) & 0xff);
+	      this.writeByte(high & 0xff);
+	      this.writeByte((low >> 24) & 0xff);
+	      this.writeByte((low >> 16) & 0xff);
+	      this.writeByte((low >> 8) & 0xff);
+	      return this.writeByte(low & 0xff);
+	    };
+
+	    Data.prototype.readInt = function() {
+	      return this.readInt32();
+	    };
+
+	    Data.prototype.writeInt = function(val) {
+	      return this.writeInt32(val);
+	    };
+
+	    Data.prototype.slice = function(start, end) {
+	      return this.data.slice(start, end);
+	    };
+
+	    Data.prototype.read = function(bytes) {
+	      var buf, i, _i;
+	      buf = [];
+	      for (i = _i = 0; 0 <= bytes ? _i < bytes : _i > bytes; i = 0 <= bytes ? ++_i : --_i) {
+	        buf.push(this.readByte());
+	      }
+	      return buf;
+	    };
+
+	    Data.prototype.write = function(bytes) {
+	      var byte, _i, _len, _results;
+	      _results = [];
+	      for (_i = 0, _len = bytes.length; _i < _len; _i++) {
+	        byte = bytes[_i];
+	        _results.push(this.writeByte(byte));
+	      }
+	      return _results;
+	    };
+
+	    return Data;
+
+	  })();
+
+	  module.exports = Data;
+
+	}).call(this);
+
+
+/***/ },
+/* 73 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var DFont, Data, Directory, NameTable, fs;
+
+	  fs = __webpack_require__(44);
+
+	  Data = __webpack_require__(72);
+
+	  Directory = __webpack_require__(74);
+
+	  NameTable = __webpack_require__(75);
+
+	  DFont = (function() {
+	    DFont.open = function(filename) {
+	      var contents;
+	      contents = fs.readFileSync(filename);
+	      return new DFont(contents);
+	    };
+
+	    function DFont(contents) {
+	      this.contents = new Data(contents);
+	      this.parse(this.contents);
+	    }
+
+	    DFont.prototype.parse = function(data) {
+	      var attr, b2, b3, b4, dataLength, dataOffset, dataOfs, entry, font, handle, i, id, j, len, length, mapLength, mapOffset, maxIndex, maxTypeIndex, name, nameListOffset, nameOfs, p, pos, refListOffset, type, typeListOffset, _i, _j;
+	      dataOffset = data.readInt();
+	      mapOffset = data.readInt();
+	      dataLength = data.readInt();
+	      mapLength = data.readInt();
+	      this.map = {};
+	      data.pos = mapOffset + 24;
+	      typeListOffset = data.readShort() + mapOffset;
+	      nameListOffset = data.readShort() + mapOffset;
+	      data.pos = typeListOffset;
+	      maxIndex = data.readShort();
+	      for (i = _i = 0; _i <= maxIndex; i = _i += 1) {
+	        type = data.readString(4);
+	        maxTypeIndex = data.readShort();
+	        refListOffset = data.readShort();
+	        this.map[type] = {
+	          list: [],
+	          named: {}
+	        };
+	        pos = data.pos;
+	        data.pos = typeListOffset + refListOffset;
+	        for (j = _j = 0; _j <= maxTypeIndex; j = _j += 1) {
+	          id = data.readShort();
+	          nameOfs = data.readShort();
+	          attr = data.readByte();
+	          b2 = data.readByte() << 16;
+	          b3 = data.readByte() << 8;
+	          b4 = data.readByte();
+	          dataOfs = dataOffset + (0 | b2 | b3 | b4);
+	          handle = data.readUInt32();
+	          entry = {
+	            id: id,
+	            attributes: attr,
+	            offset: dataOfs,
+	            handle: handle
+	          };
+	          p = data.pos;
+	          if (nameOfs !== -1 && (nameListOffset + nameOfs < mapOffset + mapLength)) {
+	            data.pos = nameListOffset + nameOfs;
+	            len = data.readByte();
+	            entry.name = data.readString(len);
+	          } else if (type === 'sfnt') {
+	            data.pos = entry.offset;
+	            length = data.readUInt32();
+	            font = {};
+	            font.contents = new Data(data.slice(data.pos, data.pos + length));
+	            font.directory = new Directory(font.contents);
+	            name = new NameTable(font);
+	            entry.name = name.fontName[0].raw;
+	          }
+	          data.pos = p;
+	          this.map[type].list.push(entry);
+	          if (entry.name) {
+	            this.map[type].named[entry.name] = entry;
+	          }
+	        }
+	        data.pos = pos;
+	      }
+	    };
+
+	    DFont.prototype.getNamedFont = function(name) {
+	      var data, entry, length, pos, ret, _ref;
+	      data = this.contents;
+	      pos = data.pos;
+	      entry = (_ref = this.map.sfnt) != null ? _ref.named[name] : void 0;
+	      if (!entry) {
+	        throw new Error("Font " + name + " not found in DFont file.");
+	      }
+	      data.pos = entry.offset;
+	      length = data.readUInt32();
+	      ret = data.slice(data.pos, data.pos + length);
+	      data.pos = pos;
+	      return ret;
+	    };
+
+	    return DFont;
+
+	  })();
+
+	  module.exports = DFont;
+
+	}).call(this);
+
+
+/***/ },
+/* 74 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, Directory,
+	    __slice = [].slice;
+
+	  Data = __webpack_require__(72);
+
+	  Directory = (function() {
+	    var checksum;
+
+	    function Directory(data) {
+	      var entry, i, _i, _ref;
+	      this.scalarType = data.readInt();
+	      this.tableCount = data.readShort();
+	      this.searchRange = data.readShort();
+	      this.entrySelector = data.readShort();
+	      this.rangeShift = data.readShort();
+	      this.tables = {};
+	      for (i = _i = 0, _ref = this.tableCount; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        entry = {
+	          tag: data.readString(4),
+	          checksum: data.readInt(),
+	          offset: data.readInt(),
+	          length: data.readInt()
+	        };
+	        this.tables[entry.tag] = entry;
+	      }
+	    }
+
+	    Directory.prototype.encode = function(tables) {
+	      var adjustment, directory, directoryLength, entrySelector, headOffset, log2, offset, rangeShift, searchRange, sum, table, tableCount, tableData, tag;
+	      tableCount = Object.keys(tables).length;
+	      log2 = Math.log(2);
+	      searchRange = Math.floor(Math.log(tableCount) / log2) * 16;
+	      entrySelector = Math.floor(searchRange / log2);
+	      rangeShift = tableCount * 16 - searchRange;
+	      directory = new Data;
+	      directory.writeInt(this.scalarType);
+	      directory.writeShort(tableCount);
+	      directory.writeShort(searchRange);
+	      directory.writeShort(entrySelector);
+	      directory.writeShort(rangeShift);
+	      directoryLength = tableCount * 16;
+	      offset = directory.pos + directoryLength;
+	      headOffset = null;
+	      tableData = [];
+	      for (tag in tables) {
+	        table = tables[tag];
+	        directory.writeString(tag);
+	        directory.writeInt(checksum(table));
+	        directory.writeInt(offset);
+	        directory.writeInt(table.length);
+	        tableData = tableData.concat(table);
+	        if (tag === 'head') {
+	          headOffset = offset;
+	        }
+	        offset += table.length;
+	        while (offset % 4) {
+	          tableData.push(0);
+	          offset++;
+	        }
+	      }
+	      directory.write(tableData);
+	      sum = checksum(directory.data);
+	      adjustment = 0xB1B0AFBA - sum;
+	      directory.pos = headOffset + 8;
+	      directory.writeUInt32(adjustment);
+	      return new Buffer(directory.data);
+	    };
+
+	    checksum = function(data) {
+	      var i, sum, tmp, _i, _ref;
+	      data = __slice.call(data);
+	      while (data.length % 4) {
+	        data.push(0);
+	      }
+	      tmp = new Data(data);
+	      sum = 0;
+	      for (i = _i = 0, _ref = data.length; _i < _ref; i = _i += 4) {
+	        sum += tmp.readUInt32();
+	      }
+	      return sum & 0xFFFFFFFF;
+	    };
+
+	    return Directory;
+
+	  })();
+
+	  module.exports = Directory;
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 75 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, NameEntry, NameTable, Table, utils,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  utils = __webpack_require__(77);
+
+	  NameTable = (function(_super) {
+	    var subsetTag;
+
+	    __extends(NameTable, _super);
+
+	    function NameTable() {
+	      return NameTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    NameTable.prototype.tag = 'name';
+
+	    NameTable.prototype.parse = function(data) {
+	      var count, entries, entry, format, i, name, stringOffset, strings, text, _i, _j, _len, _name;
+	      data.pos = this.offset;
+	      format = data.readShort();
+	      count = data.readShort();
+	      stringOffset = data.readShort();
+	      entries = [];
+	      for (i = _i = 0; 0 <= count ? _i < count : _i > count; i = 0 <= count ? ++_i : --_i) {
+	        entries.push({
+	          platformID: data.readShort(),
+	          encodingID: data.readShort(),
+	          languageID: data.readShort(),
+	          nameID: data.readShort(),
+	          length: data.readShort(),
+	          offset: this.offset + stringOffset + data.readShort()
+	        });
+	      }
+	      strings = {};
+	      for (i = _j = 0, _len = entries.length; _j < _len; i = ++_j) {
+	        entry = entries[i];
+	        data.pos = entry.offset;
+	        text = data.readString(entry.length);
+	        name = new NameEntry(text, entry);
+	        if (strings[_name = entry.nameID] == null) {
+	          strings[_name] = [];
+	        }
+	        strings[entry.nameID].push(name);
+	      }
+	      this.strings = strings;
+	      this.copyright = strings[0];
+	      this.fontFamily = strings[1];
+	      this.fontSubfamily = strings[2];
+	      this.uniqueSubfamily = strings[3];
+	      this.fontName = strings[4];
+	      this.version = strings[5];
+	      this.postscriptName = strings[6][0].raw.replace(/[\x00-\x19\x80-\xff]/g, "");
+	      this.trademark = strings[7];
+	      this.manufacturer = strings[8];
+	      this.designer = strings[9];
+	      this.description = strings[10];
+	      this.vendorUrl = strings[11];
+	      this.designerUrl = strings[12];
+	      this.license = strings[13];
+	      this.licenseUrl = strings[14];
+	      this.preferredFamily = strings[15];
+	      this.preferredSubfamily = strings[17];
+	      this.compatibleFull = strings[18];
+	      return this.sampleText = strings[19];
+	    };
+
+	    subsetTag = "AAAAAA";
+
+	    NameTable.prototype.encode = function() {
+	      var id, list, nameID, nameTable, postscriptName, strCount, strTable, string, strings, table, val, _i, _len, _ref;
+	      strings = {};
+	      _ref = this.strings;
+	      for (id in _ref) {
+	        val = _ref[id];
+	        strings[id] = val;
+	      }
+	      postscriptName = new NameEntry("" + subsetTag + "+" + this.postscriptName, {
+	        platformID: 1,
+	        encodingID: 0,
+	        languageID: 0
+	      });
+	      strings[6] = [postscriptName];
+	      subsetTag = utils.successorOf(subsetTag);
+	      strCount = 0;
+	      for (id in strings) {
+	        list = strings[id];
+	        if (list != null) {
+	          strCount += list.length;
+	        }
+	      }
+	      table = new Data;
+	      strTable = new Data;
+	      table.writeShort(0);
+	      table.writeShort(strCount);
+	      table.writeShort(6 + 12 * strCount);
+	      for (nameID in strings) {
+	        list = strings[nameID];
+	        if (list != null) {
+	          for (_i = 0, _len = list.length; _i < _len; _i++) {
+	            string = list[_i];
+	            table.writeShort(string.platformID);
+	            table.writeShort(string.encodingID);
+	            table.writeShort(string.languageID);
+	            table.writeShort(nameID);
+	            table.writeShort(string.length);
+	            table.writeShort(strTable.pos);
+	            strTable.writeString(string.raw);
+	          }
+	        }
+	      }
+	      return nameTable = {
+	        postscriptName: postscriptName.raw,
+	        table: table.data.concat(strTable.data)
+	      };
+	    };
+
+	    return NameTable;
+
+	  })(Table);
+
+	  module.exports = NameTable;
+
+	  NameEntry = (function() {
+	    function NameEntry(raw, entry) {
+	      this.raw = raw;
+	      this.length = this.raw.length;
+	      this.platformID = entry.platformID;
+	      this.encodingID = entry.encodingID;
+	      this.languageID = entry.languageID;
+	    }
+
+	    return NameEntry;
+
+	  })();
+
+	}).call(this);
+
+
+/***/ },
+/* 76 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Table;
+
+	  Table = (function() {
+	    function Table(file) {
+	      var info;
+	      this.file = file;
+	      info = this.file.directory.tables[this.tag];
+	      this.exists = !!info;
+	      if (info) {
+	        this.offset = info.offset, this.length = info.length;
+	        this.parse(this.file.contents);
+	      }
+	    }
+
+	    Table.prototype.parse = function() {};
+
+	    Table.prototype.encode = function() {};
+
+	    Table.prototype.raw = function() {
+	      if (!this.exists) {
+	        return null;
+	      }
+	      this.file.contents.pos = this.offset;
+	      return this.file.contents.read(this.length);
+	    };
+
+	    return Table;
+
+	  })();
+
+	  module.exports = Table;
+
+	}).call(this);
+
+
+/***/ },
+/* 77 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+
+	/*
+	 * An implementation of Ruby's string.succ method.
+	 * By Devon Govett
+	 *
+	 * Returns the successor to str. The successor is calculated by incrementing characters starting 
+	 * from the rightmost alphanumeric (or the rightmost character if there are no alphanumerics) in the
+	 * string. Incrementing a digit always results in another digit, and incrementing a letter results in
+	 * another letter of the same case.
+	 *
+	 * If the increment generates a carry, the character to the left of it is incremented. This 
+	 * process repeats until there is no carry, adding an additional character if necessary.
+	 *
+	 * succ("abcd")      == "abce"
+	 * succ("THX1138")   == "THX1139"
+	 * succ("<<koala>>") == "<<koalb>>"
+	 * succ("1999zzz")   == "2000aaa"
+	 * succ("ZZZ9999")   == "AAAA0000"
+	 */
+
+	(function() {
+	  exports.successorOf = function(input) {
+	    var added, alphabet, carry, i, index, isUpperCase, last, length, next, result;
+	    alphabet = 'abcdefghijklmnopqrstuvwxyz';
+	    length = alphabet.length;
+	    result = input;
+	    i = input.length;
+	    while (i >= 0) {
+	      last = input.charAt(--i);
+	      if (isNaN(last)) {
+	        index = alphabet.indexOf(last.toLowerCase());
+	        if (index === -1) {
+	          next = last;
+	          carry = true;
+	        } else {
+	          next = alphabet.charAt((index + 1) % length);
+	          isUpperCase = last === last.toUpperCase();
+	          if (isUpperCase) {
+	            next = next.toUpperCase();
+	          }
+	          carry = index + 1 >= length;
+	          if (carry && i === 0) {
+	            added = isUpperCase ? 'A' : 'a';
+	            result = added + next + result.slice(1);
+	            break;
+	          }
+	        }
+	      } else {
+	        next = +last + 1;
+	        carry = next > 9;
+	        if (carry) {
+	          next = 0;
+	        }
+	        if (carry && i === 0) {
+	          result = '1' + next + result.slice(1);
+	          break;
+	        }
+	      }
+	      result = result.slice(0, i) + next + result.slice(i + 1);
+	      if (!carry) {
+	        break;
+	      }
+	    }
+	    return result;
+	  };
+
+	  exports.invert = function(object) {
+	    var key, ret, val;
+	    ret = {};
+	    for (key in object) {
+	      val = object[key];
+	      ret[val] = key;
+	    }
+	    return ret;
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 78 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, HeadTable, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  HeadTable = (function(_super) {
+	    __extends(HeadTable, _super);
+
+	    function HeadTable() {
+	      return HeadTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    HeadTable.prototype.tag = 'head';
+
+	    HeadTable.prototype.parse = function(data) {
+	      data.pos = this.offset;
+	      this.version = data.readInt();
+	      this.revision = data.readInt();
+	      this.checkSumAdjustment = data.readInt();
+	      this.magicNumber = data.readInt();
+	      this.flags = data.readShort();
+	      this.unitsPerEm = data.readShort();
+	      this.created = data.readLongLong();
+	      this.modified = data.readLongLong();
+	      this.xMin = data.readShort();
+	      this.yMin = data.readShort();
+	      this.xMax = data.readShort();
+	      this.yMax = data.readShort();
+	      this.macStyle = data.readShort();
+	      this.lowestRecPPEM = data.readShort();
+	      this.fontDirectionHint = data.readShort();
+	      this.indexToLocFormat = data.readShort();
+	      return this.glyphDataFormat = data.readShort();
+	    };
+
+	    HeadTable.prototype.encode = function(loca) {
+	      var table;
+	      table = new Data;
+	      table.writeInt(this.version);
+	      table.writeInt(this.revision);
+	      table.writeInt(this.checkSumAdjustment);
+	      table.writeInt(this.magicNumber);
+	      table.writeShort(this.flags);
+	      table.writeShort(this.unitsPerEm);
+	      table.writeLongLong(this.created);
+	      table.writeLongLong(this.modified);
+	      table.writeShort(this.xMin);
+	      table.writeShort(this.yMin);
+	      table.writeShort(this.xMax);
+	      table.writeShort(this.yMax);
+	      table.writeShort(this.macStyle);
+	      table.writeShort(this.lowestRecPPEM);
+	      table.writeShort(this.fontDirectionHint);
+	      table.writeShort(loca.type);
+	      table.writeShort(this.glyphDataFormat);
+	      return table.data;
+	    };
+
+	    return HeadTable;
+
+	  })(Table);
+
+	  module.exports = HeadTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 79 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var CmapEntry, CmapTable, Data, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  CmapTable = (function(_super) {
+	    __extends(CmapTable, _super);
+
+	    function CmapTable() {
+	      return CmapTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    CmapTable.prototype.tag = 'cmap';
+
+	    CmapTable.prototype.parse = function(data) {
+	      var entry, i, tableCount, _i;
+	      data.pos = this.offset;
+	      this.version = data.readUInt16();
+	      tableCount = data.readUInt16();
+	      this.tables = [];
+	      this.unicode = null;
+	      for (i = _i = 0; 0 <= tableCount ? _i < tableCount : _i > tableCount; i = 0 <= tableCount ? ++_i : --_i) {
+	        entry = new CmapEntry(data, this.offset);
+	        this.tables.push(entry);
+	        if (entry.isUnicode) {
+	          if (this.unicode == null) {
+	            this.unicode = entry;
+	          }
+	        }
+	      }
+	      return true;
+	    };
+
+	    CmapTable.encode = function(charmap, encoding) {
+	      var result, table;
+	      if (encoding == null) {
+	        encoding = 'macroman';
+	      }
+	      result = CmapEntry.encode(charmap, encoding);
+	      table = new Data;
+	      table.writeUInt16(0);
+	      table.writeUInt16(1);
+	      result.table = table.data.concat(result.subtable);
+	      return result;
+	    };
+
+	    return CmapTable;
+
+	  })(Table);
+
+	  CmapEntry = (function() {
+	    function CmapEntry(data, offset) {
+	      var code, count, endCode, glyphId, glyphIds, i, idDelta, idRangeOffset, index, saveOffset, segCount, segCountX2, start, startCode, tail, _i, _j, _k, _len;
+	      this.platformID = data.readUInt16();
+	      this.encodingID = data.readShort();
+	      this.offset = offset + data.readInt();
+	      saveOffset = data.pos;
+	      data.pos = this.offset;
+	      this.format = data.readUInt16();
+	      this.length = data.readUInt16();
+	      this.language = data.readUInt16();
+	      this.isUnicode = (this.platformID === 3 && this.encodingID === 1 && this.format === 4) || this.platformID === 0 && this.format === 4;
+	      this.codeMap = {};
+	      switch (this.format) {
+	        case 0:
+	          for (i = _i = 0; _i < 256; i = ++_i) {
+	            this.codeMap[i] = data.readByte();
+	          }
+	          break;
+	        case 4:
+	          segCountX2 = data.readUInt16();
+	          segCount = segCountX2 / 2;
+	          data.pos += 6;
+	          endCode = (function() {
+	            var _j, _results;
+	            _results = [];
+	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
+	              _results.push(data.readUInt16());
+	            }
+	            return _results;
+	          })();
+	          data.pos += 2;
+	          startCode = (function() {
+	            var _j, _results;
+	            _results = [];
+	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
+	              _results.push(data.readUInt16());
+	            }
+	            return _results;
+	          })();
+	          idDelta = (function() {
+	            var _j, _results;
+	            _results = [];
+	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
+	              _results.push(data.readUInt16());
+	            }
+	            return _results;
+	          })();
+	          idRangeOffset = (function() {
+	            var _j, _results;
+	            _results = [];
+	            for (i = _j = 0; 0 <= segCount ? _j < segCount : _j > segCount; i = 0 <= segCount ? ++_j : --_j) {
+	              _results.push(data.readUInt16());
+	            }
+	            return _results;
+	          })();
+	          count = (this.length - data.pos + this.offset) / 2;
+	          glyphIds = (function() {
+	            var _j, _results;
+	            _results = [];
+	            for (i = _j = 0; 0 <= count ? _j < count : _j > count; i = 0 <= count ? ++_j : --_j) {
+	              _results.push(data.readUInt16());
+	            }
+	            return _results;
+	          })();
+	          for (i = _j = 0, _len = endCode.length; _j < _len; i = ++_j) {
+	            tail = endCode[i];
+	            start = startCode[i];
+	            for (code = _k = start; start <= tail ? _k <= tail : _k >= tail; code = start <= tail ? ++_k : --_k) {
+	              if (idRangeOffset[i] === 0) {
+	                glyphId = code + idDelta[i];
+	              } else {
+	                index = idRangeOffset[i] / 2 + (code - start) - (segCount - i);
+	                glyphId = glyphIds[index] || 0;
+	                if (glyphId !== 0) {
+	                  glyphId += idDelta[i];
+	                }
+	              }
+	              this.codeMap[code] = glyphId & 0xFFFF;
+	            }
+	          }
+	      }
+	      data.pos = saveOffset;
+	    }
+
+	    CmapEntry.encode = function(charmap, encoding) {
+	      var charMap, code, codeMap, codes, delta, deltas, diff, endCode, endCodes, entrySelector, glyphIDs, i, id, indexes, last, map, nextID, offset, old, rangeOffsets, rangeShift, result, searchRange, segCount, segCountX2, startCode, startCodes, startGlyph, subtable, _i, _j, _k, _l, _len, _len1, _len2, _len3, _len4, _len5, _len6, _len7, _m, _n, _name, _o, _p, _q;
+	      subtable = new Data;
+	      codes = Object.keys(charmap).sort(function(a, b) {
+	        return a - b;
+	      });
+	      switch (encoding) {
+	        case 'macroman':
+	          id = 0;
+	          indexes = (function() {
+	            var _i, _results;
+	            _results = [];
+	            for (i = _i = 0; _i < 256; i = ++_i) {
+	              _results.push(0);
+	            }
+	            return _results;
+	          })();
+	          map = {
+	            0: 0
+	          };
+	          codeMap = {};
+	          for (_i = 0, _len = codes.length; _i < _len; _i++) {
+	            code = codes[_i];
+	            if (map[_name = charmap[code]] == null) {
+	              map[_name] = ++id;
+	            }
+	            codeMap[code] = {
+	              old: charmap[code],
+	              "new": map[charmap[code]]
+	            };
+	            indexes[code] = map[charmap[code]];
+	          }
+	          subtable.writeUInt16(1);
+	          subtable.writeUInt16(0);
+	          subtable.writeUInt32(12);
+	          subtable.writeUInt16(0);
+	          subtable.writeUInt16(262);
+	          subtable.writeUInt16(0);
+	          subtable.write(indexes);
+	          return result = {
+	            charMap: codeMap,
+	            subtable: subtable.data,
+	            maxGlyphID: id + 1
+	          };
+	        case 'unicode':
+	          startCodes = [];
+	          endCodes = [];
+	          nextID = 0;
+	          map = {};
+	          charMap = {};
+	          last = diff = null;
+	          for (_j = 0, _len1 = codes.length; _j < _len1; _j++) {
+	            code = codes[_j];
+	            old = charmap[code];
+	            if (map[old] == null) {
+	              map[old] = ++nextID;
+	            }
+	            charMap[code] = {
+	              old: old,
+	              "new": map[old]
+	            };
+	            delta = map[old] - code;
+	            if ((last == null) || delta !== diff) {
+	              if (last) {
+	                endCodes.push(last);
+	              }
+	              startCodes.push(code);
+	              diff = delta;
+	            }
+	            last = code;
+	          }
+	          if (last) {
+	            endCodes.push(last);
+	          }
+	          endCodes.push(0xFFFF);
+	          startCodes.push(0xFFFF);
+	          segCount = startCodes.length;
+	          segCountX2 = segCount * 2;
+	          searchRange = 2 * Math.pow(Math.log(segCount) / Math.LN2, 2);
+	          entrySelector = Math.log(searchRange / 2) / Math.LN2;
+	          rangeShift = 2 * segCount - searchRange;
+	          deltas = [];
+	          rangeOffsets = [];
+	          glyphIDs = [];
+	          for (i = _k = 0, _len2 = startCodes.length; _k < _len2; i = ++_k) {
+	            startCode = startCodes[i];
+	            endCode = endCodes[i];
+	            if (startCode === 0xFFFF) {
+	              deltas.push(0);
+	              rangeOffsets.push(0);
+	              break;
+	            }
+	            startGlyph = charMap[startCode]["new"];
+	            if (startCode - startGlyph >= 0x8000) {
+	              deltas.push(0);
+	              rangeOffsets.push(2 * (glyphIDs.length + segCount - i));
+	              for (code = _l = startCode; startCode <= endCode ? _l <= endCode : _l >= endCode; code = startCode <= endCode ? ++_l : --_l) {
+	                glyphIDs.push(charMap[code]["new"]);
+	              }
+	            } else {
+	              deltas.push(startGlyph - startCode);
+	              rangeOffsets.push(0);
+	            }
+	          }
+	          subtable.writeUInt16(3);
+	          subtable.writeUInt16(1);
+	          subtable.writeUInt32(12);
+	          subtable.writeUInt16(4);
+	          subtable.writeUInt16(16 + segCount * 8 + glyphIDs.length * 2);
+	          subtable.writeUInt16(0);
+	          subtable.writeUInt16(segCountX2);
+	          subtable.writeUInt16(searchRange);
+	          subtable.writeUInt16(entrySelector);
+	          subtable.writeUInt16(rangeShift);
+	          for (_m = 0, _len3 = endCodes.length; _m < _len3; _m++) {
+	            code = endCodes[_m];
+	            subtable.writeUInt16(code);
+	          }
+	          subtable.writeUInt16(0);
+	          for (_n = 0, _len4 = startCodes.length; _n < _len4; _n++) {
+	            code = startCodes[_n];
+	            subtable.writeUInt16(code);
+	          }
+	          for (_o = 0, _len5 = deltas.length; _o < _len5; _o++) {
+	            delta = deltas[_o];
+	            subtable.writeUInt16(delta);
+	          }
+	          for (_p = 0, _len6 = rangeOffsets.length; _p < _len6; _p++) {
+	            offset = rangeOffsets[_p];
+	            subtable.writeUInt16(offset);
+	          }
+	          for (_q = 0, _len7 = glyphIDs.length; _q < _len7; _q++) {
+	            id = glyphIDs[_q];
+	            subtable.writeUInt16(id);
+	          }
+	          return result = {
+	            charMap: charMap,
+	            subtable: subtable.data,
+	            maxGlyphID: nextID + 1
+	          };
+	      }
+	    };
+
+	    return CmapEntry;
+
+	  })();
+
+	  module.exports = CmapTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 80 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, HmtxTable, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  HmtxTable = (function(_super) {
+	    __extends(HmtxTable, _super);
+
+	    function HmtxTable() {
+	      return HmtxTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    HmtxTable.prototype.tag = 'hmtx';
+
+	    HmtxTable.prototype.parse = function(data) {
+	      var i, last, lsbCount, m, _i, _j, _ref, _results;
+	      data.pos = this.offset;
+	      this.metrics = [];
+	      for (i = _i = 0, _ref = this.file.hhea.numberOfMetrics; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        this.metrics.push({
+	          advance: data.readUInt16(),
+	          lsb: data.readInt16()
+	        });
+	      }
+	      lsbCount = this.file.maxp.numGlyphs - this.file.hhea.numberOfMetrics;
+	      this.leftSideBearings = (function() {
+	        var _j, _results;
+	        _results = [];
+	        for (i = _j = 0; 0 <= lsbCount ? _j < lsbCount : _j > lsbCount; i = 0 <= lsbCount ? ++_j : --_j) {
+	          _results.push(data.readInt16());
+	        }
+	        return _results;
+	      })();
+	      this.widths = (function() {
+	        var _j, _len, _ref1, _results;
+	        _ref1 = this.metrics;
+	        _results = [];
+	        for (_j = 0, _len = _ref1.length; _j < _len; _j++) {
+	          m = _ref1[_j];
+	          _results.push(m.advance);
+	        }
+	        return _results;
+	      }).call(this);
+	      last = this.widths[this.widths.length - 1];
+	      _results = [];
+	      for (i = _j = 0; 0 <= lsbCount ? _j < lsbCount : _j > lsbCount; i = 0 <= lsbCount ? ++_j : --_j) {
+	        _results.push(this.widths.push(last));
+	      }
+	      return _results;
+	    };
+
+	    HmtxTable.prototype.forGlyph = function(id) {
+	      var metrics;
+	      if (id in this.metrics) {
+	        return this.metrics[id];
+	      }
+	      return metrics = {
+	        advance: this.metrics[this.metrics.length - 1].advance,
+	        lsb: this.leftSideBearings[id - this.metrics.length]
+	      };
+	    };
+
+	    HmtxTable.prototype.encode = function(mapping) {
+	      var id, metric, table, _i, _len;
+	      table = new Data;
+	      for (_i = 0, _len = mapping.length; _i < _len; _i++) {
+	        id = mapping[_i];
+	        metric = this.forGlyph(id);
+	        table.writeUInt16(metric.advance);
+	        table.writeUInt16(metric.lsb);
+	      }
+	      return table.data;
+	    };
+
+	    return HmtxTable;
+
+	  })(Table);
+
+	  module.exports = HmtxTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 81 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, HheaTable, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  HheaTable = (function(_super) {
+	    __extends(HheaTable, _super);
+
+	    function HheaTable() {
+	      return HheaTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    HheaTable.prototype.tag = 'hhea';
+
+	    HheaTable.prototype.parse = function(data) {
+	      data.pos = this.offset;
+	      this.version = data.readInt();
+	      this.ascender = data.readShort();
+	      this.decender = data.readShort();
+	      this.lineGap = data.readShort();
+	      this.advanceWidthMax = data.readShort();
+	      this.minLeftSideBearing = data.readShort();
+	      this.minRightSideBearing = data.readShort();
+	      this.xMaxExtent = data.readShort();
+	      this.caretSlopeRise = data.readShort();
+	      this.caretSlopeRun = data.readShort();
+	      this.caretOffset = data.readShort();
+	      data.pos += 4 * 2;
+	      this.metricDataFormat = data.readShort();
+	      return this.numberOfMetrics = data.readUInt16();
+	    };
+
+	    HheaTable.prototype.encode = function(ids) {
+	      var i, table, _i, _ref;
+	      table = new Data;
+	      table.writeInt(this.version);
+	      table.writeShort(this.ascender);
+	      table.writeShort(this.decender);
+	      table.writeShort(this.lineGap);
+	      table.writeShort(this.advanceWidthMax);
+	      table.writeShort(this.minLeftSideBearing);
+	      table.writeShort(this.minRightSideBearing);
+	      table.writeShort(this.xMaxExtent);
+	      table.writeShort(this.caretSlopeRise);
+	      table.writeShort(this.caretSlopeRun);
+	      table.writeShort(this.caretOffset);
+	      for (i = _i = 0, _ref = 4 * 2; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        table.writeByte(0);
+	      }
+	      table.writeShort(this.metricDataFormat);
+	      table.writeUInt16(ids.length);
+	      return table.data;
+	    };
+
+	    return HheaTable;
+
+	  })(Table);
+
+	  module.exports = HheaTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 82 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, MaxpTable, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  MaxpTable = (function(_super) {
+	    __extends(MaxpTable, _super);
+
+	    function MaxpTable() {
+	      return MaxpTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    MaxpTable.prototype.tag = 'maxp';
+
+	    MaxpTable.prototype.parse = function(data) {
+	      data.pos = this.offset;
+	      this.version = data.readInt();
+	      this.numGlyphs = data.readUInt16();
+	      this.maxPoints = data.readUInt16();
+	      this.maxContours = data.readUInt16();
+	      this.maxCompositePoints = data.readUInt16();
+	      this.maxComponentContours = data.readUInt16();
+	      this.maxZones = data.readUInt16();
+	      this.maxTwilightPoints = data.readUInt16();
+	      this.maxStorage = data.readUInt16();
+	      this.maxFunctionDefs = data.readUInt16();
+	      this.maxInstructionDefs = data.readUInt16();
+	      this.maxStackElements = data.readUInt16();
+	      this.maxSizeOfInstructions = data.readUInt16();
+	      this.maxComponentElements = data.readUInt16();
+	      return this.maxComponentDepth = data.readUInt16();
+	    };
+
+	    MaxpTable.prototype.encode = function(ids) {
+	      var table;
+	      table = new Data;
+	      table.writeInt(this.version);
+	      table.writeUInt16(ids.length);
+	      table.writeUInt16(this.maxPoints);
+	      table.writeUInt16(this.maxContours);
+	      table.writeUInt16(this.maxCompositePoints);
+	      table.writeUInt16(this.maxComponentContours);
+	      table.writeUInt16(this.maxZones);
+	      table.writeUInt16(this.maxTwilightPoints);
+	      table.writeUInt16(this.maxStorage);
+	      table.writeUInt16(this.maxFunctionDefs);
+	      table.writeUInt16(this.maxInstructionDefs);
+	      table.writeUInt16(this.maxStackElements);
+	      table.writeUInt16(this.maxSizeOfInstructions);
+	      table.writeUInt16(this.maxComponentElements);
+	      table.writeUInt16(this.maxComponentDepth);
+	      return table.data;
+	    };
+
+	    return MaxpTable;
+
+	  })(Table);
+
+	  module.exports = MaxpTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 83 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, PostTable, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  PostTable = (function(_super) {
+	    var POSTSCRIPT_GLYPHS;
+
+	    __extends(PostTable, _super);
+
+	    function PostTable() {
+	      return PostTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    PostTable.prototype.tag = 'post';
+
+	    PostTable.prototype.parse = function(data) {
+	      var i, length, numberOfGlyphs, _i, _results;
+	      data.pos = this.offset;
+	      this.format = data.readInt();
+	      this.italicAngle = data.readInt();
+	      this.underlinePosition = data.readShort();
+	      this.underlineThickness = data.readShort();
+	      this.isFixedPitch = data.readInt();
+	      this.minMemType42 = data.readInt();
+	      this.maxMemType42 = data.readInt();
+	      this.minMemType1 = data.readInt();
+	      this.maxMemType1 = data.readInt();
+	      switch (this.format) {
+	        case 0x00010000:
+	          break;
+	        case 0x00020000:
+	          numberOfGlyphs = data.readUInt16();
+	          this.glyphNameIndex = [];
+	          for (i = _i = 0; 0 <= numberOfGlyphs ? _i < numberOfGlyphs : _i > numberOfGlyphs; i = 0 <= numberOfGlyphs ? ++_i : --_i) {
+	            this.glyphNameIndex.push(data.readUInt16());
+	          }
+	          this.names = [];
+	          _results = [];
+	          while (data.pos < this.offset + this.length) {
+	            length = data.readByte();
+	            _results.push(this.names.push(data.readString(length)));
+	          }
+	          return _results;
+	          break;
+	        case 0x00025000:
+	          numberOfGlyphs = data.readUInt16();
+	          return this.offsets = data.read(numberOfGlyphs);
+	        case 0x00030000:
+	          break;
+	        case 0x00040000:
+	          return this.map = (function() {
+	            var _j, _ref, _results1;
+	            _results1 = [];
+	            for (i = _j = 0, _ref = this.file.maxp.numGlyphs; 0 <= _ref ? _j < _ref : _j > _ref; i = 0 <= _ref ? ++_j : --_j) {
+	              _results1.push(data.readUInt32());
+	            }
+	            return _results1;
+	          }).call(this);
+	      }
+	    };
+
+	    PostTable.prototype.glyphFor = function(code) {
+	      var index;
+	      switch (this.format) {
+	        case 0x00010000:
+	          return POSTSCRIPT_GLYPHS[code] || '.notdef';
+	        case 0x00020000:
+	          index = this.glyphNameIndex[code];
+	          if (index <= 257) {
+	            return POSTSCRIPT_GLYPHS[index];
+	          } else {
+	            return this.names[index - 258] || '.notdef';
+	          }
+	          break;
+	        case 0x00025000:
+	          return POSTSCRIPT_GLYPHS[code + this.offsets[code]] || '.notdef';
+	        case 0x00030000:
+	          return '.notdef';
+	        case 0x00040000:
+	          return this.map[code] || 0xFFFF;
+	      }
+	    };
+
+	    PostTable.prototype.encode = function(mapping) {
+	      var id, index, indexes, position, post, raw, string, strings, table, _i, _j, _k, _len, _len1, _len2;
+	      if (!this.exists) {
+	        return null;
+	      }
+	      raw = this.raw();
+	      if (this.format === 0x00030000) {
+	        return raw;
+	      }
+	      table = new Data(raw.slice(0, 32));
+	      table.writeUInt32(0x00020000);
+	      table.pos = 32;
+	      indexes = [];
+	      strings = [];
+	      for (_i = 0, _len = mapping.length; _i < _len; _i++) {
+	        id = mapping[_i];
+	        post = this.glyphFor(id);
+	        position = POSTSCRIPT_GLYPHS.indexOf(post);
+	        if (position !== -1) {
+	          indexes.push(position);
+	        } else {
+	          indexes.push(257 + strings.length);
+	          strings.push(post);
+	        }
+	      }
+	      table.writeUInt16(Object.keys(mapping).length);
+	      for (_j = 0, _len1 = indexes.length; _j < _len1; _j++) {
+	        index = indexes[_j];
+	        table.writeUInt16(index);
+	      }
+	      for (_k = 0, _len2 = strings.length; _k < _len2; _k++) {
+	        string = strings[_k];
+	        table.writeByte(string.length);
+	        table.writeString(string);
+	      }
+	      return table.data;
+	    };
+
+	    POSTSCRIPT_GLYPHS = '.notdef .null nonmarkingreturn space exclam quotedbl numbersign dollar percent\nampersand quotesingle parenleft parenright asterisk plus comma hyphen period slash\nzero one two three four five six seven eight nine colon semicolon less equal greater\nquestion at A B C D E F G H I J K L M N O P Q R S T U V W X Y Z\nbracketleft backslash bracketright asciicircum underscore grave\na b c d e f g h i j k l m n o p q r s t u v w x y z\nbraceleft bar braceright asciitilde Adieresis Aring Ccedilla Eacute Ntilde Odieresis\nUdieresis aacute agrave acircumflex adieresis atilde aring ccedilla eacute egrave\necircumflex edieresis iacute igrave icircumflex idieresis ntilde oacute ograve\nocircumflex odieresis otilde uacute ugrave ucircumflex udieresis dagger degree cent\nsterling section bullet paragraph germandbls registered copyright trademark acute\ndieresis notequal AE Oslash infinity plusminus lessequal greaterequal yen mu\npartialdiff summation product pi integral ordfeminine ordmasculine Omega ae oslash\nquestiondown exclamdown logicalnot radical florin approxequal Delta guillemotleft\nguillemotright ellipsis nonbreakingspace Agrave Atilde Otilde OE oe endash emdash\nquotedblleft quotedblright quoteleft quoteright divide lozenge ydieresis Ydieresis\nfraction currency guilsinglleft guilsinglright fi fl daggerdbl periodcentered\nquotesinglbase quotedblbase perthousand Acircumflex Ecircumflex Aacute Edieresis\nEgrave Iacute Icircumflex Idieresis Igrave Oacute Ocircumflex apple Ograve Uacute\nUcircumflex Ugrave dotlessi circumflex tilde macron breve dotaccent ring cedilla\nhungarumlaut ogonek caron Lslash lslash Scaron scaron Zcaron zcaron brokenbar Eth\neth Yacute yacute Thorn thorn minus multiply onesuperior twosuperior threesuperior\nonehalf onequarter threequarters franc Gbreve gbreve Idotaccent Scedilla scedilla\nCacute cacute Ccaron ccaron dcroat'.split(/\s+/g);
+
+	    return PostTable;
+
+	  })(Table);
+
+	  module.exports = PostTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 84 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var OS2Table, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  OS2Table = (function(_super) {
+	    __extends(OS2Table, _super);
+
+	    function OS2Table() {
+	      return OS2Table.__super__.constructor.apply(this, arguments);
+	    }
+
+	    OS2Table.prototype.tag = 'OS/2';
+
+	    OS2Table.prototype.parse = function(data) {
+	      var i;
+	      data.pos = this.offset;
+	      this.version = data.readUInt16();
+	      this.averageCharWidth = data.readShort();
+	      this.weightClass = data.readUInt16();
+	      this.widthClass = data.readUInt16();
+	      this.type = data.readShort();
+	      this.ySubscriptXSize = data.readShort();
+	      this.ySubscriptYSize = data.readShort();
+	      this.ySubscriptXOffset = data.readShort();
+	      this.ySubscriptYOffset = data.readShort();
+	      this.ySuperscriptXSize = data.readShort();
+	      this.ySuperscriptYSize = data.readShort();
+	      this.ySuperscriptXOffset = data.readShort();
+	      this.ySuperscriptYOffset = data.readShort();
+	      this.yStrikeoutSize = data.readShort();
+	      this.yStrikeoutPosition = data.readShort();
+	      this.familyClass = data.readShort();
+	      this.panose = (function() {
+	        var _i, _results;
+	        _results = [];
+	        for (i = _i = 0; _i < 10; i = ++_i) {
+	          _results.push(data.readByte());
+	        }
+	        return _results;
+	      })();
+	      this.charRange = (function() {
+	        var _i, _results;
+	        _results = [];
+	        for (i = _i = 0; _i < 4; i = ++_i) {
+	          _results.push(data.readInt());
+	        }
+	        return _results;
+	      })();
+	      this.vendorID = data.readString(4);
+	      this.selection = data.readShort();
+	      this.firstCharIndex = data.readShort();
+	      this.lastCharIndex = data.readShort();
+	      if (this.version > 0) {
+	        this.ascent = data.readShort();
+	        this.descent = data.readShort();
+	        this.lineGap = data.readShort();
+	        this.winAscent = data.readShort();
+	        this.winDescent = data.readShort();
+	        this.codePageRange = (function() {
+	          var _i, _results;
+	          _results = [];
+	          for (i = _i = 0; _i < 2; i = ++_i) {
+	            _results.push(data.readInt());
+	          }
+	          return _results;
+	        })();
+	        if (this.version > 1) {
+	          this.xHeight = data.readShort();
+	          this.capHeight = data.readShort();
+	          this.defaultChar = data.readShort();
+	          this.breakChar = data.readShort();
+	          return this.maxContext = data.readShort();
+	        }
+	      }
+	    };
+
+	    OS2Table.prototype.encode = function() {
+	      return this.raw();
+	    };
+
+	    return OS2Table;
+
+	  })(Table);
+
+	  module.exports = OS2Table;
+
+	}).call(this);
+
+
+/***/ },
+/* 85 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var Data, LocaTable, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  LocaTable = (function(_super) {
+	    __extends(LocaTable, _super);
+
+	    function LocaTable() {
+	      return LocaTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    LocaTable.prototype.tag = 'loca';
+
+	    LocaTable.prototype.parse = function(data) {
+	      var format, i;
+	      data.pos = this.offset;
+	      format = this.file.head.indexToLocFormat;
+	      if (format === 0) {
+	        return this.offsets = (function() {
+	          var _i, _ref, _results;
+	          _results = [];
+	          for (i = _i = 0, _ref = this.length; _i < _ref; i = _i += 2) {
+	            _results.push(data.readUInt16() * 2);
+	          }
+	          return _results;
+	        }).call(this);
+	      } else {
+	        return this.offsets = (function() {
+	          var _i, _ref, _results;
+	          _results = [];
+	          for (i = _i = 0, _ref = this.length; _i < _ref; i = _i += 4) {
+	            _results.push(data.readUInt32());
+	          }
+	          return _results;
+	        }).call(this);
+	      }
+	    };
+
+	    LocaTable.prototype.indexOf = function(id) {
+	      return this.offsets[id];
+	    };
+
+	    LocaTable.prototype.lengthOf = function(id) {
+	      return this.offsets[id + 1] - this.offsets[id];
+	    };
+
+	    LocaTable.prototype.encode = function(offsets) {
+	      var o, offset, ret, table, _i, _j, _k, _len, _len1, _len2, _ref;
+	      table = new Data;
+	      for (_i = 0, _len = offsets.length; _i < _len; _i++) {
+	        offset = offsets[_i];
+	        if (!(offset > 0xFFFF)) {
+	          continue;
+	        }
+	        _ref = this.offsets;
+	        for (_j = 0, _len1 = _ref.length; _j < _len1; _j++) {
+	          o = _ref[_j];
+	          table.writeUInt32(o);
+	        }
+	        return ret = {
+	          format: 1,
+	          table: table.data
+	        };
+	      }
+	      for (_k = 0, _len2 = offsets.length; _k < _len2; _k++) {
+	        o = offsets[_k];
+	        table.writeUInt16(o / 2);
+	      }
+	      return ret = {
+	        format: 0,
+	        table: table.data
+	      };
+	    };
+
+	    return LocaTable;
+
+	  })(Table);
+
+	  module.exports = LocaTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 86 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var CompoundGlyph, Data, GlyfTable, SimpleGlyph, Table,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+	    __slice = [].slice;
+
+	  Table = __webpack_require__(76);
+
+	  Data = __webpack_require__(72);
+
+	  GlyfTable = (function(_super) {
+	    __extends(GlyfTable, _super);
+
+	    function GlyfTable() {
+	      return GlyfTable.__super__.constructor.apply(this, arguments);
+	    }
+
+	    GlyfTable.prototype.tag = 'glyf';
+
+	    GlyfTable.prototype.parse = function(data) {
+	      return this.cache = {};
+	    };
+
+	    GlyfTable.prototype.glyphFor = function(id) {
+	      var data, index, length, loca, numberOfContours, raw, xMax, xMin, yMax, yMin;
+	      if (id in this.cache) {
+	        return this.cache[id];
+	      }
+	      loca = this.file.loca;
+	      data = this.file.contents;
+	      index = loca.indexOf(id);
+	      length = loca.lengthOf(id);
+	      if (length === 0) {
+	        return this.cache[id] = null;
+	      }
+	      data.pos = this.offset + index;
+	      raw = new Data(data.read(length));
+	      numberOfContours = raw.readShort();
+	      xMin = raw.readShort();
+	      yMin = raw.readShort();
+	      xMax = raw.readShort();
+	      yMax = raw.readShort();
+	      if (numberOfContours === -1) {
+	        this.cache[id] = new CompoundGlyph(raw, xMin, yMin, xMax, yMax);
+	      } else {
+	        this.cache[id] = new SimpleGlyph(raw, numberOfContours, xMin, yMin, xMax, yMax);
+	      }
+	      return this.cache[id];
+	    };
+
+	    GlyfTable.prototype.encode = function(glyphs, mapping, old2new) {
+	      var glyph, id, offsets, table, _i, _len;
+	      table = [];
+	      offsets = [];
+	      for (_i = 0, _len = mapping.length; _i < _len; _i++) {
+	        id = mapping[_i];
+	        glyph = glyphs[id];
+	        offsets.push(table.length);
+	        if (glyph) {
+	          table = table.concat(glyph.encode(old2new));
+	        }
+	      }
+	      offsets.push(table.length);
+	      return {
+	        table: table,
+	        offsets: offsets
+	      };
+	    };
+
+	    return GlyfTable;
+
+	  })(Table);
+
+	  SimpleGlyph = (function() {
+	    function SimpleGlyph(raw, numberOfContours, xMin, yMin, xMax, yMax) {
+	      this.raw = raw;
+	      this.numberOfContours = numberOfContours;
+	      this.xMin = xMin;
+	      this.yMin = yMin;
+	      this.xMax = xMax;
+	      this.yMax = yMax;
+	      this.compound = false;
+	    }
+
+	    SimpleGlyph.prototype.encode = function() {
+	      return this.raw.data;
+	    };
+
+	    return SimpleGlyph;
+
+	  })();
+
+	  CompoundGlyph = (function() {
+	    var ARG_1_AND_2_ARE_WORDS, MORE_COMPONENTS, WE_HAVE_AN_X_AND_Y_SCALE, WE_HAVE_A_SCALE, WE_HAVE_A_TWO_BY_TWO, WE_HAVE_INSTRUCTIONS;
+
+	    ARG_1_AND_2_ARE_WORDS = 0x0001;
+
+	    WE_HAVE_A_SCALE = 0x0008;
+
+	    MORE_COMPONENTS = 0x0020;
+
+	    WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
+
+	    WE_HAVE_A_TWO_BY_TWO = 0x0080;
+
+	    WE_HAVE_INSTRUCTIONS = 0x0100;
+
+	    function CompoundGlyph(raw, xMin, yMin, xMax, yMax) {
+	      var data, flags;
+	      this.raw = raw;
+	      this.xMin = xMin;
+	      this.yMin = yMin;
+	      this.xMax = xMax;
+	      this.yMax = yMax;
+	      this.compound = true;
+	      this.glyphIDs = [];
+	      this.glyphOffsets = [];
+	      data = this.raw;
+	      while (true) {
+	        flags = data.readShort();
+	        this.glyphOffsets.push(data.pos);
+	        this.glyphIDs.push(data.readShort());
+	        if (!(flags & MORE_COMPONENTS)) {
+	          break;
+	        }
+	        if (flags & ARG_1_AND_2_ARE_WORDS) {
+	          data.pos += 4;
+	        } else {
+	          data.pos += 2;
+	        }
+	        if (flags & WE_HAVE_A_TWO_BY_TWO) {
+	          data.pos += 8;
+	        } else if (flags & WE_HAVE_AN_X_AND_Y_SCALE) {
+	          data.pos += 4;
+	        } else if (flags & WE_HAVE_A_SCALE) {
+	          data.pos += 2;
+	        }
+	      }
+	    }
+
+	    CompoundGlyph.prototype.encode = function(mapping) {
+	      var i, id, result, _i, _len, _ref;
+	      result = new Data(__slice.call(this.raw.data));
+	      _ref = this.glyphIDs;
+	      for (i = _i = 0, _len = _ref.length; _i < _len; i = ++_i) {
+	        id = _ref[i];
+	        result.pos = this.glyphOffsets[i];
+	        result.writeShort(mapping[id]);
+	      }
+	      return result.data;
+	    };
+
+	    return CompoundGlyph;
+
+	  })();
+
+	  module.exports = GlyfTable;
+
+	}).call(this);
+
+
+/***/ },
+/* 87 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var AFMFont, fs;
+
+	  fs = __webpack_require__(44);
+
+	  AFMFont = (function() {
+	    var WIN_ANSI_MAP, characters;
+
+	    AFMFont.open = function(filename) {
+	      return new AFMFont(fs.readFileSync(filename, 'utf8'));
+	    };
+
+	    function AFMFont(contents) {
+	      var e, i;
+	      this.contents = contents;
+	      this.attributes = {};
+	      this.glyphWidths = {};
+	      this.boundingBoxes = {};
+	      this.parse();
+	      this.charWidths = (function() {
+	        var _i, _results;
+	        _results = [];
+	        for (i = _i = 0; _i <= 255; i = ++_i) {
+	          _results.push(this.glyphWidths[characters[i]]);
+	        }
+	        return _results;
+	      }).call(this);
+	      this.bbox = (function() {
+	        var _i, _len, _ref, _results;
+	        _ref = this.attributes['FontBBox'].split(/\s+/);
+	        _results = [];
+	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	          e = _ref[_i];
+	          _results.push(+e);
+	        }
+	        return _results;
+	      }).call(this);
+	      this.ascender = +(this.attributes['Ascender'] || 0);
+	      this.decender = +(this.attributes['Descender'] || 0);
+	      this.lineGap = (this.bbox[3] - this.bbox[1]) - (this.ascender - this.decender);
+	    }
+
+	    AFMFont.prototype.parse = function() {
+	      var a, key, line, match, name, section, value, _i, _len, _ref;
+	      section = '';
+	      _ref = this.contents.split('\n');
+	      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	        line = _ref[_i];
+	        if (match = line.match(/^Start(\w+)/)) {
+	          section = match[1];
+	          continue;
+	        } else if (match = line.match(/^End(\w+)/)) {
+	          section = '';
+	          continue;
+	        }
+	        switch (section) {
+	          case 'FontMetrics':
+	            match = line.match(/(^\w+)\s+(.*)/);
+	            key = match[1];
+	            value = match[2];
+	            if (a = this.attributes[key]) {
+	              if (!Array.isArray(a)) {
+	                a = this.attributes[key] = [a];
+	              }
+	              a.push(value);
+	            } else {
+	              this.attributes[key] = value;
+	            }
+	            break;
+	          case 'CharMetrics':
+	            if (!/^CH?\s/.test(line)) {
+	              continue;
+	            }
+	            name = line.match(/\bN\s+(\.?\w+)\s*;/)[1];
+	            this.glyphWidths[name] = +line.match(/\bWX\s+(\d+)\s*;/)[1];
+	        }
+	      }
+	    };
+
+	    WIN_ANSI_MAP = {
+	      402: 131,
+	      8211: 150,
+	      8212: 151,
+	      8216: 145,
+	      8217: 146,
+	      8218: 130,
+	      8220: 147,
+	      8221: 148,
+	      8222: 132,
+	      8224: 134,
+	      8225: 135,
+	      8226: 149,
+	      8230: 133,
+	      8364: 128,
+	      8240: 137,
+	      8249: 139,
+	      8250: 155,
+	      710: 136,
+	      8482: 153,
+	      338: 140,
+	      339: 156,
+	      732: 152,
+	      352: 138,
+	      353: 154,
+	      376: 159,
+	      381: 142,
+	      382: 158
+	    };
+
+	    AFMFont.prototype.encodeText = function(text) {
+	      var char, i, string, _i, _ref;
+	      string = '';
+	      for (i = _i = 0, _ref = text.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        char = text.charCodeAt(i);
+	        char = WIN_ANSI_MAP[char] || char;
+	        string += String.fromCharCode(char);
+	      }
+	      return string;
+	    };
+
+	    AFMFont.prototype.characterToGlyph = function(character) {
+	      return characters[WIN_ANSI_MAP[character] || character];
+	    };
+
+	    AFMFont.prototype.widthOfGlyph = function(glyph) {
+	      return this.glyphWidths[glyph];
+	    };
+
+	    characters = '.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n.notdef       .notdef        .notdef        .notdef\n\nspace         exclam         quotedbl       numbersign\ndollar        percent        ampersand      quotesingle\nparenleft     parenright     asterisk       plus\ncomma         hyphen         period         slash\nzero          one            two            three\nfour          five           six            seven\neight         nine           colon          semicolon\nless          equal          greater        question\n\nat            A              B              C\nD             E              F              G\nH             I              J              K\nL             M              N              O\nP             Q              R              S\nT             U              V              W\nX             Y              Z              bracketleft\nbackslash     bracketright   asciicircum    underscore\n\ngrave         a              b              c\nd             e              f              g\nh             i              j              k\nl             m              n              o\np             q              r              s\nt             u              v              w\nx             y              z              braceleft\nbar           braceright     asciitilde     .notdef\n\nEuro          .notdef        quotesinglbase florin\nquotedblbase  ellipsis       dagger         daggerdbl\ncircumflex    perthousand    Scaron         guilsinglleft\nOE            .notdef        Zcaron         .notdef\n.notdef       quoteleft      quoteright     quotedblleft\nquotedblright bullet         endash         emdash\ntilde         trademark      scaron         guilsinglright\noe            .notdef        zcaron         ydieresis\n\nspace         exclamdown     cent           sterling\ncurrency      yen            brokenbar      section\ndieresis      copyright      ordfeminine    guillemotleft\nlogicalnot    hyphen         registered     macron\ndegree        plusminus      twosuperior    threesuperior\nacute         mu             paragraph      periodcentered\ncedilla       onesuperior    ordmasculine   guillemotright\nonequarter    onehalf        threequarters  questiondown\n\nAgrave        Aacute         Acircumflex    Atilde\nAdieresis     Aring          AE             Ccedilla\nEgrave        Eacute         Ecircumflex    Edieresis\nIgrave        Iacute         Icircumflex    Idieresis\nEth           Ntilde         Ograve         Oacute\nOcircumflex   Otilde         Odieresis      multiply\nOslash        Ugrave         Uacute         Ucircumflex\nUdieresis     Yacute         Thorn          germandbls\n\nagrave        aacute         acircumflex    atilde\nadieresis     aring          ae             ccedilla\negrave        eacute         ecircumflex    edieresis\nigrave        iacute         icircumflex    idieresis\neth           ntilde         ograve         oacute\nocircumflex   otilde         odieresis      divide\noslash        ugrave         uacute         ucircumflex\nudieresis     yacute         thorn          ydieresis'.split(/\s+/);
+
+	    return AFMFont;
+
+	  })();
+
+	  module.exports = AFMFont;
+
+	}).call(this);
+
+
+/***/ },
+/* 88 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var CmapTable, Subset, utils,
+	    __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
+
+	  CmapTable = __webpack_require__(79);
+
+	  utils = __webpack_require__(77);
+
+	  Subset = (function() {
+	    function Subset(font) {
+	      this.font = font;
+	      this.subset = {};
+	      this.unicodes = {};
+	      this.next = 33;
+	    }
+
+	    Subset.prototype.use = function(character) {
+	      var i, _i, _ref;
+	      if (typeof character === 'string') {
+	        for (i = _i = 0, _ref = character.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	          this.use(character.charCodeAt(i));
+	        }
+	        return;
+	      }
+	      if (!this.unicodes[character]) {
+	        this.subset[this.next] = character;
+	        return this.unicodes[character] = this.next++;
+	      }
+	    };
+
+	    Subset.prototype.encodeText = function(text) {
+	      var char, i, string, _i, _ref;
+	      string = '';
+	      for (i = _i = 0, _ref = text.length; 0 <= _ref ? _i < _ref : _i > _ref; i = 0 <= _ref ? ++_i : --_i) {
+	        char = this.unicodes[text.charCodeAt(i)];
+	        string += String.fromCharCode(char);
+	      }
+	      return string;
+	    };
+
+	    Subset.prototype.generateCmap = function() {
+	      var mapping, roman, unicode, unicodeCmap, _ref;
+	      unicodeCmap = this.font.cmap.tables[0].codeMap;
+	      mapping = {};
+	      _ref = this.subset;
+	      for (roman in _ref) {
+	        unicode = _ref[roman];
+	        mapping[roman] = unicodeCmap[unicode];
+	      }
+	      return mapping;
+	    };
+
+	    Subset.prototype.glyphIDs = function() {
+	      var ret, roman, unicode, unicodeCmap, val, _ref;
+	      unicodeCmap = this.font.cmap.tables[0].codeMap;
+	      ret = [0];
+	      _ref = this.subset;
+	      for (roman in _ref) {
+	        unicode = _ref[roman];
+	        val = unicodeCmap[unicode];
+	        if ((val != null) && __indexOf.call(ret, val) < 0) {
+	          ret.push(val);
+	        }
+	      }
+	      return ret.sort();
+	    };
+
+	    Subset.prototype.glyphsFor = function(glyphIDs) {
+	      var additionalIDs, glyph, glyphs, id, _i, _len, _ref;
+	      glyphs = {};
+	      for (_i = 0, _len = glyphIDs.length; _i < _len; _i++) {
+	        id = glyphIDs[_i];
+	        glyphs[id] = this.font.glyf.glyphFor(id);
+	      }
+	      additionalIDs = [];
+	      for (id in glyphs) {
+	        glyph = glyphs[id];
+	        if (glyph != null ? glyph.compound : void 0) {
+	          additionalIDs.push.apply(additionalIDs, glyph.glyphIDs);
+	        }
+	      }
+	      if (additionalIDs.length > 0) {
+	        _ref = this.glyphsFor(additionalIDs);
+	        for (id in _ref) {
+	          glyph = _ref[id];
+	          glyphs[id] = glyph;
+	        }
+	      }
+	      return glyphs;
+	    };
+
+	    Subset.prototype.encode = function() {
+	      var cmap, code, glyf, glyphs, id, ids, loca, name, new2old, newIDs, nextGlyphID, old2new, oldID, oldIDs, tables, _ref, _ref1;
+	      cmap = CmapTable.encode(this.generateCmap(), 'unicode');
+	      glyphs = this.glyphsFor(this.glyphIDs());
+	      old2new = {
+	        0: 0
+	      };
+	      _ref = cmap.charMap;
+	      for (code in _ref) {
+	        ids = _ref[code];
+	        old2new[ids.old] = ids["new"];
+	      }
+	      nextGlyphID = cmap.maxGlyphID;
+	      for (oldID in glyphs) {
+	        if (!(oldID in old2new)) {
+	          old2new[oldID] = nextGlyphID++;
+	        }
+	      }
+	      new2old = utils.invert(old2new);
+	      newIDs = Object.keys(new2old).sort(function(a, b) {
+	        return a - b;
+	      });
+	      oldIDs = (function() {
+	        var _i, _len, _results;
+	        _results = [];
+	        for (_i = 0, _len = newIDs.length; _i < _len; _i++) {
+	          id = newIDs[_i];
+	          _results.push(new2old[id]);
+	        }
+	        return _results;
+	      })();
+	      glyf = this.font.glyf.encode(glyphs, oldIDs, old2new);
+	      loca = this.font.loca.encode(glyf.offsets);
+	      name = this.font.name.encode();
+	      this.postscriptName = name.postscriptName;
+	      this.cmap = {};
+	      _ref1 = cmap.charMap;
+	      for (code in _ref1) {
+	        ids = _ref1[code];
+	        this.cmap[code] = ids.old;
+	      }
+	      tables = {
+	        cmap: cmap.table,
+	        glyf: glyf.table,
+	        loca: loca.table,
+	        hmtx: this.font.hmtx.encode(oldIDs),
+	        hhea: this.font.hhea.encode(oldIDs),
+	        maxp: this.font.maxp.encode(oldIDs),
+	        post: this.font.post.encode(oldIDs),
+	        name: name.table,
+	        head: this.font.head.encode(loca)
+	      };
+	      if (this.font.os2.exists) {
+	        tables['OS/2'] = this.font.os2.raw();
+	      }
+	      return this.font.directory.encode(tables);
+	    };
+
+	    return Subset;
+
+	  })();
+
+	  module.exports = Subset;
+
+	}).call(this);
+
+
+/***/ },
+/* 89 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var LineWrapper;
+
+	  LineWrapper = __webpack_require__(90);
+
+	  module.exports = {
+	    initText: function() {
+	      this.x = 0;
+	      this.y = 0;
+	      return this._lineGap = 0;
+	    },
+	    lineGap: function(_lineGap) {
+	      this._lineGap = _lineGap;
+	      return this;
+	    },
+	    moveDown: function(lines) {
+	      if (lines == null) {
+	        lines = 1;
+	      }
+	      this.y += this.currentLineHeight(true) * lines + this._lineGap;
+	      return this;
+	    },
+	    moveUp: function(lines) {
+	      if (lines == null) {
+	        lines = 1;
+	      }
+	      this.y -= this.currentLineHeight(true) * lines + this._lineGap;
+	      return this;
+	    },
+	    _text: function(text, x, y, options, lineCallback) {
+	      var line, wrapper, _i, _len, _ref;
+	      options = this._initOptions(x, y, options);
+	      text = '' + text;
+	      if (options.wordSpacing) {
+	        text = text.replace(/\s{2,}/g, ' ');
+	      }
+	      if (options.width) {
+	        wrapper = this._wrapper;
+	        if (!wrapper) {
+	          wrapper = new LineWrapper(this, options);
+	          wrapper.on('line', lineCallback);
+	        }
+	        this._wrapper = options.continued ? wrapper : null;
+	        this._textOptions = options.continued ? options : null;
+	        wrapper.wrap(text, options);
+	      } else {
+	        _ref = text.split('\n');
+	        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+	          line = _ref[_i];
+	          lineCallback(line, options);
+	        }
+	      }
+	      return this;
+	    },
+	    text: function(text, x, y, options) {
+	      return this._text(text, x, y, options, this._line.bind(this));
+	    },
+	    widthOfString: function(string, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      return this._font.widthOfString(string, this._fontSize) + (options.characterSpacing || 0) * (string.length - 1);
+	    },
+	    heightOfString: function(text, options) {
+	      var height, lineGap, x, y;
+	      if (options == null) {
+	        options = {};
+	      }
+	      x = this.x, y = this.y;
+	      options = this._initOptions(options);
+	      options.height = Infinity;
+	      lineGap = options.lineGap || this._lineGap || 0;
+	      this._text(text, this.x, this.y, options, (function(_this) {
+	        return function(line, options) {
+	          return _this.y += _this.currentLineHeight(true) + lineGap;
+	        };
+	      })(this));
+	      height = this.y - y;
+	      this.x = x;
+	      this.y = y;
+	      return height;
+	    },
+	    list: function(list, x, y, options, wrapper) {
+	      var flatten, i, indent, itemIndent, items, level, levels, r;
+	      options = this._initOptions(x, y, options);
+	      r = Math.round((this._font.ascender / 1000 * this._fontSize) / 3);
+	      indent = options.textIndent || r * 5;
+	      itemIndent = options.bulletIndent || r * 8;
+	      level = 1;
+	      items = [];
+	      levels = [];
+	      flatten = function(list) {
+	        var i, item, _i, _len, _results;
+	        _results = [];
+	        for (i = _i = 0, _len = list.length; _i < _len; i = ++_i) {
+	          item = list[i];
+	          if (Array.isArray(item)) {
+	            level++;
+	            flatten(item);
+	            _results.push(level--);
+	          } else {
+	            items.push(item);
+	            _results.push(levels.push(level));
+	          }
+	        }
+	        return _results;
+	      };
+	      flatten(list);
+	      wrapper = new LineWrapper(this, options);
+	      wrapper.on('line', this._line.bind(this));
+	      level = 1;
+	      i = 0;
+	      wrapper.on('firstLine', (function(_this) {
+	        return function() {
+	          var diff, l;
+	          if ((l = levels[i++]) !== level) {
+	            diff = itemIndent * (l - level);
+	            _this.x += diff;
+	            wrapper.lineWidth -= diff;
+	            level = l;
+	          }
+	          _this.circle(_this.x - indent + r, _this.y + r + (r / 2), r);
+	          return _this.fill();
+	        };
+	      })(this));
+	      wrapper.on('sectionStart', (function(_this) {
+	        return function() {
+	          var pos;
+	          pos = indent + itemIndent * (level - 1);
+	          _this.x += pos;
+	          return wrapper.lineWidth -= pos;
+	        };
+	      })(this));
+	      wrapper.on('sectionEnd', (function(_this) {
+	        return function() {
+	          var pos;
+	          pos = indent + itemIndent * (level - 1);
+	          _this.x -= pos;
+	          return wrapper.lineWidth += pos;
+	        };
+	      })(this));
+	      wrapper.wrap(items.join('\n'), options);
+	      return this;
+	    },
+	    _initOptions: function(x, y, options) {
+	      var key, margins, val, _ref;
+	      if (x == null) {
+	        x = {};
+	      }
+	      if (options == null) {
+	        options = {};
+	      }
+	      if (typeof x === 'object') {
+	        options = x;
+	        x = null;
+	      }
+	      options = (function() {
+	        var k, opts, v;
+	        opts = {};
+	        for (k in options) {
+	          v = options[k];
+	          opts[k] = v;
+	        }
+	        return opts;
+	      })();
+	      if (this._textOptions) {
+	        _ref = this._textOptions;
+	        for (key in _ref) {
+	          val = _ref[key];
+	          if (key !== 'continued') {
+	            if (options[key] == null) {
+	              options[key] = val;
+	            }
+	          }
+	        }
+	      }
+	      if (x != null) {
+	        this.x = x;
+	      }
+	      if (y != null) {
+	        this.y = y;
+	      }
+	      if (options.lineBreak !== false) {
+	        margins = this.page.margins;
+	        if (options.width == null) {
+	          options.width = this.page.width - this.x - margins.right;
+	        }
+	      }
+	      options.columns || (options.columns = 0);
+	      if (options.columnGap == null) {
+	        options.columnGap = 18;
+	      }
+	      return options;
+	    },
+	    _line: function(text, options, wrapper) {
+	      var lineGap;
+	      if (options == null) {
+	        options = {};
+	      }
+	      this._fragment(text, this.x, this.y, options);
+	      lineGap = options.lineGap || this._lineGap || 0;
+	      if (!wrapper) {
+	        return this.x += this.widthOfString(text);
+	      } else {
+	        return this.y += this.currentLineHeight(true) + lineGap;
+	      }
+	    },
+	    _fragment: function(text, x, y, options) {
+	      var align, characterSpacing, commands, d, encoded, i, lineWidth, lineY, mode, renderedWidth, spaceWidth, textWidth, word, wordSpacing, words, _base, _i, _len, _name;
+	      text = '' + text;
+	      if (text.length === 0) {
+	        return;
+	      }
+	      align = options.align || 'left';
+	      wordSpacing = options.wordSpacing || 0;
+	      characterSpacing = options.characterSpacing || 0;
+	      if (options.width) {
+	        switch (align) {
+	          case 'right':
+	            textWidth = this.widthOfString(text.replace(/\s+$/, ''), options);
+	            x += options.lineWidth - textWidth;
+	            break;
+	          case 'center':
+	            x += options.lineWidth / 2 - options.textWidth / 2;
+	            break;
+	          case 'justify':
+	            words = text.trim().split(/\s+/);
+	            textWidth = this.widthOfString(text.replace(/\s+/g, ''), options);
+	            spaceWidth = this.widthOfString(' ') + characterSpacing;
+	            wordSpacing = Math.max(0, (options.lineWidth - textWidth) / Math.max(1, words.length - 1) - spaceWidth);
+	        }
+	      }
+	      renderedWidth = options.textWidth + (wordSpacing * (options.wordCount - 1)) + (characterSpacing * (text.length - 1));
+	      if (options.link) {
+	        this.link(x, y, renderedWidth, this.currentLineHeight(), options.link);
+	      }
+	      if (options.underline || options.strike) {
+	        this.save();
+	        if (!options.stroke) {
+	          this.strokeColor.apply(this, this._fillColor);
+	        }
+	        lineWidth = this._fontSize < 10 ? 0.5 : Math.floor(this._fontSize / 10);
+	        this.lineWidth(lineWidth);
+	        d = options.underline ? 1 : 2;
+	        lineY = y + this.currentLineHeight() / d;
+	        if (options.underline) {
+	          lineY -= lineWidth;
+	        }
+	        this.moveTo(x, lineY);
+	        this.lineTo(x + renderedWidth, lineY);
+	        this.stroke();
+	        this.restore();
+	      }
+	      this.save();
+	      this.transform(1, 0, 0, -1, 0, this.page.height);
+	      y = this.page.height - y - (this._font.ascender / 1000 * this._fontSize);
+	      if ((_base = this.page.fonts)[_name = this._font.id] == null) {
+	        _base[_name] = this._font.ref();
+	      }
+	      this._font.use(text);
+	      this.addContent("BT");
+	      this.addContent("" + x + " " + y + " Td");
+	      this.addContent("/" + this._font.id + " " + this._fontSize + " Tf");
+	      mode = options.fill && options.stroke ? 2 : options.stroke ? 1 : 0;
+	      if (mode) {
+	        this.addContent("" + mode + " Tr");
+	      }
+	      if (characterSpacing) {
+	        this.addContent("" + characterSpacing + " Tc");
+	      }
+	      if (wordSpacing) {
+	        words = text.trim().split(/\s+/);
+	        wordSpacing += this.widthOfString(' ') + characterSpacing;
+	        wordSpacing *= 1000 / this._fontSize;
+	        commands = [];
+	        for (_i = 0, _len = words.length; _i < _len; _i++) {
+	          word = words[_i];
+	          encoded = this._font.encode(word);
+	          encoded = ((function() {
+	            var _j, _ref, _results;
+	            _results = [];
+	            for (i = _j = 0, _ref = encoded.length; _j < _ref; i = _j += 1) {
+	              _results.push(encoded.charCodeAt(i).toString(16));
+	            }
+	            return _results;
+	          })()).join('');
+	          commands.push("<" + encoded + "> " + (-wordSpacing));
+	        }
+	        this.addContent("[" + (commands.join(' ')) + "] TJ");
+	      } else {
+	        encoded = this._font.encode(text);
+	        encoded = ((function() {
+	          var _j, _ref, _results;
+	          _results = [];
+	          for (i = _j = 0, _ref = encoded.length; _j < _ref; i = _j += 1) {
+	            _results.push(encoded.charCodeAt(i).toString(16));
+	          }
+	          return _results;
+	        })()).join('');
+	        this.addContent("<" + encoded + "> Tj");
+	      }
+	      this.addContent("ET");
+	      return this.restore();
+	    }
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 90 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var EventEmitter, LineBreaker, LineWrapper,
+	    __hasProp = {}.hasOwnProperty,
+	    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+	  EventEmitter = __webpack_require__(26).EventEmitter;
+
+	  LineBreaker = __webpack_require__(91);
+
+	  LineWrapper = (function(_super) {
+	    __extends(LineWrapper, _super);
+
+	    function LineWrapper(document, options) {
+	      var _ref;
+	      this.document = document;
+	      this.indent = options.indent || 0;
+	      this.characterSpacing = options.characterSpacing || 0;
+	      this.wordSpacing = options.wordSpacing === 0;
+	      this.columns = options.columns || 1;
+	      this.columnGap = (_ref = options.columnGap) != null ? _ref : 18;
+	      this.lineWidth = (options.width - (this.columnGap * (this.columns - 1))) / this.columns;
+	      this.spaceLeft = this.lineWidth;
+	      this.startX = this.document.x;
+	      this.startY = this.document.y;
+	      this.column = 1;
+	      this.ellipsis = options.ellipsis;
+	      this.continuedX = 0;
+	      if (options.height != null) {
+	        this.height = options.height;
+	        this.maxY = this.startY + options.height;
+	      } else {
+	        this.maxY = this.document.page.maxY();
+	      }
+	      this.on('firstLine', (function(_this) {
+	        return function(options) {
+	          var indent;
+	          indent = _this.continuedX || _this.indent;
+	          _this.document.x += indent;
+	          _this.lineWidth -= indent;
+	          return _this.once('line', function() {
+	            _this.document.x -= indent;
+	            _this.lineWidth += indent;
+	            if (options.continued && !_this.continuedX) {
+	              _this.continuedX = _this.indent;
+	            }
+	            if (!options.continued) {
+	              return _this.continuedX = 0;
+	            }
+	          });
+	        };
+	      })(this));
+	      this.on('lastLine', (function(_this) {
+	        return function(options) {
+	          var align;
+	          align = options.align;
+	          if (align === 'justify') {
+	            options.align = 'left';
+	          }
+	          _this.lastLine = true;
+	          return _this.once('line', function() {
+	            _this.document.y += options.paragraphGap || 0;
+	            options.align = align;
+	            return _this.lastLine = false;
+	          });
+	        };
+	      })(this));
+	    }
+
+	    LineWrapper.prototype.wordWidth = function(word) {
+	      return this.document.widthOfString(word, this) + this.characterSpacing + this.wordSpacing;
+	    };
+
+	    LineWrapper.prototype.eachWord = function(text, fn) {
+	      var bk, breaker, fbk, l, last, lbk, shouldContinue, w, word, wordWidths;
+	      breaker = new LineBreaker(text);
+	      last = null;
+	      wordWidths = {};
+	      while (bk = breaker.nextBreak()) {
+	        word = text.slice((last != null ? last.position : void 0) || 0, bk.position);
+	        w = wordWidths[word] != null ? wordWidths[word] : wordWidths[word] = this.wordWidth(word);
+	        if (w > this.lineWidth + this.continuedX) {
+	          lbk = last;
+	          fbk = {};
+	          while (word.length) {
+	            l = word.length;
+	            while (w > this.spaceLeft) {
+	              w = this.wordWidth(word.slice(0, --l));
+	            }
+	            fbk.required = l < word.length;
+	            shouldContinue = fn(word.slice(0, l), w, fbk, lbk);
+	            lbk = {
+	              required: false
+	            };
+	            word = word.slice(l);
+	            w = this.wordWidth(word);
+	            if (shouldContinue === false) {
+	              break;
+	            }
+	          }
+	        } else {
+	          shouldContinue = fn(word, w, bk, last);
+	        }
+	        if (shouldContinue === false) {
+	          break;
+	        }
+	        last = bk;
+	      }
+	    };
+
+	    LineWrapper.prototype.wrap = function(text, options) {
+	      var buffer, emitLine, lc, nextY, textWidth, wc, y;
+	      if (options.indent != null) {
+	        this.indent = options.indent;
+	      }
+	      if (options.characterSpacing != null) {
+	        this.characterSpacing = options.characterSpacing;
+	      }
+	      if (options.wordSpacing != null) {
+	        this.wordSpacing = options.wordSpacing;
+	      }
+	      if (options.ellipsis != null) {
+	        this.ellipsis = options.ellipsis;
+	      }
+	      nextY = this.document.y + this.document.currentLineHeight(true);
+	      if (this.document.y > this.maxY || nextY > this.maxY) {
+	        this.nextSection();
+	      }
+	      buffer = '';
+	      textWidth = 0;
+	      wc = 0;
+	      lc = 0;
+	      y = this.document.y;
+	      emitLine = (function(_this) {
+	        return function() {
+	          options.textWidth = textWidth + _this.wordSpacing * (wc - 1);
+	          options.wordCount = wc;
+	          options.lineWidth = _this.lineWidth;
+	          y = _this.document.y;
+	          _this.emit('line', buffer, options, _this);
+	          return lc++;
+	        };
+	      })(this);
+	      this.emit('sectionStart', options, this);
+	      this.eachWord(text, (function(_this) {
+	        return function(word, w, bk, last) {
+	          var lh, shouldContinue;
+	          if ((last == null) || last.required) {
+	            _this.emit('firstLine', options, _this);
+	            _this.spaceLeft = _this.lineWidth;
+	          }
+	          if (w <= _this.spaceLeft) {
+	            buffer += word;
+	            textWidth += w;
+	            wc++;
+	          }
+	          if (bk.required || w > _this.spaceLeft) {
+	            if (bk.required) {
+	              _this.emit('lastLine', options, _this);
+	            }
+	            lh = _this.document.currentLineHeight(true);
+	            if ((_this.height != null) && _this.ellipsis && _this.document.y + lh * 2 > _this.maxY && _this.column >= _this.columns) {
+	              if (_this.ellipsis === true) {
+	                _this.ellipsis = '…';
+	              }
+	              buffer = buffer.replace(/\s+$/, '');
+	              textWidth = _this.wordWidth(buffer + _this.ellipsis);
+	              while (textWidth > _this.lineWidth) {
+	                buffer = buffer.slice(0, -1).replace(/\s+$/, '');
+	                textWidth = _this.wordWidth(buffer + _this.ellipsis);
+	              }
+	              buffer = buffer + _this.ellipsis;
+	            }
+	            emitLine();
+	            if (_this.document.y + lh > _this.maxY) {
+	              shouldContinue = _this.nextSection();
+	              if (!shouldContinue) {
+	                wc = 0;
+	                buffer = '';
+	                return false;
+	              }
+	            }
+	            if (bk.required) {
+	              if (w > _this.spaceLeft) {
+	                buffer = word;
+	                textWidth = w;
+	                wc = 1;
+	                emitLine();
+	              }
+	              _this.spaceLeft = _this.lineWidth;
+	              buffer = '';
+	              textWidth = 0;
+	              return wc = 0;
+	            } else {
+	              _this.spaceLeft = _this.lineWidth - w;
+	              buffer = word;
+	              textWidth = w;
+	              return wc = 1;
+	            }
+	          } else {
+	            return _this.spaceLeft -= w;
+	          }
+	        };
+	      })(this));
+	      if (wc > 0) {
+	        this.emit('lastLine', options, this);
+	        emitLine();
+	      }
+	      this.emit('sectionEnd', options, this);
+	      if (options.continued === true) {
+	        if (lc > 1) {
+	          this.continuedX = 0;
+	        }
+	        this.continuedX += options.textWidth;
+	        return this.document.y = y;
+	      } else {
+	        return this.document.x = this.startX;
+	      }
+	    };
+
+	    LineWrapper.prototype.nextSection = function(options) {
+	      var _ref;
+	      this.emit('sectionEnd', options, this);
+	      if (++this.column > this.columns) {
+	        if (this.height != null) {
+	          return false;
+	        }
+	        this.document.addPage();
+	        this.column = 1;
+	        this.startY = this.document.page.margins.top;
+	        this.maxY = this.document.page.maxY();
+	        this.document.x = this.startX;
+	        if (this.document._fillColor) {
+	          (_ref = this.document).fillColor.apply(_ref, this.document._fillColor);
+	        }
+	        this.emit('pageBreak', options, this);
+	      } else {
+	        this.document.x += this.lineWidth + this.columnGap;
+	        this.document.y = this.startY;
+	        this.emit('columnBreak', options, this);
+	      }
+	      this.emit('sectionStart', options, this);
+	      return true;
+	    };
+
+	    return LineWrapper;
+
+	  })(EventEmitter);
+
+	  module.exports = LineWrapper;
+
+	}).call(this);
+
+
+/***/ },
+/* 91 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var AI, AL, BA, BK, CB, CI_BRK, CJ, CP_BRK, CR, DI_BRK, ID, IN_BRK, LF, LineBreaker, NL, NS, PR_BRK, SA, SG, SP, UnicodeTrie, WJ, XX, characterClasses, classTrie, pairTable, _ref, _ref1;
+
+	  UnicodeTrie = __webpack_require__(92);
+
+	  classTrie = new UnicodeTrie(__webpack_require__(93));
+
+	  _ref = __webpack_require__(94), BK = _ref.BK, CR = _ref.CR, LF = _ref.LF, NL = _ref.NL, CB = _ref.CB, BA = _ref.BA, SP = _ref.SP, WJ = _ref.WJ, SP = _ref.SP, BK = _ref.BK, LF = _ref.LF, NL = _ref.NL, AI = _ref.AI, AL = _ref.AL, SA = _ref.SA, SG = _ref.SG, XX = _ref.XX, CJ = _ref.CJ, ID = _ref.ID, NS = _ref.NS, characterClasses = _ref.characterClasses;
+
+	  _ref1 = __webpack_require__(95), DI_BRK = _ref1.DI_BRK, IN_BRK = _ref1.IN_BRK, CI_BRK = _ref1.CI_BRK, CP_BRK = _ref1.CP_BRK, PR_BRK = _ref1.PR_BRK, pairTable = _ref1.pairTable;
+
+	  LineBreaker = (function() {
+	    var Break, mapClass, mapFirst;
+
+	    function LineBreaker(string) {
+	      this.string = string;
+	      this.pos = 0;
+	      this.lastPos = 0;
+	      this.curClass = null;
+	      this.nextClass = null;
+	    }
+
+	    LineBreaker.prototype.nextCodePoint = function() {
+	      var code, next;
+	      code = this.string.charCodeAt(this.pos++);
+	      next = this.string.charCodeAt(this.pos);
+	      if ((0xd800 <= code && code <= 0xdbff) && (0xdc00 <= next && next <= 0xdfff)) {
+	        this.pos++;
+	        return ((code - 0xd800) * 0x400) + (next - 0xdc00) + 0x10000;
+	      }
+	      return code;
+	    };
+
+	    mapClass = function(c) {
+	      switch (c) {
+	        case AI:
+	          return AL;
+	        case SA:
+	        case SG:
+	        case XX:
+	          return AL;
+	        case CJ:
+	          return NS;
+	        default:
+	          return c;
+	      }
+	    };
+
+	    mapFirst = function(c) {
+	      switch (c) {
+	        case LF:
+	        case NL:
+	          return BK;
+	        case CB:
+	          return BA;
+	        case SP:
+	          return WJ;
+	        default:
+	          return c;
+	      }
+	    };
+
+	    LineBreaker.prototype.nextCharClass = function(first) {
+	      if (first == null) {
+	        first = false;
+	      }
+	      return mapClass(classTrie.get(this.nextCodePoint()));
+	    };
+
+	    Break = (function() {
+	      function Break(position, required) {
+	        this.position = position;
+	        this.required = required != null ? required : false;
+	      }
+
+	      return Break;
+
+	    })();
+
+	    LineBreaker.prototype.nextBreak = function() {
+	      var cur, lastClass, shouldBreak;
+	      if (this.curClass == null) {
+	        this.curClass = mapFirst(this.nextCharClass());
+	      }
+	      while (this.pos < this.string.length) {
+	        this.lastPos = this.pos;
+	        lastClass = this.nextClass;
+	        this.nextClass = this.nextCharClass();
+	        if (this.curClass === BK || (this.curClass === CR && this.nextClass !== LF)) {
+	          this.curClass = mapFirst(mapClass(this.nextClass));
+	          return new Break(this.lastPos, true);
+	        }
+	        cur = (function() {
+	          switch (this.nextClass) {
+	            case SP:
+	              return this.curClass;
+	            case BK:
+	            case LF:
+	            case NL:
+	              return BK;
+	            case CR:
+	              return CR;
+	            case CB:
+	              return BA;
+	          }
+	        }).call(this);
+	        if (cur != null) {
+	          this.curClass = cur;
+	          if (this.nextClass === CB) {
+	            return new Break(this.lastPos);
+	          }
+	          continue;
+	        }
+	        shouldBreak = false;
+	        switch (pairTable[this.curClass][this.nextClass]) {
+	          case DI_BRK:
+	            shouldBreak = true;
+	            break;
+	          case IN_BRK:
+	            shouldBreak = lastClass === SP;
+	            break;
+	          case CI_BRK:
+	            shouldBreak = lastClass === SP;
+	            if (!shouldBreak) {
+	              continue;
+	            }
+	            break;
+	          case CP_BRK:
+	            if (lastClass !== SP) {
+	              continue;
+	            }
+	        }
+	        this.curClass = this.nextClass;
+	        if (shouldBreak) {
+	          return new Break(this.lastPos);
+	        }
+	      }
+	      if (this.pos >= this.string.length) {
+	        if (this.lastPos < this.string.length) {
+	          this.lastPos = this.string.length;
+	          return new Break(this.string.length);
+	        } else {
+	          return null;
+	        }
+	      }
+	    };
+
+	    return LineBreaker;
+
+	  })();
+
+	  module.exports = LineBreaker;
+
+	}).call(this);
+
+
+/***/ },
+/* 92 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	var UnicodeTrie,
+	  __slice = [].slice;
+
+	UnicodeTrie = (function() {
+	  var DATA_BLOCK_LENGTH, DATA_GRANULARITY, DATA_MASK, INDEX_1_OFFSET, INDEX_2_BLOCK_LENGTH, INDEX_2_BMP_LENGTH, INDEX_2_MASK, INDEX_SHIFT, LSCP_INDEX_2_LENGTH, LSCP_INDEX_2_OFFSET, OMITTED_BMP_INDEX_1_LENGTH, SHIFT_1, SHIFT_1_2, SHIFT_2, UTF8_2B_INDEX_2_LENGTH, UTF8_2B_INDEX_2_OFFSET;
+
+	  SHIFT_1 = 6 + 5;
+
+	  SHIFT_2 = 5;
+
+	  SHIFT_1_2 = SHIFT_1 - SHIFT_2;
+
+	  OMITTED_BMP_INDEX_1_LENGTH = 0x10000 >> SHIFT_1;
+
+	  INDEX_2_BLOCK_LENGTH = 1 << SHIFT_1_2;
+
+	  INDEX_2_MASK = INDEX_2_BLOCK_LENGTH - 1;
+
+	  INDEX_SHIFT = 2;
+
+	  DATA_BLOCK_LENGTH = 1 << SHIFT_2;
+
+	  DATA_MASK = DATA_BLOCK_LENGTH - 1;
+
+	  LSCP_INDEX_2_OFFSET = 0x10000 >> SHIFT_2;
+
+	  LSCP_INDEX_2_LENGTH = 0x400 >> SHIFT_2;
+
+	  INDEX_2_BMP_LENGTH = LSCP_INDEX_2_OFFSET + LSCP_INDEX_2_LENGTH;
+
+	  UTF8_2B_INDEX_2_OFFSET = INDEX_2_BMP_LENGTH;
+
+	  UTF8_2B_INDEX_2_LENGTH = 0x800 >> 6;
+
+	  INDEX_1_OFFSET = UTF8_2B_INDEX_2_OFFSET + UTF8_2B_INDEX_2_LENGTH;
+
+	  DATA_GRANULARITY = 1 << INDEX_SHIFT;
+
+	  function UnicodeTrie(json) {
+	    var _ref, _ref1;
+	    if (json == null) {
+	      json = {};
+	    }
+	    this.data = json.data || [];
+	    this.highStart = (_ref = json.highStart) != null ? _ref : 0;
+	    this.errorValue = (_ref1 = json.errorValue) != null ? _ref1 : -1;
+	  }
+
+	  UnicodeTrie.prototype.get = function(codePoint) {
+	    var index;
+	    if (codePoint < 0 || codePoint > 0x10ffff) {
+	      return this.errorValue;
+	    }
+	    if (codePoint < 0xd800 || (codePoint > 0xdbff && codePoint <= 0xffff)) {
+	      index = (this.data[codePoint >> SHIFT_2] << INDEX_SHIFT) + (codePoint & DATA_MASK);
+	      return this.data[index];
+	    }
+	    if (codePoint <= 0xffff) {
+	      index = (this.data[LSCP_INDEX_2_OFFSET + ((codePoint - 0xd800) >> SHIFT_2)] << INDEX_SHIFT) + (codePoint & DATA_MASK);
+	      return this.data[index];
+	    }
+	    if (codePoint < this.highStart) {
+	      index = this.data[(INDEX_1_OFFSET - OMITTED_BMP_INDEX_1_LENGTH) + (codePoint >> SHIFT_1)];
+	      index = this.data[index + ((codePoint >> SHIFT_2) & INDEX_2_MASK)];
+	      index = (index << INDEX_SHIFT) + (codePoint & DATA_MASK);
+	      return this.data[index];
+	    }
+	    return this.data[this.data.length - DATA_GRANULARITY];
+	  };
+
+	  UnicodeTrie.prototype.toJSON = function() {
+	    var res;
+	    res = {
+	      data: __slice.call(this.data),
+	      highStart: this.highStart,
+	      errorValue: this.errorValue
+	    };
+	    return res;
+	  };
+
+	  return UnicodeTrie;
+
+	})();
+
+	module.exports = UnicodeTrie;
+
+
+/***/ },
+/* 93 */
+/***/ function(module, exports) {
 
 	module.exports = {
 		"data": [
@@ -66356,13 +65055,1501 @@
 	}
 
 /***/ },
-/* 107 */
+/* 94 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var AI, AL, B2, BA, BB, BK, CB, CJ, CL, CM, CP, CR, EX, GL, H2, H3, HL, HY, ID, IN, IS, JL, JT, JV, LF, NL, NS, NU, OP, PO, PR, QU, RI, SA, SG, SP, SY, WJ, XX, ZW;
+
+	  exports.OP = OP = 0;
+
+	  exports.CL = CL = 1;
+
+	  exports.CP = CP = 2;
+
+	  exports.QU = QU = 3;
+
+	  exports.GL = GL = 4;
+
+	  exports.NS = NS = 5;
+
+	  exports.EX = EX = 6;
+
+	  exports.SY = SY = 7;
+
+	  exports.IS = IS = 8;
+
+	  exports.PR = PR = 9;
+
+	  exports.PO = PO = 10;
+
+	  exports.NU = NU = 11;
+
+	  exports.AL = AL = 12;
+
+	  exports.HL = HL = 13;
+
+	  exports.ID = ID = 14;
+
+	  exports.IN = IN = 15;
+
+	  exports.HY = HY = 16;
+
+	  exports.BA = BA = 17;
+
+	  exports.BB = BB = 18;
+
+	  exports.B2 = B2 = 19;
+
+	  exports.ZW = ZW = 20;
+
+	  exports.CM = CM = 21;
+
+	  exports.WJ = WJ = 22;
+
+	  exports.H2 = H2 = 23;
+
+	  exports.H3 = H3 = 24;
+
+	  exports.JL = JL = 25;
+
+	  exports.JV = JV = 26;
+
+	  exports.JT = JT = 27;
+
+	  exports.RI = RI = 28;
+
+	  exports.AI = AI = 29;
+
+	  exports.BK = BK = 30;
+
+	  exports.CB = CB = 31;
+
+	  exports.CJ = CJ = 32;
+
+	  exports.CR = CR = 33;
+
+	  exports.LF = LF = 34;
+
+	  exports.NL = NL = 35;
+
+	  exports.SA = SA = 36;
+
+	  exports.SG = SG = 37;
+
+	  exports.SP = SP = 38;
+
+	  exports.XX = XX = 39;
+
+	}).call(this);
+
+
+/***/ },
+/* 95 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var CI_BRK, CP_BRK, DI_BRK, IN_BRK, PR_BRK;
+
+	  exports.DI_BRK = DI_BRK = 0;
+
+	  exports.IN_BRK = IN_BRK = 1;
+
+	  exports.CI_BRK = CI_BRK = 2;
+
+	  exports.CP_BRK = CP_BRK = 3;
+
+	  exports.PR_BRK = PR_BRK = 4;
+
+	  exports.pairTable = [[PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, CP_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, DI_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, DI_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, PR_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK], [IN_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, IN_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, DI_BRK], [DI_BRK, PR_BRK, PR_BRK, IN_BRK, IN_BRK, IN_BRK, PR_BRK, PR_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK, IN_BRK, DI_BRK, DI_BRK, PR_BRK, CI_BRK, PR_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, DI_BRK, IN_BRK]];
+
+	}).call(this);
+
+
+/***/ },
+/* 96 */
 /***/ function(module, exports, __webpack_require__) {
 
-	module.exports = Array.isArray || function (arr) {
-	  return Object.prototype.toString.call(arr) == '[object Array]';
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var PDFImage;
+
+	  PDFImage = __webpack_require__(97);
+
+	  module.exports = {
+	    initImages: function() {
+	      this._imageRegistry = {};
+	      return this._imageCount = 0;
+	    },
+	    image: function(src, x, y, options) {
+	      var bh, bp, bw, h, hp, image, ip, w, wp, _base, _name, _ref, _ref1, _ref2;
+	      if (options == null) {
+	        options = {};
+	      }
+	      if (typeof x === 'object') {
+	        options = x;
+	        x = null;
+	      }
+	      x = (_ref = x != null ? x : options.x) != null ? _ref : this.x;
+	      y = (_ref1 = y != null ? y : options.y) != null ? _ref1 : this.y;
+	      if (!Buffer.isBuffer(src)) {
+	        image = this._imageRegistry[src];
+	      }
+	      if (!image) {
+	        image = PDFImage.open(src, 'I' + (++this._imageCount));
+	        image.embed(this);
+	        if (!Buffer.isBuffer(src)) {
+	          this._imageRegistry[src] = image;
+	        }
+	      }
+	      if ((_base = this.page.xobjects)[_name = image.label] == null) {
+	        _base[_name] = image.obj;
+	      }
+	      w = options.width || image.width;
+	      h = options.height || image.height;
+	      if (options.width && !options.height) {
+	        wp = w / image.width;
+	        w = image.width * wp;
+	        h = image.height * wp;
+	      } else if (options.height && !options.width) {
+	        hp = h / image.height;
+	        w = image.width * hp;
+	        h = image.height * hp;
+	      } else if (options.scale) {
+	        w = image.width * options.scale;
+	        h = image.height * options.scale;
+	      } else if (options.fit) {
+	        _ref2 = options.fit, bw = _ref2[0], bh = _ref2[1];
+	        bp = bw / bh;
+	        ip = image.width / image.height;
+	        if (ip > bp) {
+	          w = bw;
+	          h = bw / ip;
+	        } else {
+	          h = bh;
+	          w = bh * ip;
+	        }
+	        if (options.align === 'center') {
+	          x = x + bw / 2 - w / 2;
+	        } else if (options.align === 'right') {
+	          x = x + bw - w;
+	        }
+	        if (options.valign === 'center') {
+	          y = y + bh / 2 - h / 2;
+	        } else if (options.valign === 'bottom') {
+	          y = y + bh - h;
+	        }
+	      }
+	      if (this.y === y) {
+	        this.y += h;
+	      }
+	      this.save();
+	      this.transform(w, 0, 0, -h, x, y + h);
+	      this.addContent("/" + image.label + " Do");
+	      this.restore();
+	      return this;
+	    }
+	  };
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 97 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+
+	/*
+	PDFImage - embeds images in PDF documents
+	By Devon Govett
+	 */
+
+	(function() {
+	  var Data, JPEG, PDFImage, PNG, fs;
+
+	  fs = __webpack_require__(44);
+
+	  Data = __webpack_require__(72);
+
+	  JPEG = __webpack_require__(98);
+
+	  PNG = __webpack_require__(99);
+
+	  PDFImage = (function() {
+	    function PDFImage() {}
+
+	    PDFImage.open = function(src, label) {
+	      var data, match;
+	      if (Buffer.isBuffer(src)) {
+	        data = src;
+	      } else {
+	        if (match = /^data:.+;base64,(.*)$/.exec(src)) {
+	          data = new Buffer(match[1], 'base64');
+	        } else {
+	          data = fs.readFileSync(src);
+	          if (!data) {
+	            return;
+	          }
+	        }
+	      }
+	      if (data[0] === 0xff && data[1] === 0xd8) {
+	        return new JPEG(data, label);
+	      } else if (data[0] === 0x89 && data.toString('ascii', 1, 4) === 'PNG') {
+	        return new PNG(data, label);
+	      } else {
+	        throw new Error('Unknown image format.');
+	      }
+	    };
+
+	    return PDFImage;
+
+	  })();
+
+	  module.exports = PDFImage;
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 98 */
+/***/ function(module, exports, __webpack_require__) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var JPEG, fs,
+	    __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
+
+	  fs = __webpack_require__(44);
+
+	  JPEG = (function() {
+	    var MARKERS;
+
+	    MARKERS = [0xFFC0, 0xFFC1, 0xFFC2, 0xFFC3, 0xFFC5, 0xFFC6, 0xFFC7, 0xFFC8, 0xFFC9, 0xFFCA, 0xFFCB, 0xFFCC, 0xFFCD, 0xFFCE, 0xFFCF];
+
+	    function JPEG(data, label) {
+	      var channels, marker, pos;
+	      this.data = data;
+	      this.label = label;
+	      if (this.data.readUInt16BE(0) !== 0xFFD8) {
+	        throw "SOI not found in JPEG";
+	      }
+	      pos = 2;
+	      while (pos < this.data.length) {
+	        marker = this.data.readUInt16BE(pos);
+	        pos += 2;
+	        if (__indexOf.call(MARKERS, marker) >= 0) {
+	          break;
+	        }
+	        pos += this.data.readUInt16BE(pos);
+	      }
+	      if (__indexOf.call(MARKERS, marker) < 0) {
+	        throw "Invalid JPEG.";
+	      }
+	      pos += 2;
+	      this.bits = this.data[pos++];
+	      this.height = this.data.readUInt16BE(pos);
+	      pos += 2;
+	      this.width = this.data.readUInt16BE(pos);
+	      pos += 2;
+	      channels = this.data[pos++];
+	      this.colorSpace = (function() {
+	        switch (channels) {
+	          case 1:
+	            return 'DeviceGray';
+	          case 3:
+	            return 'DeviceRGB';
+	          case 4:
+	            return 'DeviceCMYK';
+	        }
+	      })();
+	      this.obj = null;
+	    }
+
+	    JPEG.prototype.embed = function(document) {
+	      if (this.obj) {
+	        return;
+	      }
+	      this.obj = document.ref({
+	        Type: 'XObject',
+	        Subtype: 'Image',
+	        BitsPerComponent: this.bits,
+	        Width: this.width,
+	        Height: this.height,
+	        ColorSpace: this.colorSpace,
+	        Filter: 'DCTDecode'
+	      });
+	      if (this.colorSpace === 'DeviceCMYK') {
+	        this.obj.data['Decode'] = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
+	      }
+	      this.obj.end(this.data);
+	      return this.data = null;
+	    };
+
+	    return JPEG;
+
+	  })();
+
+	  module.exports = JPEG;
+
+	}).call(this);
+
+
+/***/ },
+/* 99 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.7.1
+	(function() {
+	  var PNG, PNGImage, zlib;
+
+	  zlib = __webpack_require__(47);
+
+	  PNG = __webpack_require__(100);
+
+	  PNGImage = (function() {
+	    function PNGImage(data, label) {
+	      this.label = label;
+	      this.image = new PNG(data);
+	      this.width = this.image.width;
+	      this.height = this.image.height;
+	      this.imgData = this.image.imgData;
+	      this.obj = null;
+	    }
+
+	    PNGImage.prototype.embed = function(document) {
+	      var mask, palette, params, rgb, val, x, _i, _len;
+	      this.document = document;
+	      if (this.obj) {
+	        return;
+	      }
+	      this.obj = document.ref({
+	        Type: 'XObject',
+	        Subtype: 'Image',
+	        BitsPerComponent: this.image.bits,
+	        Width: this.width,
+	        Height: this.height,
+	        Filter: 'FlateDecode'
+	      });
+	      if (!this.image.hasAlphaChannel) {
+	        params = document.ref({
+	          Predictor: 15,
+	          Colors: this.image.colors,
+	          BitsPerComponent: this.image.bits,
+	          Columns: this.width
+	        });
+	        this.obj.data['DecodeParms'] = params;
+	        params.end();
+	      }
+	      if (this.image.palette.length === 0) {
+	        this.obj.data['ColorSpace'] = this.image.colorSpace;
+	      } else {
+	        palette = document.ref();
+	        palette.end(new Buffer(this.image.palette));
+	        this.obj.data['ColorSpace'] = ['Indexed', 'DeviceRGB', (this.image.palette.length / 3) - 1, palette];
+	      }
+	      if (this.image.transparency.grayscale) {
+	        val = this.image.transparency.greyscale;
+	        return this.obj.data['Mask'] = [val, val];
+	      } else if (this.image.transparency.rgb) {
+	        rgb = this.image.transparency.rgb;
+	        mask = [];
+	        for (_i = 0, _len = rgb.length; _i < _len; _i++) {
+	          x = rgb[_i];
+	          mask.push(x, x);
+	        }
+	        return this.obj.data['Mask'] = mask;
+	      } else if (this.image.transparency.indexed) {
+	        return this.loadIndexedAlphaChannel();
+	      } else if (this.image.hasAlphaChannel) {
+	        return this.splitAlphaChannel();
+	      } else {
+	        return this.finalize();
+	      }
+	    };
+
+	    PNGImage.prototype.finalize = function() {
+	      var sMask;
+	      if (this.alphaChannel) {
+	        sMask = this.document.ref({
+	          Type: 'XObject',
+	          Subtype: 'Image',
+	          Height: this.height,
+	          Width: this.width,
+	          BitsPerComponent: 8,
+	          Filter: 'FlateDecode',
+	          ColorSpace: 'DeviceGray',
+	          Decode: [0, 1]
+	        });
+	        sMask.end(this.alphaChannel);
+	        this.obj.data['SMask'] = sMask;
+	      }
+	      this.obj.end(this.imgData);
+	      this.image = null;
+	      return this.imgData = null;
+	    };
+
+	    PNGImage.prototype.splitAlphaChannel = function() {
+	      return this.image.decodePixels((function(_this) {
+	        return function(pixels) {
+	          var a, alphaChannel, colorByteSize, done, i, imgData, len, p, pixelCount;
+	          colorByteSize = _this.image.colors * _this.image.bits / 8;
+	          pixelCount = _this.width * _this.height;
+	          imgData = new Buffer(pixelCount * colorByteSize);
+	          alphaChannel = new Buffer(pixelCount);
+	          i = p = a = 0;
+	          len = pixels.length;
+	          while (i < len) {
+	            imgData[p++] = pixels[i++];
+	            imgData[p++] = pixels[i++];
+	            imgData[p++] = pixels[i++];
+	            alphaChannel[a++] = pixels[i++];
+	          }
+	          done = 0;
+	          zlib.deflate(imgData, function(err, imgData) {
+	            _this.imgData = imgData;
+	            if (err) {
+	              throw err;
+	            }
+	            if (++done === 2) {
+	              return _this.finalize();
+	            }
+	          });
+	          return zlib.deflate(alphaChannel, function(err, alphaChannel) {
+	            _this.alphaChannel = alphaChannel;
+	            if (err) {
+	              throw err;
+	            }
+	            if (++done === 2) {
+	              return _this.finalize();
+	            }
+	          });
+	        };
+	      })(this));
+	    };
+
+	    PNGImage.prototype.loadIndexedAlphaChannel = function(fn) {
+	      var transparency;
+	      transparency = this.image.transparency.indexed;
+	      return this.image.decodePixels((function(_this) {
+	        return function(pixels) {
+	          var alphaChannel, i, j, _i, _ref;
+	          alphaChannel = new Buffer(_this.width * _this.height);
+	          i = 0;
+	          for (j = _i = 0, _ref = pixels.length; _i < _ref; j = _i += 1) {
+	            alphaChannel[i++] = transparency[pixels[j]];
+	          }
+	          return zlib.deflate(alphaChannel, function(err, alphaChannel) {
+	            _this.alphaChannel = alphaChannel;
+	            if (err) {
+	              throw err;
+	            }
+	            return _this.finalize();
+	          });
+	        };
+	      })(this));
+	    };
+
+	    return PNGImage;
+
+	  })();
+
+	  module.exports = PNGImage;
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 100 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {// Generated by CoffeeScript 1.4.0
+
+	/*
+	# MIT LICENSE
+	# Copyright (c) 2011 Devon Govett
+	# 
+	# Permission is hereby granted, free of charge, to any person obtaining a copy of this 
+	# software and associated documentation files (the "Software"), to deal in the Software 
+	# without restriction, including without limitation the rights to use, copy, modify, merge, 
+	# publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons 
+	# to whom the Software is furnished to do so, subject to the following conditions:
+	# 
+	# The above copyright notice and this permission notice shall be included in all copies or 
+	# substantial portions of the Software.
+	# 
+	# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING 
+	# BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
+	# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, 
+	# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+	# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+	*/
+
+
+	(function() {
+	  var PNG, fs, zlib;
+
+	  fs = __webpack_require__(44);
+
+	  zlib = __webpack_require__(47);
+
+	  module.exports = PNG = (function() {
+
+	    PNG.decode = function(path, fn) {
+	      return fs.readFile(path, function(err, file) {
+	        var png;
+	        png = new PNG(file);
+	        return png.decode(function(pixels) {
+	          return fn(pixels);
+	        });
+	      });
+	    };
+
+	    PNG.load = function(path) {
+	      var file;
+	      file = fs.readFileSync(path);
+	      return new PNG(file);
+	    };
+
+	    function PNG(data) {
+	      var chunkSize, colors, i, index, key, section, short, text, _i, _j, _ref;
+	      this.data = data;
+	      this.pos = 8;
+	      this.palette = [];
+	      this.imgData = [];
+	      this.transparency = {};
+	      this.text = {};
+	      while (true) {
+	        chunkSize = this.readUInt32();
+	        section = ((function() {
+	          var _i, _results;
+	          _results = [];
+	          for (i = _i = 0; _i < 4; i = ++_i) {
+	            _results.push(String.fromCharCode(this.data[this.pos++]));
+	          }
+	          return _results;
+	        }).call(this)).join('');
+	        switch (section) {
+	          case 'IHDR':
+	            this.width = this.readUInt32();
+	            this.height = this.readUInt32();
+	            this.bits = this.data[this.pos++];
+	            this.colorType = this.data[this.pos++];
+	            this.compressionMethod = this.data[this.pos++];
+	            this.filterMethod = this.data[this.pos++];
+	            this.interlaceMethod = this.data[this.pos++];
+	            break;
+	          case 'PLTE':
+	            this.palette = this.read(chunkSize);
+	            break;
+	          case 'IDAT':
+	            for (i = _i = 0; _i < chunkSize; i = _i += 1) {
+	              this.imgData.push(this.data[this.pos++]);
+	            }
+	            break;
+	          case 'tRNS':
+	            this.transparency = {};
+	            switch (this.colorType) {
+	              case 3:
+	                this.transparency.indexed = this.read(chunkSize);
+	                short = 255 - this.transparency.indexed.length;
+	                if (short > 0) {
+	                  for (i = _j = 0; 0 <= short ? _j < short : _j > short; i = 0 <= short ? ++_j : --_j) {
+	                    this.transparency.indexed.push(255);
+	                  }
+	                }
+	                break;
+	              case 0:
+	                this.transparency.grayscale = this.read(chunkSize)[0];
+	                break;
+	              case 2:
+	                this.transparency.rgb = this.read(chunkSize);
+	            }
+	            break;
+	          case 'tEXt':
+	            text = this.read(chunkSize);
+	            index = text.indexOf(0);
+	            key = String.fromCharCode.apply(String, text.slice(0, index));
+	            this.text[key] = String.fromCharCode.apply(String, text.slice(index + 1));
+	            break;
+	          case 'IEND':
+	            this.colors = (function() {
+	              switch (this.colorType) {
+	                case 0:
+	                case 3:
+	                case 4:
+	                  return 1;
+	                case 2:
+	                case 6:
+	                  return 3;
+	              }
+	            }).call(this);
+	            this.hasAlphaChannel = (_ref = this.colorType) === 4 || _ref === 6;
+	            colors = this.colors + (this.hasAlphaChannel ? 1 : 0);
+	            this.pixelBitlength = this.bits * colors;
+	            this.colorSpace = (function() {
+	              switch (this.colors) {
+	                case 1:
+	                  return 'DeviceGray';
+	                case 3:
+	                  return 'DeviceRGB';
+	              }
+	            }).call(this);
+	            this.imgData = new Buffer(this.imgData);
+	            return;
+	          default:
+	            this.pos += chunkSize;
+	        }
+	        this.pos += 4;
+	        if (this.pos > this.data.length) {
+	          throw new Error("Incomplete or corrupt PNG file");
+	        }
+	      }
+	      return;
+	    }
+
+	    PNG.prototype.read = function(bytes) {
+	      var i, _i, _results;
+	      _results = [];
+	      for (i = _i = 0; 0 <= bytes ? _i < bytes : _i > bytes; i = 0 <= bytes ? ++_i : --_i) {
+	        _results.push(this.data[this.pos++]);
+	      }
+	      return _results;
+	    };
+
+	    PNG.prototype.readUInt32 = function() {
+	      var b1, b2, b3, b4;
+	      b1 = this.data[this.pos++] << 24;
+	      b2 = this.data[this.pos++] << 16;
+	      b3 = this.data[this.pos++] << 8;
+	      b4 = this.data[this.pos++];
+	      return b1 | b2 | b3 | b4;
+	    };
+
+	    PNG.prototype.readUInt16 = function() {
+	      var b1, b2;
+	      b1 = this.data[this.pos++] << 8;
+	      b2 = this.data[this.pos++];
+	      return b1 | b2;
+	    };
+
+	    PNG.prototype.decodePixels = function(fn) {
+	      var _this = this;
+	      return zlib.inflate(this.imgData, function(err, data) {
+	        var byte, c, col, i, left, length, p, pa, paeth, pb, pc, pixelBytes, pixels, pos, row, scanlineLength, upper, upperLeft, _i, _j, _k, _l, _m;
+	        if (err) {
+	          throw err;
+	        }
+	        pixelBytes = _this.pixelBitlength / 8;
+	        scanlineLength = pixelBytes * _this.width;
+	        pixels = new Buffer(scanlineLength * _this.height);
+	        length = data.length;
+	        row = 0;
+	        pos = 0;
+	        c = 0;
+	        while (pos < length) {
+	          switch (data[pos++]) {
+	            case 0:
+	              for (i = _i = 0; _i < scanlineLength; i = _i += 1) {
+	                pixels[c++] = data[pos++];
+	              }
+	              break;
+	            case 1:
+	              for (i = _j = 0; _j < scanlineLength; i = _j += 1) {
+	                byte = data[pos++];
+	                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
+	                pixels[c++] = (byte + left) % 256;
+	              }
+	              break;
+	            case 2:
+	              for (i = _k = 0; _k < scanlineLength; i = _k += 1) {
+	                byte = data[pos++];
+	                col = (i - (i % pixelBytes)) / pixelBytes;
+	                upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + (i % pixelBytes)];
+	                pixels[c++] = (upper + byte) % 256;
+	              }
+	              break;
+	            case 3:
+	              for (i = _l = 0; _l < scanlineLength; i = _l += 1) {
+	                byte = data[pos++];
+	                col = (i - (i % pixelBytes)) / pixelBytes;
+	                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
+	                upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + (i % pixelBytes)];
+	                pixels[c++] = (byte + Math.floor((left + upper) / 2)) % 256;
+	              }
+	              break;
+	            case 4:
+	              for (i = _m = 0; _m < scanlineLength; i = _m += 1) {
+	                byte = data[pos++];
+	                col = (i - (i % pixelBytes)) / pixelBytes;
+	                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
+	                if (row === 0) {
+	                  upper = upperLeft = 0;
+	                } else {
+	                  upper = pixels[(row - 1) * scanlineLength + col * pixelBytes + (i % pixelBytes)];
+	                  upperLeft = col && pixels[(row - 1) * scanlineLength + (col - 1) * pixelBytes + (i % pixelBytes)];
+	                }
+	                p = left + upper - upperLeft;
+	                pa = Math.abs(p - left);
+	                pb = Math.abs(p - upper);
+	                pc = Math.abs(p - upperLeft);
+	                if (pa <= pb && pa <= pc) {
+	                  paeth = left;
+	                } else if (pb <= pc) {
+	                  paeth = upper;
+	                } else {
+	                  paeth = upperLeft;
+	                }
+	                pixels[c++] = (byte + paeth) % 256;
+	              }
+	              break;
+	            default:
+	              throw new Error("Invalid filter algorithm: " + data[pos - 1]);
+	          }
+	          row++;
+	        }
+	        return fn(pixels);
+	      });
+	    };
+
+	    PNG.prototype.decodePalette = function() {
+	      var c, i, length, palette, pos, ret, transparency, _i, _ref, _ref1;
+	      palette = this.palette;
+	      transparency = this.transparency.indexed || [];
+	      ret = new Buffer(transparency.length + palette.length);
+	      pos = 0;
+	      length = palette.length;
+	      c = 0;
+	      for (i = _i = 0, _ref = palette.length; _i < _ref; i = _i += 3) {
+	        ret[pos++] = palette[i];
+	        ret[pos++] = palette[i + 1];
+	        ret[pos++] = palette[i + 2];
+	        ret[pos++] = (_ref1 = transparency[c++]) != null ? _ref1 : 255;
+	      }
+	      return ret;
+	    };
+
+	    PNG.prototype.copyToImageData = function(imageData, pixels) {
+	      var alpha, colors, data, i, input, j, k, length, palette, v, _ref;
+	      colors = this.colors;
+	      palette = null;
+	      alpha = this.hasAlphaChannel;
+	      if (this.palette.length) {
+	        palette = (_ref = this._decodedPalette) != null ? _ref : this._decodedPalette = this.decodePalette();
+	        colors = 4;
+	        alpha = true;
+	      }
+	      data = (imageData != null ? imageData.data : void 0) || imageData;
+	      length = data.length;
+	      input = palette || pixels;
+	      i = j = 0;
+	      if (colors === 1) {
+	        while (i < length) {
+	          k = palette ? pixels[i / 4] * 4 : j;
+	          v = input[k++];
+	          data[i++] = v;
+	          data[i++] = v;
+	          data[i++] = v;
+	          data[i++] = alpha ? input[k++] : 255;
+	          j = k;
+	        }
+	      } else {
+	        while (i < length) {
+	          k = palette ? pixels[i / 4] * 4 : j;
+	          data[i++] = input[k++];
+	          data[i++] = input[k++];
+	          data[i++] = input[k++];
+	          data[i++] = alpha ? input[k++] : 255;
+	          j = k;
+	        }
+	      }
+	    };
+
+	    PNG.prototype.decode = function(fn) {
+	      var ret,
+	        _this = this;
+	      ret = new Buffer(this.width * this.height * 4);
+	      return this.decodePixels(function(pixels) {
+	        _this.copyToImageData(ret, pixels);
+	        return fn(ret);
+	      });
+	    };
+
+	    return PNG;
+
+	  })();
+
+	}).call(this);
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 101 */
+/***/ function(module, exports) {
+
+	// Generated by CoffeeScript 1.7.1
+	(function() {
+	  module.exports = {
+	    annotate: function(x, y, w, h, options) {
+	      var key, ref, val;
+	      options.Type = 'Annot';
+	      options.Rect = this._convertRect(x, y, w, h);
+	      options.Border = [0, 0, 0];
+	      if (options.Subtype !== 'Link') {
+	        if (options.C == null) {
+	          options.C = this._normalizeColor(options.color || [0, 0, 0]);
+	        }
+	      }
+	      delete options.color;
+	      if (typeof options.Dest === 'string') {
+	        options.Dest = new String(options.Dest);
+	      }
+	      for (key in options) {
+	        val = options[key];
+	        options[key[0].toUpperCase() + key.slice(1)] = val;
+	      }
+	      ref = this.ref(options);
+	      this.page.annotations.push(ref);
+	      ref.end();
+	      return this;
+	    },
+	    note: function(x, y, w, h, contents, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Text';
+	      options.Contents = new String(contents);
+	      options.Name = 'Comment';
+	      if (options.color == null) {
+	        options.color = [243, 223, 92];
+	      }
+	      return this.annotate(x, y, w, h, options);
+	    },
+	    link: function(x, y, w, h, url, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Link';
+	      options.A = this.ref({
+	        S: 'URI',
+	        URI: new String(url)
+	      });
+	      options.A.end();
+	      return this.annotate(x, y, w, h, options);
+	    },
+	    _markup: function(x, y, w, h, options) {
+	      var x1, x2, y1, y2, _ref;
+	      if (options == null) {
+	        options = {};
+	      }
+	      _ref = this._convertRect(x, y, w, h), x1 = _ref[0], y1 = _ref[1], x2 = _ref[2], y2 = _ref[3];
+	      options.QuadPoints = [x1, y2, x2, y2, x1, y1, x2, y1];
+	      options.Contents = new String;
+	      return this.annotate(x, y, w, h, options);
+	    },
+	    highlight: function(x, y, w, h, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Highlight';
+	      if (options.color == null) {
+	        options.color = [241, 238, 148];
+	      }
+	      return this._markup(x, y, w, h, options);
+	    },
+	    underline: function(x, y, w, h, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Underline';
+	      return this._markup(x, y, w, h, options);
+	    },
+	    strike: function(x, y, w, h, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'StrikeOut';
+	      return this._markup(x, y, w, h, options);
+	    },
+	    lineAnnotation: function(x1, y1, x2, y2, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Line';
+	      options.Contents = new String;
+	      options.L = [x1, this.page.height - y1, x2, this.page.height - y2];
+	      return this.annotate(x1, y1, x2, y2, options);
+	    },
+	    rectAnnotation: function(x, y, w, h, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Square';
+	      options.Contents = new String;
+	      return this.annotate(x, y, w, h, options);
+	    },
+	    ellipseAnnotation: function(x, y, w, h, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'Circle';
+	      options.Contents = new String;
+	      return this.annotate(x, y, w, h, options);
+	    },
+	    textAnnotation: function(x, y, w, h, text, options) {
+	      if (options == null) {
+	        options = {};
+	      }
+	      options.Subtype = 'FreeText';
+	      options.Contents = new String(text);
+	      options.DA = new String;
+	      return this.annotate(x, y, w, h, options);
+	    },
+	    _convertRect: function(x1, y1, w, h) {
+	      var m0, m1, m2, m3, m4, m5, x2, y2, _ref;
+	      y2 = y1;
+	      y1 += h;
+	      x2 = x1 + w;
+	      _ref = this._ctm, m0 = _ref[0], m1 = _ref[1], m2 = _ref[2], m3 = _ref[3], m4 = _ref[4], m5 = _ref[5];
+	      x1 = m0 * x1 + m2 * y1 + m4;
+	      y1 = m1 * x1 + m3 * y1 + m5;
+	      x2 = m0 * x2 + m2 * y2 + m4;
+	      y2 = m1 * x2 + m3 * y2 + m5;
+	      return [x1, y1, x2, y2];
+	    }
+	  };
+
+	}).call(this);
+
+
+/***/ },
+/* 102 */
+/***/ function(module, exports) {
+
+	module.exports = {
+		'4A0': [4767.87, 6740.79],
+		'2A0': [3370.39, 4767.87],
+		A0: [2383.94, 3370.39],
+		A1: [1683.78, 2383.94],
+		A2: [1190.55, 1683.78],
+		A3: [841.89, 1190.55],
+		A4: [595.28, 841.89],
+		A5: [419.53, 595.28],
+		A6: [297.64, 419.53],
+		A7: [209.76, 297.64],
+		A8: [147.40, 209.76],
+		A9: [104.88, 147.40],
+		A10: [73.70, 104.88],
+		B0: [2834.65, 4008.19],
+		B1: [2004.09, 2834.65],
+		B2: [1417.32, 2004.09],
+		B3: [1000.63, 1417.32],
+		B4: [708.66, 1000.63],
+		B5: [498.90, 708.66],
+		B6: [354.33, 498.90],
+		B7: [249.45, 354.33],
+		B8: [175.75, 249.45],
+		B9: [124.72, 175.75],
+		B10: [87.87, 124.72],
+		C0: [2599.37, 3676.54],
+		C1: [1836.85, 2599.37],
+		C2: [1298.27, 1836.85],
+		C3: [918.43, 1298.27],
+		C4: [649.13, 918.43],
+		C5: [459.21, 649.13],
+		C6: [323.15, 459.21],
+		C7: [229.61, 323.15],
+		C8: [161.57, 229.61],
+		C9: [113.39, 161.57],
+		C10: [79.37, 113.39],
+		RA0: [2437.80, 3458.27],
+		RA1: [1729.13, 2437.80],
+		RA2: [1218.90, 1729.13],
+		RA3: [864.57, 1218.90],
+		RA4: [609.45, 864.57],
+		SRA0: [2551.18, 3628.35],
+		SRA1: [1814.17, 2551.18],
+		SRA2: [1275.59, 1814.17],
+		SRA3: [907.09, 1275.59],
+		SRA4: [637.80, 907.09],
+		EXECUTIVE: [521.86, 756.00],
+		FOLIO: [612.00, 936.00],
+		LEGAL: [612.00, 1008.00],
+		LETTER: [612.00, 792.00],
+		TABLOID: [792.00, 1224.00]
 	};
 
+
+/***/ },
+/* 103 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(Buffer) {/* jslint node: true */
+	'use strict';
+
+	var pdfKit = __webpack_require__(24);
+	var PDFImage = __webpack_require__(97);
+
+	function ImageMeasure(pdfDoc, imageDictionary) {
+		this.pdfDoc = pdfDoc;
+		this.imageDictionary = imageDictionary || {};
+	}
+
+	ImageMeasure.prototype.measureImage = function(src) {
+		var image, label;
+		var that = this;
+
+		if (!this.pdfDoc._imageRegistry[src]) {
+			label = 'I' + (++this.pdfDoc._imageCount);
+			image = PDFImage.open(realImageSrc(src), label);
+			image.embed(this.pdfDoc);
+			this.pdfDoc._imageRegistry[src] = image;
+		} else {
+			image = this.pdfDoc._imageRegistry[src];
+		}
+
+		return { width: image.width, height: image.height };
+
+		function realImageSrc(src) {
+			var img = that.imageDictionary[src];
+
+			if (!img) return src;
+
+			var index = img.indexOf('base64,');
+			if (index < 0) {
+				throw 'invalid image format, images dictionary should contain dataURL entries';
+			}
+
+			return new Buffer(img.substring(index + 7), 'base64');
+		}
+	};
+
+	module.exports = ImageMeasure;
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
+
+/***/ },
+/* 104 */
+/***/ function(module, exports) {
+
+	/* jslint node: true */
+	'use strict';
+
+
+	function groupDecorations(line) {
+		var groups = [], curGroup = null;
+		for(var i = 0, l = line.inlines.length; i < l; i++) {
+			var inline = line.inlines[i];
+			var decoration = inline.decoration;
+			if(!decoration) {
+				curGroup = null;
+				continue;
+			}
+			var color = inline.decorationColor || inline.color || 'black';
+			var style = inline.decorationStyle || 'solid';
+			decoration = Array.isArray(decoration) ? decoration : [ decoration ];
+			for(var ii = 0, ll = decoration.length; ii < ll; ii++) {
+				var deco = decoration[ii];
+				if(!curGroup || deco !== curGroup.decoration ||
+						style !== curGroup.decorationStyle || color !== curGroup.decorationColor ||
+						deco === 'lineThrough') {
+			
+					curGroup = {
+						line: line,
+						decoration: deco, 
+						decorationColor: color, 
+						decorationStyle: style,
+						inlines: [ inline ]
+					};
+					groups.push(curGroup);
+				} else {
+					curGroup.inlines.push(inline);
+				}
+			}
+		}
+		
+		return groups;
+	}
+
+	function drawDecoration(group, x, y, pdfKitDoc) {
+		function maxInline() {
+			var max = 0;
+			for (var i = 0, l = group.inlines.length; i < l; i++) {
+				var inl = group.inlines[i];
+				max = inl.fontSize > max ? i : max;
+			}
+			return group.inlines[max];
+		}
+		function width() {
+			var sum = 0;
+			for (var i = 0, l = group.inlines.length; i < l; i++) {
+				sum += group.inlines[i].width;
+			}
+			return sum;
+		}
+		var firstInline = group.inlines[0],
+			biggerInline = maxInline(),
+			totalWidth = width(),
+			lineAscent = group.line.getAscenderHeight(),
+			ascent = biggerInline.font.ascender / 1000 * biggerInline.fontSize,
+			height = biggerInline.height,
+			descent = height - ascent;
+		
+		var lw = 0.5 + Math.floor(Math.max(biggerInline.fontSize - 8, 0) / 2) * 0.12;
+		
+		switch (group.decoration) {
+			case 'underline':
+				y += lineAscent + descent * 0.45;
+				break;
+			case 'overline':
+				y += lineAscent - (ascent * 0.85);
+				break;
+			case 'lineThrough':
+				y += lineAscent - (ascent * 0.25);
+				break;
+			default:
+				throw 'Unkown decoration : ' + group.decoration;
+		}
+		pdfKitDoc.save();
+		
+		if(group.decorationStyle === 'double') {
+			var gap = Math.max(0.5, lw*2);
+			pdfKitDoc	.fillColor(group.decorationColor)
+						.rect(x + firstInline.x, y-lw/2, totalWidth, lw/2).fill()
+						.rect(x + firstInline.x, y+gap-lw/2, totalWidth, lw/2).fill();
+		} else if(group.decorationStyle === 'dashed') {
+			var nbDashes = Math.ceil(totalWidth / (3.96+2.84));
+			var rdx = x + firstInline.x;
+			pdfKitDoc.rect(rdx, y, totalWidth, lw).clip();
+			pdfKitDoc.fillColor(group.decorationColor);
+			for (var i = 0; i < nbDashes; i++) {
+				pdfKitDoc.rect(rdx, y-lw/2, 3.96, lw).fill();
+				rdx += 3.96 + 2.84;
+			}
+		} else if(group.decorationStyle === 'dotted') {
+			var nbDots = Math.ceil(totalWidth / (lw*3));
+			var rx = x + firstInline.x;
+			pdfKitDoc.rect(rx, y, totalWidth, lw).clip();
+			pdfKitDoc.fillColor(group.decorationColor);
+			for (var ii = 0; ii < nbDots; ii++) {
+				pdfKitDoc.rect(rx, y-lw/2, lw, lw).fill();
+				rx += (lw*3);
+			}
+		} else if(group.decorationStyle === 'wavy') {
+			var sh = 0.7, sv = 1;
+			var nbWaves = Math.ceil(totalWidth / (sh*2))+1;
+			var rwx = x + firstInline.x - 1;
+			pdfKitDoc.rect(x + firstInline.x, y-sv, totalWidth, y+sv).clip();
+			pdfKitDoc.lineWidth(0.24);
+			pdfKitDoc.moveTo(rwx, y);
+			for(var iii = 0; iii < nbWaves; iii++) {
+				pdfKitDoc   .bezierCurveTo(rwx+sh, y-sv, rwx+sh*2, y-sv, rwx+sh*3, y)
+							.bezierCurveTo(rwx+sh*4, y+sv, rwx+sh*5, y+sv, rwx+sh*6, y);
+					rwx += sh*6;
+				}
+			pdfKitDoc.stroke(group.decorationColor);
+			
+		} else {
+			pdfKitDoc	.fillColor(group.decorationColor)
+						.rect(x + firstInline.x, y-lw/2, totalWidth, lw)
+						.fill();
+		}
+		pdfKitDoc.restore();
+	}
+
+	function drawDecorations(line, x, y, pdfKitDoc) {
+		var groups = groupDecorations(line);
+		for (var i = 0, l = groups.length; i < l; i++) {
+			drawDecoration(groups[i], x, y, pdfKitDoc);
+		}
+	}
+
+	function drawBackground(line, x, y, pdfKitDoc) {
+		var height = line.getHeight();
+		for(var i = 0, l = line.inlines.length; i < l; i++) {
+			var inline = line.inlines[i];
+				if(inline.background) {
+					pdfKitDoc	.fillColor(inline.background)
+								.rect(x + inline.x, y, inline.width, height)
+								.fill();
+				}
+		}
+	}
+
+	module.exports = {
+		drawBackground: drawBackground,
+		drawDecorations: drawDecorations
+	};
+
+/***/ },
+/* 105 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(module) {/* FileSaver.js
+	 * A saveAs() FileSaver implementation.
+	 * 2014-08-29
+	 *
+	 * By Eli Grey, http://eligrey.com
+	 * License: X11/MIT
+	 *   See https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md
+	 */
+
+	/*global self */
+	/*jslint bitwise: true, indent: 4, laxbreak: true, laxcomma: true, smarttabs: true, plusplus: true */
+
+	/*! @source http://purl.eligrey.com/github/FileSaver.js/blob/master/FileSaver.js */
+
+	var saveAs = saveAs
+	  // IE 10+ (native saveAs)
+	  || (typeof navigator !== "undefined" &&
+	      navigator.msSaveOrOpenBlob && navigator.msSaveOrOpenBlob.bind(navigator))
+	  // Everyone else
+	  || (function(view) {
+		"use strict";
+		// IE <10 is explicitly unsupported
+		if (typeof navigator !== "undefined" &&
+		    /MSIE [1-9]\./.test(navigator.userAgent)) {
+			return;
+		}
+		var
+			  doc = view.document
+			  // only get URL when necessary in case Blob.js hasn't overridden it yet
+			, get_URL = function() {
+				return view.URL || view.webkitURL || view;
+			}
+			, save_link = doc.createElementNS("http://www.w3.org/1999/xhtml", "a")
+			, can_use_save_link = "download" in save_link
+			, click = function(node) {
+				var event = doc.createEvent("MouseEvents");
+				event.initMouseEvent(
+					"click", true, false, view, 0, 0, 0, 0, 0
+					, false, false, false, false, 0, null
+				);
+				node.dispatchEvent(event);
+			}
+			, webkit_req_fs = view.webkitRequestFileSystem
+			, req_fs = view.requestFileSystem || webkit_req_fs || view.mozRequestFileSystem
+			, throw_outside = function(ex) {
+				(view.setImmediate || view.setTimeout)(function() {
+					throw ex;
+				}, 0);
+			}
+			, force_saveable_type = "application/octet-stream"
+			, fs_min_size = 0
+			// See https://code.google.com/p/chromium/issues/detail?id=375297#c7 for
+			// the reasoning behind the timeout and revocation flow
+			, arbitrary_revoke_timeout = 10
+			, revoke = function(file) {
+				var revoker = function() {
+					if (typeof file === "string") { // file is an object URL
+						get_URL().revokeObjectURL(file);
+					} else { // file is a File
+						file.remove();
+					}
+				};
+				if (view.chrome) {
+					revoker();
+				} else {
+					setTimeout(revoker, arbitrary_revoke_timeout);
+				}
+			}
+			, dispatch = function(filesaver, event_types, event) {
+				event_types = [].concat(event_types);
+				var i = event_types.length;
+				while (i--) {
+					var listener = filesaver["on" + event_types[i]];
+					if (typeof listener === "function") {
+						try {
+							listener.call(filesaver, event || filesaver);
+						} catch (ex) {
+							throw_outside(ex);
+						}
+					}
+				}
+			}
+			, FileSaver = function(blob, name) {
+				// First try a.download, then web filesystem, then object URLs
+				var
+					  filesaver = this
+					, type = blob.type
+					, blob_changed = false
+					, object_url
+					, target_view
+					, dispatch_all = function() {
+						dispatch(filesaver, "writestart progress write writeend".split(" "));
+					}
+					// on any filesys errors revert to saving with object URLs
+					, fs_error = function() {
+						// don't create more object URLs than needed
+						if (blob_changed || !object_url) {
+							object_url = get_URL().createObjectURL(blob);
+						}
+						if (target_view) {
+							target_view.location.href = object_url;
+						} else {
+							var new_tab = view.open(object_url, "_blank");
+							if (new_tab == undefined && typeof safari !== "undefined") {
+								//Apple do not allow window.open, see http://bit.ly/1kZffRI
+								view.location.href = object_url
+							}
+						}
+						filesaver.readyState = filesaver.DONE;
+						dispatch_all();
+						revoke(object_url);
+					}
+					, abortable = function(func) {
+						return function() {
+							if (filesaver.readyState !== filesaver.DONE) {
+								return func.apply(this, arguments);
+							}
+						};
+					}
+					, create_if_not_found = {create: true, exclusive: false}
+					, slice
+				;
+				filesaver.readyState = filesaver.INIT;
+				if (!name) {
+					name = "download";
+				}
+				if (can_use_save_link) {
+					object_url = get_URL().createObjectURL(blob);
+					save_link.href = object_url;
+					save_link.download = name;
+					click(save_link);
+					filesaver.readyState = filesaver.DONE;
+					dispatch_all();
+					revoke(object_url);
+					return;
+				}
+				// Object and web filesystem URLs have a problem saving in Google Chrome when
+				// viewed in a tab, so I force save with application/octet-stream
+				// http://code.google.com/p/chromium/issues/detail?id=91158
+				// Update: Google errantly closed 91158, I submitted it again:
+				// https://code.google.com/p/chromium/issues/detail?id=389642
+				if (view.chrome && type && type !== force_saveable_type) {
+					slice = blob.slice || blob.webkitSlice;
+					blob = slice.call(blob, 0, blob.size, force_saveable_type);
+					blob_changed = true;
+				}
+				// Since I can't be sure that the guessed media type will trigger a download
+				// in WebKit, I append .download to the filename.
+				// https://bugs.webkit.org/show_bug.cgi?id=65440
+				if (webkit_req_fs && name !== "download") {
+					name += ".download";
+				}
+				if (type === force_saveable_type || webkit_req_fs) {
+					target_view = view;
+				}
+				if (!req_fs) {
+					fs_error();
+					return;
+				}
+				fs_min_size += blob.size;
+				req_fs(view.TEMPORARY, fs_min_size, abortable(function(fs) {
+					fs.root.getDirectory("saved", create_if_not_found, abortable(function(dir) {
+						var save = function() {
+							dir.getFile(name, create_if_not_found, abortable(function(file) {
+								file.createWriter(abortable(function(writer) {
+									writer.onwriteend = function(event) {
+										target_view.location.href = file.toURL();
+										filesaver.readyState = filesaver.DONE;
+										dispatch(filesaver, "writeend", event);
+										revoke(file);
+									};
+									writer.onerror = function() {
+										var error = writer.error;
+										if (error.code !== error.ABORT_ERR) {
+											fs_error();
+										}
+									};
+									"writestart progress write abort".split(" ").forEach(function(event) {
+										writer["on" + event] = filesaver["on" + event];
+									});
+									writer.write(blob);
+									filesaver.abort = function() {
+										writer.abort();
+										filesaver.readyState = filesaver.DONE;
+									};
+									filesaver.readyState = filesaver.WRITING;
+								}), fs_error);
+							}), fs_error);
+						};
+						dir.getFile(name, {create: false}, abortable(function(file) {
+							// delete file if it already exists
+							file.remove();
+							save();
+						}), abortable(function(ex) {
+							if (ex.code === ex.NOT_FOUND_ERR) {
+								save();
+							} else {
+								fs_error();
+							}
+						}));
+					}), fs_error);
+				}), fs_error);
+			}
+			, FS_proto = FileSaver.prototype
+			, saveAs = function(blob, name) {
+				return new FileSaver(blob, name);
+			}
+		;
+		FS_proto.abort = function() {
+			var filesaver = this;
+			filesaver.readyState = filesaver.DONE;
+			dispatch(filesaver, "abort");
+		};
+		FS_proto.readyState = FS_proto.INIT = 0;
+		FS_proto.WRITING = 1;
+		FS_proto.DONE = 2;
+
+		FS_proto.error =
+		FS_proto.onwritestart =
+		FS_proto.onprogress =
+		FS_proto.onwrite =
+		FS_proto.onabort =
+		FS_proto.onerror =
+		FS_proto.onwriteend =
+			null;
+
+		return saveAs;
+	}(
+		   typeof self !== "undefined" && self
+		|| typeof window !== "undefined" && window
+		|| this.content
+	));
+	// `self` is undefined in Firefox for Android content script context
+	// while `this` is nsIContentFrameMessageManager
+	// with an attribute `content` that corresponds to the window
+
+	if (typeof module !== "undefined" && module !== null) {
+	  module.exports = saveAs;
+	} else if (("function" !== "undefined" && __webpack_require__(106) !== null) && (__webpack_require__(107) != null)) {
+	  !(__WEBPACK_AMD_DEFINE_ARRAY__ = [], __WEBPACK_AMD_DEFINE_RESULT__ = function() {
+	    return saveAs;
+	  }.apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	}
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(8)(module)))
+
+/***/ },
+/* 106 */
+/***/ function(module, exports) {
+
+	module.exports = function() { throw new Error("define cannot be used indirect"); };
+
+
+/***/ },
+/* 107 */
+/***/ function(module, exports) {
+
+	/* WEBPACK VAR INJECTION */(function(__webpack_amd_options__) {module.exports = __webpack_amd_options__;
+
+	/* WEBPACK VAR INJECTION */}.call(exports, {}))
 
 /***/ }
 /******/ ]);

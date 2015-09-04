@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.3.0
+Version: 1.3.2
 
 
 ## Description
@@ -292,6 +292,68 @@ function takes two arguments and it needs to return a valid DOM element.
 }
 ```
 
+#### Format specific options that you can override using Menu item reviver
+
+Some formats, such as CSV, have specific parameters that are used when exporting to this format. For example, default column separator for CSV is a comma. But what if you would like to be that a tab? You could use `menuReviver` for that like this:
+
+```
+"export": {
+  "enabled": true,
+  "menuReviver": function(cfg,li) {
+    if ( cfg.format == "CSV" ) {
+      cfg.delimiter = "\t";
+    }
+    return li;
+  }
+}
+```
+
+Below you will find a list of parameters that you can override for each format:
+
+**JPG**
+
+Property | Default | Available values | Description
+--------- | ------- | ---------------- | -----------
+quality |1 | 0-1 | A quality of the resulting JPG image
+multiplier | 1 | number | Set this to non-1 number to resize the resulting image by
+
+**PNG**
+
+Property | Default | Available values | Description
+--------- | ------- | ---------------- | -----------
+quality | 1 | 0-1 | A quality of the resulting JPG image
+multiplier | 1 | number | Set this to non-1 number to resize the resulting image by
+
+**PDF**
+
+Property | Default | Available values | Description
+--------- | ------- | ---------------- | -----------
+multiplier | 2 | number | Set this to non-1 number to resize the resulting image by
+
+**PRINT**
+
+Property | Default | Available values | Description
+--------- | ------- | ---------------- | -----------
+delay | 1 | number | Delay by number of seconds before triggering print
+lossless | false | true/false | Enable or disable image optimization when printing
+
+**CSV**
+
+Property | Default | Available values | Description
+--------- | ------- | ---------------- | -----------
+delimiter | "," | string | A string to use as a column delimiter
+quotes | true | true/false | Set whether to enclose strings in doublequotes
+escape | true | true/false | Set whether to escape strings
+
+**XLSX**
+
+Property | Default | Available values | Description
+--------- | ------- | ---------------- | -----------
+dateFormat | "dateObject" | "dateObject"\|"string" | Whether to export dates as dates recognisable by Excel or formatted as strings
+withHeader | true | true/false | Add header row with column names
+stringify | false | true/false | Convert all cell content to strings
+
+
 ### Menu walker
 
 In case you don't like our structure, go ahead and write your own recursive 
@@ -448,6 +510,8 @@ Following setup shows you all available settings. If you don't have the
     "mode": "pencil", // Drawing mode when entering the annotation mode "pencil", "line" and "arrow" are available
     "modes": [ "pencil" , "line", "arrow" ], // Choice of modes offered in the menu
     "arrow": "end", // position of the arrow on drawn lines; "start","middle" and "end" are available
+
+    "autoClose": true // Flag to automatically close the annotation mode after download
   }
 }
 ```
@@ -809,6 +873,15 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.3.2
+* Added: ([drawing.autoClose](#annotation-settings)) new flag to automatically close the annotation mode after download
+* Fixed: Internal pdfMake issue which prevented to generate PDFs in IE10, uses custom build until officially fixed
+
+### 1.3.1
+* Added: Timestamp date fields get converted as dates
+* Fixed: XLSX respects given dateFormat
+* Changed: JSON exports date fields as date objects by default
 
 ### 1.3.0
 * Fixed: Issue hiding drawing container on "drawing.done"
