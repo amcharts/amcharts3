@@ -8,7 +8,7 @@ AmCharts.themes.light = {
 		colors: ["#67b7dc", "#fdd400", "#84b761", "#cc4748", "#cd82ad", "#2f4074", "#448e4d", "#b7b83f", "#b9783f", "#b93e3d", "#913167"]
 	},
 
-	AmPieChart: {
+	AmSlicedChart: {
 		colors: ["#67b7dc", "#fdd400", "#84b761", "#cc4748", "#cd82ad", "#2f4074", "#448e4d", "#b7b83f", "#b9783f", "#b93e3d", "#913167"]
 	},
 
@@ -119,10 +119,16 @@ AmCharts.themes.light = {
 	ZoomControl: {
 		buttonRollOverColor: "#3c5bdc",
 		buttonFillColor: "#3994e2",
+		buttonBorderColor: "#3994e2",
 		buttonFillAlpha: 0.8,
-		buttonBorderColor: "#ffffff",
-		gridBackgroundColor: "#000000",
-		gridAlpha: 0.8
+		gridBackgroundColor: "#FFFFFF",
+		buttonBorderAlpha:0,
+		buttonCornerRadius:2,
+		gridColor:"#FFFFFF",
+		gridBackgroundColor:"#000000",
+		buttonIconAlpha:0.6,
+		gridAlpha: 0.6,
+		buttonSize:20
 	},
 
 	SmallMap: {
