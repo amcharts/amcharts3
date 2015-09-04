@@ -1,30 +1,34 @@
 AmCharts.AmExport = AmCharts.Class({
-	construct: function(chart, cfg) {
-		var _this = this;
-		_this.DEBUG = false;
-		_this.chart = chart;
-		_this.canvas = null;
-		_this.svgs = [];
-		_this.userCFG = cfg;
+	construct: function(chart, cfg, init ) {
+		var _this					= this;
+		_this.DEBUG					= false;
+		_this.chart					= chart;
+		_this.canvas				= null;
+		_this.svgs					= [];
+		_this.userCFG				= cfg;
 
-		_this.buttonIcon = 'export.png';
-		_this.exportPNG = true;
-		_this.exportPDF = false;
-		_this.exportJPG = false;
-		_this.exportSVG = false;
+		_this.buttonIcon			= 'export.png';
+		_this.exportPNG				= true;
+		_this.exportPDF				= false;
+		_this.exportJPG				= false;
+		_this.exportSVG				= false;
 		//_this.left;
-		_this.right = 0;
+		_this.right					= 0;
 		//_this.bottom;
-		_this.top = 0;
+		_this.top					= 0;
 		//_this.color;
-		_this.buttonRollOverColor = "#EFEFEF";
-		//_this.buttonColor = "#FFFFFF";
-		//_this.buttonRollOverAlpha = 0.5;
-		_this.textRollOverColor = "#CC0000";
-		_this.buttonTitle = "Save chart as an image";
-		_this.buttonAlpha = 0.75;
-		_this.imageFileName = "amChart";
-		_this.imageBackgroundColor = "#FFFFFF";
+		_this.buttonRollOverColor	= "#EFEFEF";
+		//_this.buttonColor			= "#FFFFFF";
+		//_this.buttonRollOverAlpha	= 0.5;
+		_this.textRollOverColor		= "#CC0000";
+		_this.buttonTitle			= "Save chart as an image";
+		_this.buttonAlpha			= 0.75;
+		_this.imageFileName			= "amChart";
+		_this.imageBackgroundColor	= "#FFFFFF";
+
+		if (init) {
+			_this.init();
+		}
 	},
 
 	toCoordinate:function(value){
@@ -82,45 +86,47 @@ AmCharts.AmExport = AmCharts.Class({
 
 
 		_this.cfg = {
-			menuTop: _this.toCoordinate(_this.top),
-			menuLeft: _this.toCoordinate(_this.left),
-			menuRight: _this.toCoordinate(_this.right),
-			menuBottom: _this.toCoordinate(_this.bottom),
-			menuItems: menuItems,
+			menuTop		: _this.toCoordinate(_this.top),
+			menuLeft	: _this.toCoordinate(_this.left),
+			menuRight	: _this.toCoordinate(_this.right),
+			menuBottom	: _this.toCoordinate(_this.bottom),
+			menuItems	: menuItems,
 			menuItemStyle: {
-				backgroundColor: buttonColor,
-				opacity:_this.buttonAlpha,
-				rollOverBackgroundColor: _this.buttonRollOverColor,
-				color: color,
-				rollOverColor: _this.textRollOverColor,
-				paddingTop: '6px',
-				paddingRight: '6px',
-				paddingBottom: '6px',
-				paddingLeft: '6px',
-				marginTop: '0px',
-				marginRight: '0px',
-				marginBottom: '0px',
-				marginLeft: '0px',
-				textAlign: 'left',
-				textDecoration: 'none',
-				fontFamily: _this.chart.fontFamily,
-				fontSize: _this.chart.fontSize + 'px'
+				backgroundColor			: buttonColor,
+				opacity					:_this.buttonAlpha,
+				rollOverBackgroundColor	: _this.buttonRollOverColor,
+				color					: color,
+				rollOverColor			: _this.textRollOverColor,
+				paddingTop				: '6px',
+				paddingRight			: '6px',
+				paddingBottom			: '6px',
+				paddingLeft				: '6px',
+				marginTop				: '0px',
+				marginRight				: '0px',
+				marginBottom			: '0px',
+				marginLeft				: '0px',
+				textAlign				: 'left',
+				textDecoration			: 'none',
+				fontFamily				: _this.chart.fontFamily,
+				fontSize				: _this.chart.fontSize + 'px'
 			},
 			menuItemOutput: {
-				backgroundColor: _this.imageBackgroundColor,
-				fileName: _this.imageFileName,
-				format: 'png',
-				output: 'dataurlnewwindow',
-				render: 'browser',
-				dpi: 90,
-				onclick: function(instance, config, event) {
+				backgroundColor	: _this.imageBackgroundColor,
+				fileName		: _this.imageFileName,
+				format			: 'png',
+				output			: 'dataurlnewwindow',
+				render			: 'browser',
+				dpi				: 90,
+				onclick			: function(instance, config, event) {
 					event.preventDefault();
-					// Polify SVG; needs to wait
 					instance.polifySVG();
 					instance.output(config);
+					if(_this.chart.prepareForExport){
+						_this.chart.prepareForExport();
+					}
 				}
 			},
-			removeImagery: false
+			removeImagery: true
 		};
 
 		_this.processing = {
@@ -245,11 +251,11 @@ AmCharts.AmExport = AmCharts.Class({
 	@param type string
 	*/
 	generateBlob: function(datastring, type) {
-		var _this = this,
-			header_end = datastring.indexOf(',') + 1,
-			header = datastring.substring(0, header_end),
-			data = datastring,
-			blob = new Blob();
+		var _this	= this,
+		header_end	= type!='image/svg+xml'?datastring.indexOf(',') + 1:0,
+		header		= datastring.substring(0, header_end),
+		data		= datastring,
+		blob		= new Blob();
 
 		if (header.indexOf('base64') != -1) {
 			data = _this.generateBinaryArray(datastring.substring(header_end));
@@ -321,25 +327,24 @@ AmCharts.AmExport = AmCharts.Class({
 
 			// SVG
 			if (cfg.format == 'image/svg+xml' || cfg.format == 'svg') {
-				for (var i = 0; i < _this.processing.buffer.length; i++) {
-					data = new XMLSerializer().serializeToString(_this.processing.buffer[i][0]);
-					blob = _this.generateBlob(data, 'image/svg+xml');
+				data = _this.generateSVG();
+				blob = _this.generateBlob(data, 'image/svg+xml');
 
-					if (cfg.output == 'save') {
-						saveAs(blob, cfg.fileName + '.svg');
-					} else if (cfg.output == 'datastring' || cfg.output == 'datauristring' || cfg.output == 'dataurlstring') {
-						blob = 'data:image/svg+xml;base64,' + btoa(data);
-					} else if (cfg.output == 'dataurlnewwindow') {
-						window.open('data:image/svg+xml;base64,' + btoa(data));
-					} else if (cfg.output == 'datauri' || cfg.output == 'dataurl') {
-						location.href = 'data:image/svg+xml;base64,' + btoa(data);
-					} else if (cfg.output == 'datastream') {
-						location.href = 'data:image/octet-stream;base64,' + btoa(data);
-					}
-
-					if (externalCallback)
-						externalCallback.apply(_this, [blob]);
+				if (cfg.output == 'save') {
+					saveAs(blob, cfg.fileName + '.svg');
+				} else if (cfg.output == 'datastring' || cfg.output == 'datauristring' || cfg.output == 'dataurlstring') {
+					blob = 'data:image/svg+xml;base64,' + btoa(data);
+				} else if (cfg.output == 'dataurlnewwindow') {
+					window.open('data:image/svg+xml;base64,' + btoa(data));
+				} else if (cfg.output == 'datauri' || cfg.output == 'dataurl') {
+					location.href = 'data:image/svg+xml;base64,' + btoa(data);
+				} else if (cfg.output == 'datastream') {
+					location.href = 'data:image/octet-stream;base64,' + data;
 				}
+
+				if (externalCallback)
+					externalCallback.apply(_this, [blob]);
+
 				// PDF
 			} else if (cfg.format == 'application/pdf' || cfg.format == 'pdf') {
 				data = _this.generatePDF(cfg).output('dataurlstring');
@@ -411,8 +416,8 @@ AmCharts.AmExport = AmCharts.Class({
 	@param none
 	*/
 	polifySVG: function() {
-		var _this = this;
-		var svgs = _this.chart.div.getElementsByTagName('svg');
+		var _this	= this;
+		var svgs	= _this.chart.div.getElementsByTagName('svg');
 
 		// Recursive function to force the attributes
 		function recursiveChange(svg, tag) {
@@ -421,18 +426,18 @@ AmCharts.AmExport = AmCharts.Class({
 			for (var i = 0; i < items.length; i++) {
 
 				if (_this.cfg.removeImagery) {
-					items[i].parentNode.removeChild(items[i]);
+					//items[i].parentNode.removeChild(items[i]); // hides automatically
 
 				} else {
-					var image = document.createElement('img');
-					var canvas = document.createElement('canvas');
-					var ctx = canvas.getContext('2d');
+					var image		= document.createElement('img');
+					var canvas		= document.createElement('canvas');
+					var ctx			= canvas.getContext('2d');
 
-					canvas.width = items[i].getAttribute('width');
-					canvas.height = items[i].getAttribute('height');
-					image.src = items[i].getAttribute('xlink:href');
-					image.width = items[i].getAttribute('width');
-					image.height = items[i].getAttribute('height');
+					canvas.width	= items[i].getAttribute('width');
+					canvas.height	= items[i].getAttribute('height');
+					image.src		= items[i].getAttribute('xlink:href');
+					image.width		= items[i].getAttribute('width');
+					image.height	= items[i].getAttribute('height');
 
 					try {
 						ctx.drawImage(image, 0, 0, image.width, image.height);
@@ -455,15 +460,13 @@ AmCharts.AmExport = AmCharts.Class({
 
 		// Loop through svgs to add some standardization
 		for (var i = 0; i < svgs.length; i++) {
-			var parent = svgs[i].parentNode;
-
 			// Put some attrs to it; fixed 20/03/14 xmlns is required to produce a valid svg file
 			if (AmCharts.IEversion == 0) {
 				svgs[i].setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-				//svgs[i].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+				if ( !_this.cfg.removeImagery ) {
+					svgs[i].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+				}
 			}
-			//svgs[i].setAttribute('width',parent.style.width);
-			//svgs[i].setAttribute('height',parent.style.height);
 
 			// DEBUG
 			if (_this.DEBUG == 10) {
@@ -480,20 +483,46 @@ AmCharts.AmExport = AmCharts.Class({
 		return svgs;
 	},
 
+
+	/* PUBLIC
+	Stacks multiple SVGs into one
+	@param none
+	*/
+	generateSVG: function() {
+		var _this	= this;
+		var context	= document.createElement('svg');
+		context.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+		context.setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+
+		for (var i = 0; i < _this.processing.buffer.length; i++) {
+			var group	= document.createElement('g'),
+				data	= _this.processing.buffer[i];
+
+			data[0].setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+			data[0].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+
+			group.setAttribute('transform', 'translate('+data[1].x+','+data[1].y+')');
+			group.appendChild(data[0]);
+			context.appendChild(group);
+		}
+
+		return new XMLSerializer().serializeToString(context);
+	},
+
 	/* PUBLIC
 	Generates the canvas with the given SVGs and configured renderer
 	@param callback; function(); gets called after drawing process on the canvas has been finished
 	*/
 	generateOutput: function(cfg, callback) {
-		var _this = this,
-			svgs = _this.chart.div.getElementsByTagName('svg'),
-			canvas = document.createElement('canvas'),
-			context = canvas.getContext('2d'),
-			offset = {
-				y: 0,
-				x: 0
-			},
-			tmp = {};
+		var _this	= this,
+		svgs		= _this.chart.div.getElementsByTagName('svg'),
+		canvas		= document.createElement('canvas'),
+		context		= canvas.getContext('2d'),
+		offset		= {
+			y: 0,
+			x: 0
+		},
+		tmp = {};
 
 		// Reset
 		_this.processing.buffer = [];
@@ -522,7 +551,7 @@ AmCharts.AmExport = AmCharts.Class({
 				offset.y = svgY;
 			}
 
-			_this.processing.buffer.push([svgs[i], AmCharts.extend({}, offset)]);
+			_this.processing.buffer.push([svgs[i].cloneNode(true), AmCharts.extend({}, offset)]);
 
 			// Put back from "cache"
 			if (svgY && svgX) {
@@ -552,6 +581,32 @@ AmCharts.AmExport = AmCharts.Class({
 		canvas.width = _this.chart.divRealWidth;
 		canvas.height = _this.chart.divRealHeight;
 
+
+		// Stockchart exception
+		var adapted = {
+			width: false,
+			height: false
+		};
+		if ( _this.chart.periodSelector ) {
+			if ( ['left','right'].indexOf(_this.chart.periodSelector.position) != -1 ) {
+				canvas.width -= _this.chart.periodSelector.div.offsetWidth + 16;
+				adapted.width = true;
+			} else {
+				canvas.height -= _this.chart.periodSelector.div.offsetHeight;
+				adapted.height = true;
+			}
+		}
+
+		if ( _this.chart.dataSetSelector ) {
+			if ( ['left','right'].indexOf(_this.chart.dataSetSelector.position) != -1 ) {
+				if ( !adapted.width ) {
+					canvas.width -= _this.chart.dataSetSelector.div.offsetWidth + 16;
+				}
+			} else {
+				canvas.height -= _this.chart.dataSetSelector.div.offsetHeight;
+			}
+		}
+
 		// Set given background; jpeg default
 		if (cfg.backgroundColor || cfg.format == 'image/jpeg') {
 			context.fillStyle = cfg.backgroundColor || '#FFFFFF';
@@ -566,7 +621,7 @@ AmCharts.AmExport = AmCharts.Class({
 			var img, buffer, offset, source;
 
 			// DRAWING PROCESS DONE
-			if (_this.processing.buffer.length == _this.processing.drawn) {
+			if (_this.processing.buffer.length == _this.processing.drawn || cfg.format == 'svg' ) {
 				if (_this.DEBUG == 10) {
 					_this.log('END DRAWING');
 				} // DEBUG
@@ -736,7 +791,6 @@ AmCharts.AmExport = AmCharts.Class({
 		div.setAttribute('style', 'width:39px; height:28px; position: absolute;top:' + _this.cfg.menuTop + ';right:' + _this.cfg.menuRight + ';bottom:' + _this.cfg.menuBottom + ';left:' + _this.cfg.menuLeft + ';box-shadow:0px 0px 1px 0px rgba(0,0,0,0);');
 		div.setAttribute('class', 'amExportButton');
 		div.appendChild(createList(_this.cfg.menuItems));
-		//_this.chart.div.style.position = 'relative';
 		_this.chart.containerDiv.appendChild(div);
 	}
 });
