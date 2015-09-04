@@ -3,32 +3,29 @@ Third party software used:
 
     Jason S. Kerchner base class (http://livingmachines.net)
     Licensed under BSD license: http://livingmachines.net/license/
-    
+
     David Knape & Patrick Mineault Bezier curves drawing logic.
-    
+
     Code optimization made using Closure Compiling service:
     http://closure-compiler.appspot.com/home
 
-Libraries used for exporting charts as image/pdf/svg:
+Libraries used for exporting:
 
-    canvg.js - Javascript SVG parser and renderer on Canvas
-    MIT Licensed 
-    Gabe Lerner (gabelerner@gmail.com)
-    http://code.google.com/p/canvg/
-    
-    rgbcolor.js    
-    A class to parse color values
-    author Stoyan Stefanov, sstoo@gmail.com
-    http://www.phpied.com/rgb-color-parser-in-javascript/
-    license Use it if you like it
-    
-    FileSaver.js
-    A saveAs() FileSaver implementation.
-    By Eli Grey, http://eligrey.com
-    License: X11/MIT
- 
-    jsPDF.js
-    By James Hall
-    License: MIT 
+    filesaver: https://github.com/eligrey/FileSaver.js/
+    https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md
 
+    blobjs: https://github.com/eligrey/Blob.js/
+    https://github.com/eligrey/Blob.js/blob/master/LICENSE.md
+
+    fabricjs: https://github.com/kangax/fabric.js
+    https://github.com/kangax/fabric.js/blob/master/LICENSE
+
+    jszip: https://github.com/Stuk/jszip
+    https://github.com/Stuk/jszip/blob/master/LICENSE.markdown
+
+    pdfmake: https://github.com/bpampuch/pdfmake
+    https://github.com/bpampuch/pdfmake/blob/master/LICENSE
+
+    SheetJS.js: https://github.com/SheetJS/js-xlsx
+    https://github.com/SheetJS/js-xlsx/blob/master/LICENSE
 *********************************************************************************

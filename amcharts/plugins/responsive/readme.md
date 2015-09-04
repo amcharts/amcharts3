@@ -1,6 +1,6 @@
 # amCharts Responsive
 
-Version: 0.9.2
+Version: 1.0
 
 
 ## Description
@@ -340,6 +340,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0
+* Added support for GANTT chart type (available sin JavaScript Charts V3.14)
 
 ### 0.9.2
 * Fixed a custom rules being applied in the wrong order

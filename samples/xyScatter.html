@@ -1,13 +1,13 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/xy.js" type="text/javascript"></script>
-        
+
         <script type="text/javascript">
             var chart;
 
@@ -113,7 +113,7 @@
                 chart.addValueAxis(yAxis);
 
                 // GRAPHS
-                // triangles up			
+                // triangles up
                 var graph1 = new AmCharts.AmGraph();
                 graph1.lineColor = "#FF6600";
                 graph1.balloonText = "x:[[x]] y:[[y]]";
@@ -123,7 +123,7 @@
                 graph1.bullet = "triangleUp";
                 chart.addGraph(graph1);
 
-                // triangles down 
+                // triangles down
                 var graph2 = new AmCharts.AmGraph();
                 graph2.lineColor = "#FCD202";
                 graph2.balloonText = "x:[[x]] y:[[y]]";
@@ -158,14 +158,16 @@
                 // SCROLLBAR
 
                 var chartScrollbar = new AmCharts.ChartScrollbar();
+                chartScrollbar.scrollbarHeight = 5;
+                chartScrollbar.offset = 15
                 chart.addChartScrollbar(chartScrollbar);
 
-                // WRITE                                                
+                // WRITE
                 chart.write("chartdiv");
             });
         </script>
     </head>
-    
+
     <body>
         <div id="chartdiv" style="width: 600px; height: 400px;"></div>
     </body>

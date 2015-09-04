@@ -245,7 +245,9 @@
                 // SERIAL CHART
                 chart = new AmCharts.AmSerialChart();
                 chart.pathToImages = "../amcharts/images/";
-                chart.marginRight = 10;
+                chart.marginRight = 20;
+                chart.marginLeft = 20;
+                chart.autoMargins = false;
                 chart.dataProvider = chartData;
                 chart.categoryField = "year";
                 chart.dataDateFormat = "YYYY";

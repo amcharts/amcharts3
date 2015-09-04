@@ -12,12 +12,8 @@
         <!-- Exporting to image works on all modern browsers except IE9 (IE10 works fine) -->
         <!-- Note, the exporting will work only if you view the file from web server -->
         <!--[if (!IE) | (gte IE 10)]> -->
-        <script src="../amcharts/exporting/amexport.js" type="text/javascript"></script>
-        <script src="../amcharts/exporting/rgbcolor.js" type="text/javascript"></script>
-        <script src="../amcharts/exporting/canvg.js" type="text/javascript"></script>
-        <script src="../amcharts/exporting/jspdf.js" type="text/javascript"></script>
-        <script src="../amcharts/exporting/filesaver.js" type="text/javascript"></script>
-        <script src="../amcharts/exporting/jspdf.plugin.addimage.js" type="text/javascript"></script>
+        <script type="text/javascript" src="../amcharts/plugins/export/export.js"></script>
+        <link  type="text/css" href="../amcharts/plugins/export/export.css" rel="stylesheet">
         <!-- <![endif]-->
 
         <script type="text/javascript">
@@ -125,24 +121,21 @@
                     zoomable: false,
                     categoryBalloonEnabled: false
                 },
-
-                amExport: {
-                    top: 21,
-                    right: 21,
-                    buttonColor: '#EFEFEF',
-                    buttonRollOverColor:'#DDDDDD',
-                    exportPNG:true,
-                    exportJPG:true,
-                    exportPDF:true,
-                    exportSVG:true
+                "export": {
+                    "enabled": true,
+                    "libs": {
+                        "path": "../amcharts/plugins/export/libs/"
+                    }
                 }
+
             });
         </script>
     </head>
 
     <body>
-		<span style="font-family: Arial; font-size: 10; color: #CC0000;">
-			<p>Warning! Exporting to image works only if you view this file from web server. Exporting works with all modern browsers except IE9 (works fine with IE10)</p>
+		<span style="font-size: 10; color: #CC0000;">
+			<p>Warning! Exporting to image works only if you view this file from web server. Exporting works with all modern browsers except IE9 (works fine with IE10).</p>
+            <p>Since version 3.14 chart export is done using dedicated plugin, located in amCharts/plugins/export folder. Please refer to bundled examples and README.md file for more information.</p>
 		</span>
         <div id="chartdiv" style="width: 100%; height: 400px;"></div>
     </body>
