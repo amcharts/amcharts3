@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.0.5
+Version: 1.0.6
 
 
 ## Description
@@ -37,10 +37,7 @@ bundled CSS file. I.e.:
 AmCharts.makeChart( "chartdiv", {
   ...,
   "export": {
-    "enabled": true,
-    "libs": {
-      "path": "../libs/"
-    }
+    "enabled": true
   }
 } );
 ```
@@ -52,9 +49,6 @@ AmCharts.makeChart( "chartdiv", {
   ...,
   "export": {
     "enabled": true,
-    "libs": {
-      "path": "../libs/"
-    },
     "menu": [ {
       "class": "export-main",
       "menu": [ {
@@ -89,11 +83,13 @@ All libraries required for plugin operation are included withing plugins */libs*
 subdirectory.
 
 If you want the plugin to load them on-demand (when it's needed for a certain 
-operation), make sure you set the `path` proprty under `libs` object to a 
-relative or absolute url.
+operation), make sure you've set the [`path`](http://docs.amcharts.com/3/javascriptcharts/AmSerialChart#path) property in your chart setup.
 
 If you are using relative url, note that it is relative to the web page you are 
 displaying your chart on, not the export.js library.
+
+In case you've moved the libs folder you need to tell the plugin where it is
+`"libs": { "path": "../libs/" }`
 
 ### 2) Manual
 
@@ -153,9 +149,6 @@ Here's a sample of the simple menu setup that allows export to PNG, JPG and CSV:
 ```
 "export": {
   "enabled": true,
-  "libs": {
-    "path": "../libs/"
-  },
   "menu": [ {
     "class": "export-main",
     "menu": [ "PNG", "JPG", "CSV" ]
@@ -193,9 +186,6 @@ To add a submenu to a menu item, simply add a `menu` array as its own property:
 ```
 "export": {
   "enabled": true,
-  "libs": {
-    "path": "../libs/"
-  },
   "menu": [ {
     "class": "export-main",
     "menu": [ {
@@ -380,7 +370,7 @@ action | Set to "draw" if you want the item to trigger annotation mode
 class | Class name applied to the tag
 click | Function handler invoked upon click on menu item
 format | A format to export chart/map to upon click (see below for a list of available formats)
-icon | Icon file (will use chart's `pathToImages` if the URL is not full)
+icon | Icon file (will use chart's [path](http://docs.amcharts.com/3/javascriptcharts/AmSerialChart#path) if the URL is not full)
 label | Text label to be displayed
 menu | An array of submenu items
 title | A title attribute of the link
@@ -606,6 +596,10 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.6
+* Fix: issue on revalidation the chart/map
+* Added: [path](http://docs.amcharts.com/3/javascriptcharts/AmSerialChart#path) to load the libaries by default
 
 ### 1.0.5
 * Added: divId to be able to place the menu within an external container

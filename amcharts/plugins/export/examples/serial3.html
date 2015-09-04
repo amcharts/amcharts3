@@ -33,7 +33,7 @@
 
 			var chart = AmCharts.makeChart( "chartdiv", {
 				"type": "serial",
-				"pathToImages": "http://www.amcharts.com/lib/3/images/",
+				"path": "http://www.amcharts.com/lib/3/",
 				"marginTop": 30,
 				"dataProvider": chartData,
 				"categoryField": "date",
@@ -72,10 +72,7 @@
 				},
 				"mouseWheelZoomEnabled": true,
 				"export": {
-					"enabled": true,
-					"libs": {
-						"path": "../libs/"
-					}
+					"enabled": true
 				}
 			} );
 

@@ -8,7 +8,7 @@
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/xy.js" type="text/javascript"></script>
 
-        <script type="text/javascript">
+        <script>
             var chart;
 
             var chartData = [
@@ -79,7 +79,7 @@
 
                 chart = new AmCharts.AmXYChart();
                 chart.dataDateFormat = "YYYY-MM-DD";
-                chart.pathToImages = "../amcharts/images/";
+                chart.path = "../amcharts/";
                 chart.dataProvider = chartData;
                 chart.startDuration = 1;
 

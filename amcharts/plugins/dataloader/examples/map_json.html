@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>amCharts Responsive Example</title>
     <link rel="stylesheet" href="http://www.amcharts.com/lib/3/ammap.css" type="text/css">
-    <script src="http://www.amcharts.com/lib/3/ammap.js" type="text/javascript"></script>
-    <script src="http://www.amcharts.com/lib/3/maps/js/usaLow.js" type="text/javascript"></script>
-    <script src="../dataloader.min.js" type="text/javascript"></script>
+    <script src="http://www.amcharts.com/lib/3/ammap.js"></script>
+    <script src="http://www.amcharts.com/lib/3/maps/js/usaLow.js"></script>
+    <script src="../dataloader.min.js"></script>
     <style>
      body, html {
       font-family: Verdana;
@@ -19,11 +19,11 @@
       height: 500px;
     }
     </style>
-    <script type="text/javascript">
+    <script>
       var map = AmCharts.makeChart("chartdiv", {
         type: "map",
         "theme": "none",
-        "pathToImages": "http://www.amcharts.com/lib/3/images/",
+        "path": "http://www.amcharts.com/lib/3/",
         "dataLoader": {
           "url": "data/map.json",
           "showErrors": false

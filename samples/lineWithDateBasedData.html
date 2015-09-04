@@ -7,7 +7,7 @@
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
 		<script src="../amcharts/serial.js" type="text/javascript"></script>
-        <script type="text/javascript">
+        <script>
             var chart;
             var chartData = [];
             var chartCursor;
@@ -20,7 +20,7 @@
 
                 // SERIAL CHART
                 chart = new AmCharts.AmSerialChart();
-                chart.pathToImages = "../amcharts/images/";
+                chart.path = "../amcharts/";
                 chart.dataProvider = chartData;
                 chart.categoryField = "date";
                 chart.balloon.bulletSize = 5;

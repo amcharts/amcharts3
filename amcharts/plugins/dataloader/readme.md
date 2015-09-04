@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.2
+Version: 1.0.3
 
 
 ## Description
@@ -230,6 +230,11 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.3
+* Fixed the bug where defaults were not being applied properly
+* Fixed the bug with translations not being applied properly
+* Cleaned up the code (to pass JSHint validation)
 
 ### 1.0.2
 * Fixed the issue with modified Array prototypes

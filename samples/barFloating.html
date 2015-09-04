@@ -7,7 +7,7 @@
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/serial.js" type="text/javascript"></script>
-        <script type="text/javascript">
+        <script>
             var chart;
 
             var chartData = [
@@ -58,7 +58,6 @@
                 var valueAxis = new AmCharts.ValueAxis();
                 valueAxis.gridAlpha = 0.1;
                 valueAxis.axisAlpha = 0;
-                valueAxis.unit = ":00";
                 chart.addValueAxis(valueAxis);
 
                 // GRAPH
@@ -69,7 +68,6 @@
                 graph.lineAlpha = 0;
                 graph.colorField = "color";
                 graph.fillAlphas = 0.8;
-                graph.balloonText = "<b>[[category]]</b><br>starts at [[startTime]]:00<br>ends at [[endTime]]:00";
                 chart.addGraph(graph);
 
                 chart.creditsPosition = "top-right";

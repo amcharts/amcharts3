@@ -1,13 +1,13 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
-        <script src="../amcharts/serial.js" type="text/javascript"></script>         
-        <script type="text/javascript">
+        <script src="../amcharts/serial.js" type="text/javascript"></script>
+        <script>
             var chart;
 
             var chartData = [];
@@ -18,7 +18,7 @@
 
                 // SERIAL CHART
                 chart = new AmCharts.AmSerialChart();
-                chart.pathToImages = "../amcharts/images/";
+                chart.path = "../amcharts/";
                 chart.dataProvider = chartData;
                 chart.categoryField = "date";
 
@@ -31,7 +31,7 @@
                 // Category
                 var categoryAxis = chart.categoryAxis;
                 categoryAxis.parseDates = true; // in order char to understand dates, we should set parseDates to true
-                categoryAxis.minPeriod = "mm"; // as we have data with minute interval, we have to set "mm" here.			 
+                categoryAxis.minPeriod = "mm"; // as we have data with minute interval, we have to set "mm" here.
                 categoryAxis.gridAlpha = 0.07;
                 categoryAxis.axisColor = "#DADADA";
 
@@ -66,11 +66,11 @@
                 chart.write("chartdiv");
             });
 
-            // generate some random data, quite different range 
+            // generate some random data, quite different range
             function generateChartData() {
                 // current date
                 var firstDate = new Date();
-                // now set 1000 minutes back                 
+                // now set 1000 minutes back
                 firstDate.setMinutes(firstDate.getDate() - 1000);
 
                 // and generate 1000 data items
@@ -78,9 +78,9 @@
                     var newDate = new Date(firstDate);
                     // each time we add one minute
                     newDate.setMinutes(newDate.getMinutes() + i);
-                    // some random number      
+                    // some random number
                     var visits = Math.round(Math.random() * 40) + 10;
-                    // add data item to the array                          
+                    // add data item to the array
                     chartData.push({
                         date: newDate,
                         visits: visits
@@ -95,7 +95,7 @@
             }
         </script>
     </head>
-    
+
     <body>
         <div id="chartdiv" style="width:100%; height:400px;"></div>
     </body>

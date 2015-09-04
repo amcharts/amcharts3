@@ -1,14 +1,14 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/serial.js" type="text/javascript"></script>
-        
-        <script type="text/javascript">
+
+        <script>
             // note, each data item has "bullet" field.
             var columnChartData = [
                 {
@@ -45,7 +45,7 @@
                 chart.categoryField = "name";
                 chart.startDuration = 1;
                 // sometimes we need to set margins manually
-                // autoMargins should be set to false in order chart to use custom margin values                
+                // autoMargins should be set to false in order chart to use custom margin values
                 chart.autoMargins = false;
                 chart.marginRight = 0;
                 chart.marginLeft = 0;
@@ -87,7 +87,7 @@
             });
         </script>
     </head>
-    
+
     <body>
         <div id="chartdiv" style="width: 520px; height: 400px;"></div>
     </body>

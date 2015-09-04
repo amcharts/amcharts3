@@ -1,17 +1,17 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/serial.js" type="text/javascript"></script>
-        
-        <script type="text/javascript">
+
+        <script>
             // note, we have townName field with a name specified for each datapoint and townName2 with only some of the names specified.
             // we use townName2 to display town names next to the bullet. And as these names would overlap if displayed next to each bullet,
-            // we created this townName2 field and set only some of the names for this purpse. 
+            // we created this townName2 field and set only some of the names for this purpse.
             var chartData = [
                 {
                     "date": "2012-01-01",
@@ -124,9 +124,9 @@
                     "alpha":0.4
                 },
                 {
-                    "date": "2012-01-14",                                        
+                    "date": "2012-01-14",
                     "latitude": 36.1,
-                    "duration": 470,                    
+                    "duration": 470,
                     "townName": "Las Vegas",
                     "townName2": "Las Vegas"
                 },
@@ -232,12 +232,12 @@
                 distanceGraph.alphaField = "alpha";
                 chart.addGraph(distanceGraph);
 
-                // latitude graph                                               
+                // latitude graph
                 var latitudeGraph = new AmCharts.AmGraph();
                 latitudeGraph.valueField = "latitude";
                 latitudeGraph.title = "latitude/city";
                 latitudeGraph.type = "line";
-                latitudeGraph.valueAxis = latitudeAxis; // indicate which axis should be used 
+                latitudeGraph.valueAxis = latitudeAxis; // indicate which axis should be used
                 latitudeGraph.lineColor = "#786c56";
                 latitudeGraph.lineThickness = 1;
                 latitudeGraph.legendValueText = "[[description]]/[[value]]";
@@ -248,7 +248,7 @@
                 latitudeGraph.bulletBorderAlpha = 1;
                 latitudeGraph.bulletBorderThickness = 2;
                 latitudeGraph.bulletColor = "#000000";
-                latitudeGraph.labelText = "[[townName2]]"; // not all data points has townName2 specified, that's why labels are displayed only near some of the bullets.  
+                latitudeGraph.labelText = "[[townName2]]"; // not all data points has townName2 specified, that's why labels are displayed only near some of the bullets.
                 latitudeGraph.labelPosition = "right";
                 latitudeGraph.balloonText = "latitude:[[value]]";
                 latitudeGraph.showBalloon = true;
@@ -272,7 +272,7 @@
                 durationGraph.dashLengthField = "dashLength";
                 chart.addGraph(durationGraph);
 
-                // CURSOR                                
+                // CURSOR
                 var chartCursor = new AmCharts.ChartCursor();
                 chartCursor.zoomable = false;
                 chartCursor.categoryBalloonDateFormat = "DD";
@@ -294,7 +294,7 @@
             });
         </script>
     </head>
-    
+
     <body style="background-color:#161616">
         <div id="chartdiv" style="width:100%; height:400px;"></div>
     </body>

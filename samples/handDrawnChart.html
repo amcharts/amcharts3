@@ -9,39 +9,39 @@
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/serial.js" type="text/javascript"></script>
 
-        <script type="text/javascript">
-			AmCharts.ready(function () {
+        <script>
+			AmCharts.ready(function() {
 				makeLineChart();
 				makeBarChart();
 			});
 
 
-			//// BAR CHART
+			 //// BAR CHART
 
 			var barChartData = [{
 				"continent": "Australia",
-					"river": "Darling",
-					"length": 2739
+				"river": "Darling",
+				"length": 2739
 			}, {
 				"continent": "Europe",
-					"river": "Volga",
-					"length": 3692
+				"river": "Volga",
+				"length": 3692
 			}, {
 				"continent": "North America",
-					"river": "Mississippi",
-					"length": 6275
+				"river": "Mississippi",
+				"length": 6275
 			}, {
 				"continent": "Asia",
-					"river": "Yangtze",
-					"length": 6300
+				"river": "Yangtze",
+				"length": 6300
 			}, {
 				"continent": "South America",
-					"river": "Amazon",
-					"length": 6400
+				"river": "Amazon",
+				"length": 6400
 			}, {
 				"continent": "Africa",
-					"river": "Nile",
-					"length": 6650
+				"river": "Nile",
+				"length": 6650
 			}];
 
 			function makeBarChart() {
@@ -49,6 +49,7 @@
 				var chart = new AmCharts.AmSerialChart();
 				chart.dataProvider = barChartData;
 				chart.rotate = true;
+				chart.path = "../amcharts/";
 				chart.fontSize = 18;
 				chart.fontFamily = 'Covered By Your Grace';
 				chart.color = "#FFFFFF";
@@ -89,7 +90,7 @@
 				graph.fillAlphas = 0.8;
 				graph.lineThickness = 1;
 				graph.pattern = {
-					url: "../amcharts/patterns/chalk/pattern1.jpg",
+					url: "patterns/chalk/pattern1.jpg",
 					width: 600,
 					height: 600,
 					randomY: 300
@@ -108,47 +109,49 @@
 				chart.write("columnChartDiv");
 			}
 
-			//// LINE CHART
+			 //// LINE CHART
 
 			var lineChartData = [{
-				"continent": "Australia",
+					"continent": "Australia",
 					"mountain": "Kosciusko",
 					"height": 2228
-			}, {
-				"continent": "Africa",
+				}, {
+					"continent": "Africa",
 					"mountain": "Kilimanjaro",
 					"height": 5895
-			}, {
-				"continent": "Antarctica",
+				}, {
+					"continent": "Antarctica",
 					"mountain": "Aconcagua",
 					"height": 4897
-			},
+				},
 
-			{
-				"continent": "Europe",
+				{
+					"continent": "Europe",
 					"mountain": "Elbrus",
 					"height": 5642
-			}, {
-				"continent": "Asia",
+				}, {
+					"continent": "Asia",
 					"mountain": "Everest",
 					"height": 8850
-			},
+				},
 
-			{
-				"continent": "South America",
+				{
+					"continent": "South America",
 					"mountain": "Aconcagua",
 					"height": 6960
-			}, {
-				"continent": "North America",
+				}, {
+					"continent": "North America",
 					"mountain": "McKinley",
 					"height": 6194
-			}];
+				}
+			];
 
 
 			function makeLineChart() {
 				// SERIAL CHART
 				var lineChart = new AmCharts.AmSerialChart();
 				lineChart.dataProvider = lineChartData;
+				lineChart.path = "../amcharts/";
 				lineChart.fontSize = 18;
 				lineChart.fontFamily = 'Covered By Your Grace';
 				lineChart.color = "#FFFFFF";
@@ -191,7 +194,7 @@
 				graph.lineThickness = 4;
 				graph.bullet = "round";
 				graph.pattern = {
-					url: "../amcharts/patterns/chalk/pattern2.jpg",
+					url: "patterns/chalk/pattern2.jpg",
 					width: 600,
 					height: 600
 				};
@@ -207,7 +210,6 @@
 				lineChart.write("lineChartDiv");
 
 			}
-
 
         </script>
     </head>

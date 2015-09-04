@@ -10,7 +10,7 @@
 
 		<!-- Export plugin includes and styles -->
 		<script src="../export.js"></script>
-		<link  type="text/css" href="../export.css" rel="stylesheet">
+		<link type="text/css" href="../export.css" rel="stylesheet">
 
 		<style>
 			body, html {
@@ -30,7 +30,7 @@
 		<script type="text/javascript">
 			var chart = AmCharts.makeChart( "chartdiv", {
 				"type": "xy",
-				"pathToImages": "http://www.amcharts.com/lib/3/images/",
+				"path": "http://www.amcharts.com/lib/3/",
 				"marginTop": 25,
 				"startDuration": 1.5,
 				"trendLines": [],
@@ -129,10 +129,7 @@
 					"position": "bottom"
 				},
 				"export": {
-					"enabled": true,
-					"libs": {
-						"path": "../libs/"
-					}
+					"enabled": true
 				}
 			} );
 		</script>

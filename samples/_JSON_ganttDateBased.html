@@ -9,24 +9,23 @@
         <script src="../amcharts/serial.js" type="text/javascript"></script>
         <script src="../amcharts/gantt.js" type="text/javascript"></script>
 
-        <script type="text/javascript">
-
+        <script>
         var chart = AmCharts.makeChart("chartdiv", {
             "type": "gantt",
             "period": "DD",
-            "pathToImages":"../amcharts/images/",
+            "path": "../amcharts/",
             "valueAxis": {
                 "type": "date"
             },
             "brightnessStep": 10,
             "graph": {
                 "fillAlphas": 1,
-                "balloonText":"[[open]] - [[value]]"
+                "balloonText": "[[open]] - [[value]]"
             },
             "rotate": true,
             "categoryField": "category",
             "segmentsField": "segments",
-            "dataDateFormat":"YYYY-MM-DD",
+            "dataDateFormat": "YYYY-MM-DD",
             "startDateField": "start",
             "endDateField": "end",
             "dataProvider": [{
@@ -63,17 +62,17 @@
                     "end": "2015-01-21"
                 }]
             }],
-            "chartCursor":{
-                "valueBalloonsEnabled":false,
-                "cursorAlpha":0,
-                "valueLineBalloonEnabled":true,
-                "valueLineEnabled":true
+            "chartCursor": {
+                "valueBalloonsEnabled": false,
+                "cursorAlpha": 0,
+                "valueLineBalloonEnabled": true,
+                "valueLineEnabled": true
             },
 
-            "chartScrollbar":{
+            "chartScrollbar": {
 
             }
-        })
+        });
         </script>
     </head>
 

@@ -16,8 +16,7 @@
         <script src="../amcharts/themes/black.js" type="text/javascript"></script>
         <script src="../amcharts/themes/chalk.js" type="text/javascript"></script>
         <script src="../amcharts/themes/patterns.js" type="text/javascript"></script>
-        <script type="text/javascript">
-
+        <script>
         // in order to set theme for a chart, all you need to include theme file
         // located in amcharts/themes folder and set theme property for the chart.
 
@@ -30,17 +29,17 @@
         // that if you need to change theme at run time, youhave to create whole
         // chart object once again.
 
-        function makeCharts(theme, bgColor, bgImage){
+        function makeCharts(theme, bgColor, bgImage) {
 
-            if(chart1){
+            if (chart1) {
                 chart1.clear();
             }
-            if(chart2){
+            if (chart2) {
                 chart2.clear();
             }
 
             // background
-            if(document.body){
+            if (document.body) {
                 document.body.style.backgroundColor = bgColor;
                 document.body.style.backgroundImage = "url(" + bgImage + ")";
             }
@@ -48,27 +47,28 @@
             // column chart
             chart1 = AmCharts.makeChart("chartdiv1", {
                 type: "serial",
-                theme:theme,
+                path:"../amcharts/",
+                theme: theme,
                 dataProvider: [{
                     "year": 2005,
-                        "income": 23.5,
-                        "expenses": 18.1
+                    "income": 23.5,
+                    "expenses": 18.1
                 }, {
                     "year": 2006,
-                        "income": 26.2,
-                        "expenses": 22.8
+                    "income": 26.2,
+                    "expenses": 22.8
                 }, {
                     "year": 2007,
-                        "income": 30.1,
-                        "expenses": 23.9
+                    "income": 30.1,
+                    "expenses": 23.9
                 }, {
                     "year": 2008,
-                        "income": 29.5,
-                        "expenses": 25.1
+                    "income": 29.5,
+                    "expenses": 25.1
                 }, {
                     "year": 2009,
-                        "income": 24.6,
-                        "expenses": 25
+                    "income": 24.6,
+                    "expenses": 25
                 }],
                 categoryField: "year",
                 startDuration: 1,
@@ -105,27 +105,28 @@
             chart2 = AmCharts.makeChart("chartdiv2", {
                 type: "pie",
                 theme: theme,
+                path:"../amcharts/",
                 dataProvider: [{
                     "country": "Czech Republic",
-                        "litres": 156.9
+                    "litres": 156.9
                 }, {
                     "country": "Ireland",
-                        "litres": 131.1
+                    "litres": 131.1
                 }, {
                     "country": "Germany",
-                        "litres": 115.8
+                    "litres": 115.8
                 }, {
                     "country": "Australia",
-                        "litres": 109.9
+                    "litres": 109.9
                 }, {
                     "country": "Austria",
-                        "litres": 108.3
+                    "litres": 108.3
                 }, {
                     "country": "UK",
-                        "litres": 65
+                    "litres": 65
                 }, {
                     "country": "Belgium",
-                        "litres": 50
+                    "litres": 50
                 }],
                 titleField: "country",
                 valueField: "litres",

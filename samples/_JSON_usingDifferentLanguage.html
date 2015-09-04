@@ -9,7 +9,7 @@
         <script src="../amcharts/serial.js" type="text/javascript"></script>
         <script src="../amcharts/lang/de.js" type="text/javascript"></script>
 
-        <script type="text/javascript">
+        <script>
 
             var chartData = [];
             generateChartData();
@@ -20,7 +20,7 @@
                 // setting language to German
                 language: "de",
 
-                pathToImages: "../amcharts/images/",
+                path: "../amcharts/",
                 dataProvider: chartData,
                 categoryField: "date",
                 categoryAxis: {

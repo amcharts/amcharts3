@@ -1,14 +1,14 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/radar.js" type="text/javascript"></script>
-        
-        <script type="text/javascript">
+
+        <script>
             var chart;
 
             var chartData = [
@@ -100,12 +100,12 @@
                 guide.fillAlpha = 0.6;
                 valueAxis.addGuide(guide);
 
-                // WRITE                
+                // WRITE
                 chart.write("chartdiv");
             });
         </script>
     </head>
-    
+
     <body>
         <div id="chartdiv" style="width:600px; height:400px;"></div>
     </body>

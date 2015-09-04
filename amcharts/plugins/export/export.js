@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.0.5
+Version: 1.0.6
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -26,12 +26,12 @@ not apply to any other amCharts products that are covered by different licenses.
 AmCharts.addInitHandler( function( chart ) {
 	var _this = {
 		name: "export",
-		version: "1.0.5",
+		version: "1.0.6",
 		libs: {
 			async: true,
 			autoLoad: true,
 			reload: false,
-			path: "./plugins/export/libs/",
+			path: ( ( chart.path || "" ) + "plugins/export/libs/" ),
 			resources: [ {
 				"pdfmake/pdfmake.js": [ "pdfmake/vfs_fonts.js" ],
 				"jszip/jszip.js": [ "xlsx/xlsx.js" ]
@@ -197,7 +197,8 @@ AmCharts.addInitHandler( function( chart ) {
 					format: "PRINT",
 					label: "Print"
 				} ]
-			} ]
+			} ],
+			timer: 0
 		},
 
 		download: function( data, type, filename ) {
@@ -953,15 +954,11 @@ AmCharts.addInitHandler( function( chart ) {
 			var cfg = _this.deepMerge( {
 				data: _this.getChartData(),
 				dateFields: [],
-				dateFormat: _this.setup.chart.dataDateFormat || "YYYY-MM-DD",
+				dateFormat: false,
 				withHeader: false
 			}, options || {}, true );
 			var data = [];
 			var cols = [];
-
-			if ( _this.setup.chart.categoryAxis && _this.setup.chart.categoryAxis.parseDates && _this.setup.chart.categoryField ) {
-				cfg.dateFields.push( _this.setup.chart.categoryField );
-			}
 
 			// HEADER
 			if ( cfg.withHeader ) {
@@ -1254,8 +1251,18 @@ AmCharts.addInitHandler( function( chart ) {
 				return container.appendChild( ul );
 			}
 
-			// DETERMINE CONTAINER; CREATE / RESET MENU CONTAINER
-			container = container ? container : _this.config.divId;
+			// DETERMINE CONTAINER
+			if ( !container ) {
+				if ( typeof _this.config.divId == "string" ) {
+					_this.config.divId = container = document.getElementById( _this.config.divId );
+				} else if ( _this.config.divId instanceof Element ) {
+					container = _this.config.divId;
+				} else {
+					container = _this.setup.chart.containerDiv;
+				}
+			}
+
+			// CREATE / RESET MENU CONTAINER
 			div = container.getElementsByClassName( "amExportButton" );
 			if ( div.length ) {
 				div = div[ 0 ];
@@ -1264,7 +1271,7 @@ AmCharts.addInitHandler( function( chart ) {
 				div = document.createElement( "div" );
 				_this.setup.menu = div;
 			}
-			div.setAttribute( "class", "amExportButton " + _this.setup.chart.classNamePrefix + "-export-menu " + _this.setup.chart.classNamePrefix + "-export-menu-" + _this.config.position );
+			div.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-menu " + _this.setup.chart.classNamePrefix + "-export-menu-" + _this.config.position + " amExportButton" );
 
 			// CALLBACK; REPLACES THE MENU WALKER
 			if ( _this.config.menuWalker ) {
@@ -1311,23 +1318,23 @@ AmCharts.addInitHandler( function( chart ) {
 			return chart;
 		},
 
-		// INITIATE
+		// INITIATE; DELAYED UNTIL CHART CONTAINER IS READY
 		init: function( chart ) {
-			_this.setup.canvas = document.createElement( "canvas" );
-			_this.setup.wrapper = document.createElement( "div" );
-			_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
-			_this.setup.wrapper.appendChild( _this.setup.canvas );
-			_this.setup.chart.containerDiv.appendChild( _this.setup.wrapper );
+			clearTimeout( _this.timer );
+			_this.timer = setInterval( function() {
+				if ( _this.setup.chart.containerDiv ) {
+					clearTimeout( _this.timer );
+					_this.setup.canvas = document.createElement( "canvas" );
+					_this.setup.wrapper = document.createElement( "div" );
+					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
+					_this.setup.wrapper.appendChild( _this.setup.canvas );
+					_this.setup.chart.containerDiv.appendChild( _this.setup.wrapper );
 
-			_this.setup.chart.AmExport = _this;
+					_this.setup.chart.AmExport = _this;
 
-			// CREATE MENU; GET BY ID; OBTAIN GIVEN ELEMENT; TAKE CHART CONTAINER
-			if ( typeof _this.config.divId == "string" ) {
-				_this.config.divId = document.getElementById( _this.config.divId );
-			} else if ( !( _this.config.divId instanceof Element ) ) {
-				_this.config.divId = _this.setup.chart.containerDiv;
-			}
-			_this.createMenu( _this.config.menu );
+					_this.createMenu( _this.config.menu );
+				}
+			}, AmCharts.updateRate );
 		}
 	}
 
@@ -1364,12 +1371,7 @@ AmCharts.addInitHandler( function( chart ) {
 	// LOAD DEPENDENCIES
 	_this.loadDependencies( _this.libs.resources, _this.libs.reload );
 
-	// WAIT FOR CONTAINER
-	_this.timer = setInterval( function() {
-		if ( _this.setup.chart.containerDiv ) {
-			clearTimeout( _this.timer );
-			_this.init();
-		}
-	}, AmCharts.updateRate );
+	// INIT
+	_this.init();
 
 }, [ "pie", "serial", "xy", "funnel", "radar", "gauge", "stock", "map", "gantt" ] );

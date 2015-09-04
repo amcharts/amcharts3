@@ -8,7 +8,7 @@
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
         <script src="../amcharts/serial.js" type="text/javascript"></script>
 
-        <script type="text/javascript">
+        <script>
            var chart;
            var graph;
 
@@ -79,7 +79,7 @@
            AmCharts.ready(function () {
                // SERIAL CHART
                chart = new AmCharts.AmSerialChart();
-               chart.pathToImages = "../amcharts/images/";
+               chart.path = "../amcharts/";
                chart.marginRight = 0;
                chart.marginTop = 0;
                chart.dataProvider = chartData;

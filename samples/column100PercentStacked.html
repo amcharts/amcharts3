@@ -1,13 +1,13 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
-    
+
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>amCharts examples</title>
         <link rel="stylesheet" href="style.css" type="text/css">
         <script src="../amcharts/amcharts.js" type="text/javascript"></script>
-        <script src="../amcharts/serial.js" type="text/javascript"></script>         
-        <script type="text/javascript">
+        <script src="../amcharts/serial.js" type="text/javascript"></script>
+        <script>
             var chart;
 
             var chartData = [
@@ -70,7 +70,7 @@
                 chart.addValueAxis(valueAxis);
 
                 // GRAPHS
-                // first graph                          
+                // first graph
                 var graph = new AmCharts.AmGraph();
                 graph.title = "Europe";
                 graph.labelText = "[[percents]]%";
@@ -82,7 +82,7 @@
                 graph.lineColor = "#C72C95";
                 chart.addGraph(graph);
 
-                // second graph              
+                // second graph
                 graph = new AmCharts.AmGraph();
                 graph.title = "North America";
                 graph.labelText = "[[percents]]%";
@@ -94,7 +94,7 @@
                 graph.lineColor = "#D8E0BD";
                 chart.addGraph(graph);
 
-                // third graph              
+                // third graph
                 graph = new AmCharts.AmGraph();
                 graph.title = "Asia-Pacific";
                 graph.labelText = "[[percents]]%";
@@ -118,7 +118,7 @@
                 graph.lineColor = "#69A55C";
                 chart.addGraph(graph);
 
-                // fifth graph  
+                // fifth graph
                 graph = new AmCharts.AmGraph();
                 graph.title = "Middle-East";
                 graph.labelText = "[[percents]]%";
@@ -142,7 +142,7 @@
                 graph.lineColor = "#F4E23B";
                 chart.addGraph(graph);
 
-                // LEGEND                  
+                // LEGEND
                 var legend = new AmCharts.AmLegend();
                 legend.borderAlpha = 0.2;
                 legend.horizontalGap = 10;
@@ -151,7 +151,7 @@
                 legend.marginRight = 20;
                 chart.addLegend(legend);
 
-                // WRITE                  
+                // WRITE
                 chart.write("chartdiv");
             });
 
@@ -168,7 +168,7 @@
             }
         </script>
     </head>
-    
+
     <body>
         <div id="chartdiv" style="width: 600px; height: 400px;"></div>
         <div id="chartdiv" style="margin-left:15px; margin-top:10px;">

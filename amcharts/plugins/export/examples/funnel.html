@@ -30,7 +30,7 @@
 		<script type="text/javascript">
 			var chart = AmCharts.makeChart( "chartdiv", {
 				"type": "funnel",
-				"pathToImages": "http://www.amcharts.com/lib/3/images/",
+				"path": "http://www.amcharts.com/lib/3/",
 				"dataProvider": [ {
 					"title": "Website visits",
 					"value": 200
@@ -70,10 +70,7 @@
 				"labelPosition": "right",
 				"balloonText": "[[title]]: [[value]]n[[description]]",
 				"export": {
-					"enabled": true,
-					"libs": {
-						"path": "../libs/"
-					}
+					"enabled": true
 				}
 			} );
 		</script>
