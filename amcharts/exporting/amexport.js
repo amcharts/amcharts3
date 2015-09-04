@@ -382,19 +382,18 @@ AmCharts.AmExport = AmCharts.Class({
 		for (var i = 0; i < svgs.length; i++) {
 			var parent = svgs[i].parentNode;
 
-			// Put some attrs to it
-			/*
+			// Put some attrs to it; fixed 20/03/14 xmlns is required to produce a valid svg file
 			if ( !AmCharts.isIE ) {
 				svgs[i].setAttribute('xmlns','http://www.w3.org/2000/svg');
-				svgs[i].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+				//svgs[i].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
 			}
-			svgs[i].setAttribute('width',parent.style.width);
-			svgs[i].setAttribute('height',parent.style.height);
-			*/
+			//svgs[i].setAttribute('width',parent.style.width);
+			//svgs[i].setAttribute('height',parent.style.height);
 
+			// DEBUG
 			if (_this.DEBUG == 10) {
 				_this.log('POLIFIED', svgs[i]);
-			} // DEBUG
+			}
 
 			// Force link adaption
 			recursiveChange(svgs[i], 'pattern');
@@ -439,9 +438,14 @@ AmCharts.AmExport = AmCharts.Class({
 				svgY = Number(parent.style.top.slice(0, -2));
 			tmp = AmCharts.extend({}, offset);
 
-			// Overtake parent position if givwn
-			offset.x = svgX ? svgX : offset.x;
-			offset.y = svgY ? svgY : offset.y;
+			// Overtake parent position if given; fixed 20/03/14 distinguish between relativ and others
+			if ( parent.style.position == 'relative' ) {
+				offset.x = svgX? svgX : offset.x;
+				offset.y = svgY? svgY : offset.y;
+			} else {
+				offset.x = svgX;
+				offset.y = svgY;
+			}
 
 			_this.processing.buffer.push([svgs[i], AmCharts.extend({}, offset)]);
 
