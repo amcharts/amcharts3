@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.1.8
+Version: 1.2.2
 
 
 ## Description
@@ -89,8 +89,10 @@ There are two ways to load them. Choose the one that is right:
 All libraries required for plugin operation are included withing plugins */libs* 
 subdirectory.
 
-If you want the plugin to load them on-demand (when it's needed for a certain 
-operation), make sure you've set the [`path`](http://docs.amcharts.com/3/javascriptcharts/AmSerialChart#path) property in your chart setup.
+The plugin will automatically try to look in chart's [`path`](http://docs.amcharts.com/3/javascriptcharts/AmSerialChart#path) 
+property. If your plugin files are located within plugins folder under amcharts 
+(as is the case with the default distributions), you don't need to do anything -
+the libraries will load on-demand.
 
 If you are using relative url, note that it is relative to the web page you are 
 displaying your chart on, not the export.js library.
@@ -133,6 +135,10 @@ pdfMake | {} | Overwrites the default settings for PDF export (pdfMake library)
 position | top-right | A position of export icon. Possible values: "top-left", "top-right" (default), "bottom-left", "bottom-right"
 removeImages | true | If true export checks for and removes "tainted" images that area lodead from different domains
 delay | | General setting to delay the capturing of the chart ([skip to chapter](#delay-the-capturing-before-export))
+exportTitles | | Exchanges the data field names with it's dedicated title ( data export only )
+keyListener | false | If true it observes the pressed keys to undo/redo the annotations
+fileListener | false | If true it observes the drag and drop feature and loads the dropped image file into the annotation
+drawing | {} | Object which holds all possible settings for the annotation mode ([skip to chaper](#annotation-settings))
 
 
 ## Configuring export menu
@@ -270,9 +276,9 @@ By default it obtains the dimensions from the container but you can optionally o
 
 ### Menu item reviver
 
-By passing the `menuReviver` callback you are to adapt or completely replace the
-generated menu item before it gets appended to the list (`ul`).
-It retrieves two arguments and it needs to return a valid DOM element.
+By passing the `menuReviver` callback function you can modify the resulting menu 
+item or relative container, before it gets appended to the list (`ul`). The 
+function takes two arguments and it needs to return a valid DOM element.
 
 ```
 "export": {
@@ -285,8 +291,8 @@ It retrieves two arguments and it needs to return a valid DOM element.
 
 ### Menu walker
 
-In case you don't like our structure, go ahead and write your own recursive function
-to create the menu by the given list configured through `menu`.
+In case you don't like our structure, go ahead and write your own recursive 
+function to create the menu by the given list configured through `menu`.
 
 ```
 "export": {
@@ -349,12 +355,10 @@ By default each menu item triggers some kind of export. You can trigger an
 ```
 
 Now, when you click on the "Annotate" item in the menu, the chart will turn into 
-an image editor which you can actual draw on.
+an image editor which you can actual draw on and the menu gets replaced by the 
+default annotation menu.
 
-As cool as it may sound, there's little we can do if the annotated chart if we 
-can't save the result image.
-
-That's where sub-menus come for the rescue again:
+If you don't like the detault annotation menu, you can define your own:
 
 ```
 "export": {
@@ -368,17 +372,19 @@ That's where sub-menus come for the rescue again:
       "action": "draw",
       "menu": [ {
         "class": "export-drawing",
-        "menu": [ "JPG", "PNG", "SVG", PDF" ]
+        "menu": [ "JPG", "PNG", "SVG", "PDF" ]
       } ]
     } ]
   } ]
 }
 ```
 
-Now, when you turn on the annotation mode, a submenu will display, allowing to 
-export the image into either PNG,JPG,SVG or PDF.
+Now, when you turn on the annotation mode, your own submenu will display, 
+allowing to export the image into either PNG, JPG, SVG or PDF.
 
-And that's not even the end of it. You can add menu items to cancel, undo, redo.
+And that's not even the end of it. You can add menu items to cancel, undo, redo 
+and still be able to reuse the choices by using the actions `draw.modes`, 
+`draw.widths`, `draw.colors` or `draw.shapes`.
 
 ```
 "export": {
@@ -393,6 +399,10 @@ And that's not even the end of it. You can add menu items to cancel, undo, redo.
       "menu": [ {
         "class": "export-drawing",
         "menu": [ {
+            label: "Size ...",
+            action: "draw.widths",
+            widths: [ 5, 20, 30 ] // replaces the default choice
+        }, {
           "label": "Edit",
           "menu": [ "UNDO", "REDO", "CANCEL" ]
         }, {
@@ -405,7 +415,45 @@ And that's not even the end of it. You can add menu items to cancel, undo, redo.
 }
 ```
 
-If you need to filter the drawn elements you can pass the `reviver` method in your global configuration or pass it to the `capture` method if you export manually. To hide e.G. all free labels you can simply do so like following:
+### Annotation settings
+
+Since 1.2.1 it's also possible to set some of the annotation options without the 
+need to re-define the whole menu structure. You can easily adjust the choice of 
+modes, colors, widths or shapes, and set the defaults when entering the 
+annotation mode.
+
+Following setup shows you all available settings. If you don't have the 
+`drawing` property at all, it will falls back to the defaults.
+
+```
+"export": {
+  "drawing": {
+    "enabled": true, // Flag for `action: "draw"` menu items to toggle it's visibility
+    "shapes": [ "test.svg" ], // Choice of shapes offered in the menu (shapes are being loaded from the shapes folder)
+
+    "width": 2, // Width of the pencil and line when entering the annotation mode
+    "widths": [ 2, 10, 20 ], // Choice of widths offered in the menu
+
+    "color": "#000000", // Color of the pencil, line, text and shapes when entering the annotation mode
+    "colors": [ "#000000", "#FF0000" ] // Choice of colors offered in the menu
+
+    "opacity": 1, // Opacity of the pencil, line, text and shapes when entering the annotation mode
+    "opacities": [ 1, 0.8, 0.6, 0.4, 0.2 ] // Choice of opacity offered in the menu
+
+    "menu": [ ... ], // Shown menu when entering the annotation mode
+
+    "mode": "pencil", // Drawing mode when entering the annotation mode "pencil", "line" and "arrow" are available
+    "modes": [ "pencil" , "line", "arrow" ], // Choice of modes offered in the menu
+    "arrow": "end", // position of the arrow on drawn lines; "start","middle" and "end" are available
+  }
+}
+```
+
+If you need to filter the drawn elements, you can pass the `reviver` method in 
+your global configuration, or pass it to the `capture` method if you export 
+manually. For example, to hide all free labels you can simply do something like 
+the following:
+
 ```
 "export": {
   "menu": ["PNG"],
@@ -419,7 +467,10 @@ If you need to filter the drawn elements you can pass the `reviver` method in yo
 
 ### Delay the capturing before export
 
-In some cases you may want to delay the capturing to highlight the current value, therefore you simply need to define the 'delay' property in your menu item.
+In some cases you may want to delay the capturing of the current chart snapshot 
+to highlight the current value. For this you can simply define the 'delay' 
+property in your menu item:
+
 ```
 "export": {
   "delay": 3,
@@ -436,7 +487,10 @@ In some cases you may want to delay the capturing to highlight the current value
 
 ### Events
 
-Since version 1.1.7 the plugin has some events to celebrate with. For example the `afterCapture` event allows you to add some texts or images which can't be seen on the regular chart but on the generated export - Magic! This allows you to point to your website from where the chart has been downloaded or simply add some fancy watermark.
+Since version 1.1.7 the plugin introduces some events you can use. For example 
+the `afterCapture` event allows you to add some texts or images which can't be 
+seen on the regular chart but only the generated export. Use it to watermark 
+your exported images.
 
 ```
 "export": {
@@ -496,10 +550,10 @@ pageSize | A string or { width: number, height: number } ([details](#exporting-t
 pageOrientation | By default we use portrait, you can change it to landscape if you wish ([details](#exporting-to-pdf))
 pageMargins | [left, top, right, bottom] or [horizontal, vertical] or just a number for equal margins ([details](#exporting-to-pdf))
 content | Array of elements which represents the content ([details](#exporting-to-pdf))
-freeDrawingBrush | Object which hold the settings of the brush e.G.: { color: "#FF00FF" }
 multiplier | Scale factor for the generated image
 lossless | Flag to print the actual vector graphic instead of buffered bitmap (print option only, experimental)
 delay | A numeric value to delay the capturing in seconds ([details](#delay-the-capturing-before-export))
+exportTitles | Exchanges the data field names with it's dedicated title ( data export only )
 
 Available `format` values:
 
@@ -639,8 +693,8 @@ Here's an example:
 }
 ```
 
-The above will use plugin's internal `capture` method to capture it's current state and `toJPG()`
-method to export the chart to JPEG format.
+The above will use plugin's internal `capture` method to capture it's current 
+state and `toJPG()` method to export the chart to JPEG format.
 
 Yes, you're right, it's the exact equivalent of just including "JPG" string. The 
 code is here for the explanatory purposes.
@@ -661,18 +715,21 @@ toCanvas | (object) options, (function) callback | Prepares a Canvas and passes 
 toArray | (object) options, (function) callback | Prepares an Array and passes the data to the callback function
 toImage | (object) options, (function) callback | Generates an image element which holds the output in an embedded base64 data url
 
-
 ## Fallback for IE9
 
-Unfortunately our lovely Internet Explorer 9 does not allow us to offer downloads which has been locally generated.
-For those cases the plugin will place an overlay on top of the chart to place an `img` or `textarea` to let the user manually save the generated output with some instructions above.
-To avoid having a bigger payload by including senseless polyfills to your site, you may need to add following metatag in your `<head>` of your HTML document.
+Unfortunately, Internet Explorer 9 has restrictions in place that prevent the 
+download of locally-generated files. In this case the plugin will place the 
+generated image along download instructions directly over the chart area.
+
+To avoid having a bigger payload by including senseless polyfills to your site, 
+you may need to add following metatag in your `<head>` of your HTML document.
 
 ```
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 ```
 
-This feature will kick in by default if you want to disable it simply pass `false` to the `fallback` parameter.
+This feature will kick in by default. If you want to disable it simply pass 
+`false` to the `fallback` parameter.
 
 ```
 "export": {
@@ -680,7 +737,8 @@ This feature will kick in by default if you want to disable it simply pass `fals
 }
 ```
 
-In case you want to change our default messages you can modify it like following.
+In case you want to change our default messages you can modify it like 
+following.
 
 ```
 "export": {
@@ -746,8 +804,32 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 ## Changelog
 
+### 1.2.2
+* Fixed: Issue with object changes which overwrite undo/redo object states
+* Fixed: Issue with default fontSize
+
+### 1.2.1
+* Added: Possibility to add text, lines, shapes ([details](#annotation-settings))
+* Added: Possibility to change drawing mode, color, opacity and size
+* Added: Possibility to select,move,scale drawn items
+* Added: Possibility to define dedicated drawing menu `drawing.menu` individual menu items get prioritised
+* Added: Dropbox feature which allows to drag images into the chart `fileListener: true`
+* Added: Keylistener which allows to undo/redo/remove the drawn steps `keyListener: true`
+* Added: Isolated plugin to be able to initiate manually regardless of the chart setup
+* Fixed: Conflict with prototypeJS which caused tainted return value from `toArray`
+
+### 1.2.0
+* Fixed: Issue with deepMerge which did not allow to modfiy the pdfMake default settings
+* Fixed: Menu issue which did not allow to modify the pdfMake settings
+* Fixed: Undo issue which needed double attempts in the beginning
+* Added: Drag/Scale feature in annotation mode; toggles automatically between drawing/dragging while hovering over the elements
+
+### 1.1.9
+* Added: `exportTitles` available in general or individual setup which exchanges the data field names with it's dedicated title
+* Fix: Interpolates missing data fields across data provider
+
 ### 1.1.8
-* Fix: Issue with safari browser which prevented to open the generated export in a tab
+* Added: Temporary workaround to bypass FileSaver check; issue prevented to open blob urls in safari browser
 
 ### 1.1.7
 * Added: beforeCapture to be able to indicate the export process in some way

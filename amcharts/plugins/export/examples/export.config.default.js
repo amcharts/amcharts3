@@ -33,9 +33,6 @@ AmCharts.exportPrint = {
  */
 AmCharts.exportCFG = {
 	"enabled": true,
-	"libs": {
-		"path": "../libs/"
-	},
 	"menu": [ {
 		"class": "export-main",
 		"label": "Export",
@@ -47,47 +44,41 @@ AmCharts.exportCFG = {
 			"menu": [ "CSV", "XLSX", "JSON" ]
 		}, {
 			"label": "Annotate",
-			"action": "draw",
-			"menu": [ {
-				"class": "export-drawing",
-				"menu": [ {
-					"label": "Color ...",
-					"menu": [ {
-						"class": "export-drawing-color export-drawing-color-black",
-						"label": "Black",
-						"click": function () {
-							this.setup.fabric.freeDrawingBrush.color = "#000";
-						}
-					}, {
-						"class": "export-drawing-color export-drawing-color-white",
-						"label": "White",
-						"click": function () {
-							this.setup.fabric.freeDrawingBrush.color = "#fff";
-						}
-					}, {
-						"class": "export-drawing-color export-drawing-color-red",
-						"label": "Red",
-						"click": function () {
-							this.setup.fabric.freeDrawingBrush.color = "#f00";
-						}
-					}, {
-						"class": "export-drawing-color export-drawing-color-green",
-						"label": "Green",
-						"click": function () {
-							this.setup.fabric.freeDrawingBrush.color = "#0f0";
-						}
-					}, {
-						"class": "export-drawing-color export-drawing-color-blue",
-						"label": "Blue",
-						"click": function () {
-							this.setup.fabric.freeDrawingBrush.color = "#00f";
-						}
-					} ]
-				}, "UNDO", "REDO", {
-					"label": "Save as ...",
-					"menu": [ "PNG", "JPG", "SVG", AmCharts.exportPDF ]
-				}, AmCharts.exportPrint, "CANCEL" ]
-			} ]
+			"action": "draw"
 		}, AmCharts.exportPrint ]
-	} ]
+	} ],
+
+	"drawing": {
+		"menu": [ {
+			"class": "export-drawing",
+			"menu": [ {
+				"label": "Add ...",
+				"menu": [ {
+					"label": "Shape ...",
+					"action": "draw.shapes"
+				}, {
+					"label": "Text",
+					"action": "text"
+				} ]
+			}, {
+				"label": "Change ...",
+				"menu": [ {
+					"label": "Mode ...",
+					"action": "draw.modes"
+				}, {
+					"label": "Color ...",
+					"action": "draw.colors"
+				}, {
+					"label": "Size ...",
+					"action": "draw.widths"
+				}, {
+					"label": "Opactiy ...",
+					"action": "draw.opacities"
+				}, "UNDO", "REDO" ]
+			}, {
+				"label": "Download as...",
+				"menu": [ "PNG", "JPG", "SVG", "PDF" ]
+			}, "PRINT", "CANCEL" ]
+		} ]
+	}
 };

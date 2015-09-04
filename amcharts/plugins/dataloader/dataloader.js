@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.5
+Version: 1.0.6
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -140,11 +140,19 @@ AmCharts.addInitHandler( function( chart ) {
         chart.startDuration = 0;
       }
 
-      // set empty data set
-      if ( undefined === chart.dataProvider )
-        chart.dataProvider = chart.type === 'map' ? {} : [];
+      if ( 'gauge' === chart.type ) {
+        // set empty data set
+        if ( undefined === chart.arrows )
+          chart.arrows = [];
 
-      loadFile( l.url, chart, l, 'dataProvider' );
+        loadFile( l.url, chart, l, 'arrows' );
+      } else {
+        // set empty data set
+        if ( undefined === chart.dataProvider )
+          chart.dataProvider = chart.type === 'map' ? {} : [];
+
+        loadFile( l.url, chart, l, 'dataProvider' );
+      }
 
     }
 
@@ -259,7 +267,8 @@ AmCharts.addInitHandler( function( chart ) {
                   }
                 } else {
                   chart.startDuration = l.startDuration;
-                  chart.animateAgain();
+                  if ( chart.animateAgain !== undefined )
+                    chart.animateAgain();
                 }
               }
             }
@@ -378,8 +387,7 @@ AmCharts.addInitHandler( function( chart ) {
       curtain.style.fontSize = '20px';
       try {
         curtain.style.background = 'rgba(255, 255, 255, 0.3)';
-      }
-      catch ( e ) {
+      } catch ( e ) {
         curtain.style.background = 'rgb(255, 255, 255)';
       }
       curtain.innerHTML = '<div style="display: table-cell; vertical-align: middle;">' + msg + '</div>';

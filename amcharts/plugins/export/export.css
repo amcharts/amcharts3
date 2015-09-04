@@ -22,103 +22,98 @@
 	position: absolute;
 	z-index: 2;
 	opacity: 0.5;
-	-webkit-transition: all 0.5s ease-out;
-	-moz-transition: all 0.5s ease-out;
-	-ms-transition: all 0.5s ease-out;
-	-o-transition: all 0.5s ease-out;
-	transition: all 0.5s ease-out;
 	color: #000;
 }
 .amcharts-main-div:hover .amcharts-export-menu, .amcharts-stock-div:hover .amcharts-export-menu {
 	opacity: 1;
 }
 .amcharts-export-menu-top-left > ul > li > ul:after {
-  content: "";
-  position: absolute;
-  top: 13px;
-  right: 100%;
-  z-index: 1000;
-  border-top: 7px solid transparent;
-  border-left: 7px solid transparent;
-  border-right: 7px solid #fff;
-  border-bottom: 7px solid transparent;
+	content: "";
+	position: absolute;
+	top: 13px;
+	right: 100%;
+	z-index: 1000;
+	border-top: 7px solid transparent;
+	border-left: 7px solid transparent;
+	border-right: 7px solid #fff;
+	border-bottom: 7px solid transparent;
 }
 .amcharts-export-menu-top-left > ul > li > ul > li:first-child > a:after {
-  content: "";
-  position: absolute;
-  top: 12px;
-  right: 100%;
-  z-index: 1001;
-  border-top: 8px solid transparent;
-  border-left: 8px solid transparent;
-  border-right: 8px solid #e2e2e2;
-  border-bottom: 8px solid transparent;
+	content: "";
+	position: absolute;
+	top: 12px;
+	right: 100%;
+	z-index: 1001;
+	border-top: 8px solid transparent;
+	border-left: 8px solid transparent;
+	border-right: 8px solid #e2e2e2;
+	border-bottom: 8px solid transparent;
 }
 .amcharts-export-menu-top-right > ul > li > ul:after {
-  content: "";
-  position: absolute;
-  top: 13px;
-  left: 100%;
-  z-index: 1000;
-  border-top: 7px solid transparent;
-  border-left: 7px solid #fff;
-  border-right: 7px solid transparent;
-  border-bottom: 7px solid transparent;
+	content: "";
+	position: absolute;
+	top: 13px;
+	left: 100%;
+	z-index: 1000;
+	border-top: 7px solid transparent;
+	border-left: 7px solid #fff;
+	border-right: 7px solid transparent;
+	border-bottom: 7px solid transparent;
 }
 .amcharts-export-menu-top-right > ul > li > ul > li:first-child > a:after {
-  content: "";
-  position: absolute;
-  top: 12px;
-  left: 100%;
-  z-index: 1001;
-  border-top: 8px solid transparent;
-  border-left: 8px solid #e2e2e2;
-  border-right: 8px solid transparent;
-  border-bottom: 8px solid transparent;
+	content: "";
+	position: absolute;
+	top: 12px;
+	left: 100%;
+	z-index: 1001;
+	border-top: 8px solid transparent;
+	border-left: 8px solid #e2e2e2;
+	border-right: 8px solid transparent;
+	border-bottom: 8px solid transparent;
 }
 .amcharts-export-menu-bottom-left > ul > li > ul:after {
-  content: "";
-  position: absolute;
-  bottom: 13px;
-  right: 100%;
-  z-index: 1000;
-  border-top: 7px solid transparent;
-  border-left: 7px solid transparent;
-  border-right: 7px solid #fff;
-  border-bottom: 7px solid transparent;
+	content: "";
+	position: absolute;
+	bottom: 13px;
+	right: 100%;
+	z-index: 1000;
+	border-top: 7px solid transparent;
+	border-left: 7px solid transparent;
+	border-right: 7px solid #fff;
+	border-bottom: 7px solid transparent;
 }
 .amcharts-export-menu-bottom-left > ul > li > ul > li:last-child > a:after {
-  content: "";
-  position: absolute;
-  bottom: 12px;
-  right: 100%;
-  z-index: 1001;
-  border-top: 8px solid transparent;
-  border-left: 8px solid transparent;
-  border-right: 8px solid #e2e2e2;
-  border-bottom: 8px solid transparent;
+	content: "";
+	position: absolute;
+	bottom: 12px;
+	right: 100%;
+	z-index: 1001;
+	border-top: 8px solid transparent;
+	border-left: 8px solid transparent;
+	border-right: 8px solid #e2e2e2;
+	border-bottom: 8px solid transparent;
 }
 .amcharts-export-menu-bottom-right > ul > li > ul:after {
-  content: "";
-  position: absolute;
-  bottom: 13px;
-  left: 100%;
-  z-index: 1000;
-  border-top: 7px solid transparent;
-  border-left: 7px solid #fff;
-  border-right: 7px solid transparent;
-  border-bottom: 7px solid transparent;
+	content: "";
+	position: absolute;
+	bottom: 13px;
+	left: 100%;
+	z-index: 1000;
+	border-top: 7px solid transparent;
+	border-left: 7px solid #fff;
+	border-right: 7px solid transparent;
+	border-bottom: 7px solid transparent;
 }
 .amcharts-export-menu-bottom-right > ul > li > ul > li:last-child > a:after {
-  content: "";
-  position: absolute;
-  bottom: 12px;
-  left: 100%;
-  z-index: 1001;
-  border-top: 8px solid transparent;
-  border-left: 8px solid #e2e2e2;
-  border-right: 8px solid transparent;
-  border-bottom: 8px solid transparent;
+	content: "";
+	position: absolute;
+	bottom: 12px;
+	left: 100%;
+	z-index: 1001;
+	border-top: 8px solid transparent;
+	border-left: 8px solid #e2e2e2;
+	border-right: 8px solid transparent;
+	border-bottom: 8px solid transparent;
 }
 .amcharts-export-menu ul {
 	list-style: none;
@@ -200,10 +195,9 @@
 /**
  * Menu; custom class
  */
-.amcharts-export-menu .export-main {
-	margin: 4px;
-}
 .amcharts-export-menu .export-main > a, .amcharts-export-menu .export-drawing > a, .amcharts-export-menu .export-delayed-capturing > a {
+	display: block;
+	overflow: hidden;
 	text-indent: -13333337px;
 	width: 36px;
 	height: 36px;
@@ -247,10 +241,10 @@
 	background: #000;
 	width: 35px;
 }
-.amcharts-export-menu .export-drawing-color a {
+.amcharts-export-menu .export-drawing-color > a {
 	display: block;
 	overflow: hidden;
-	text-indent: -99999999px;
+	text-indent: -13333337px;
 }
 .amcharts-export-menu .export-drawing-color-red {
 	background: #f00;
@@ -302,4 +296,53 @@
 	vertical-align: middle;
 	text-align: center;
 	background-image: none;
+}
+
+/*
+** TRANSITION; OPACITY
+*/
+.amcharts-export-menu,
+.amcharts-export-canvas .canvas-container {
+	-webkit-transition: opacity 0.5s ease-out;
+	-moz-transition: opacity 0.5s ease-out;
+	-ms-transition: opacity 0.5s ease-out;
+	-o-transition: opacity 0.5s ease-out;
+	transition: opacity 0.5s ease-out;
+}
+.amcharts-export-canvas.dropbox .canvas-container {
+	opacity: 0.5;
+}
+
+
+/*
+** SHAPE
+*/
+.amcharts-export-menu .export-drawing-shape a {
+	font: 0/0 a;
+	text-shadow: none;
+	color: transparent;
+}
+.amcharts-export-menu li img {
+	height: 20px;
+}
+
+
+/*
+** BRUSH
+*/
+.amcharts-export-menu .export-drawing-width a {
+	text-align: center;
+}
+.amcharts-export-menu .export-drawing-width span {
+	display: block;
+	margin: 0 auto;
+}
+.amcharts-export-menu .export-drawing-width span > span {
+	display: block;
+	background: #000;
+	border-radius: 100%;
+}
+.amcharts-export-menu .export-drawing-shape a:hover img {
+	-webkit-filter: invert(100%);
+	filter: invert(100%);
 }

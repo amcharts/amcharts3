@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.5
+Version: 1.0.6
 
 
 ## Description
@@ -269,6 +269,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.6
+* Added support for Gauge chart (loads "arrows" array)
 
 ### 1.0.5
 * Fixed JS error if periodSelector was not defined in chart config
