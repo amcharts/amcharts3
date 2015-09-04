@@ -1,0 +1,21 @@
+{
+  "name": "amcharts3",
+  "version": "1.7.0",
+  "description": "JavaScript Charts V3",
+  "main": "amcharts.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amcharts/amcharts3.git"
+  },
+  "keywords": [
+    "amcharts",
+    "javascript",
+    "charts"
+  ],
+  "author": "amCharts <contact@amcharts.com>",
+  "license": "Custom",
+  "bugs": {
+    "url": "https://github.com/amcharts/amcharts3/issues"
+  },
+  "homepage": "http://www.amcharts.com/"
+}
