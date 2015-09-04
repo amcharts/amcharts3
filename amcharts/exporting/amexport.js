@@ -119,11 +119,10 @@ AmCharts.AmExport = AmCharts.Class({
 				dpi				: 90,
 				onclick			: function(instance, config, event) {
 					event.preventDefault();
-					instance.polifySVG();
-					instance.output(config);
 					if(_this.chart.prepareForExport){
 						_this.chart.prepareForExport();
 					}
+					instance.output(config);
 				}
 			},
 			removeImagery: true
@@ -322,7 +321,7 @@ AmCharts.AmExport = AmCharts.Class({
 			var data = null;
 			var blob;
 			if (_this.DEBUG == 10) {
-				_this.log('OUTPUT', format);
+				_this.log('OUTPUT', cfg.format);
 			} // DEBUG
 
 			// SVG
@@ -415,18 +414,17 @@ AmCharts.AmExport = AmCharts.Class({
 	Polifies missing attributes to the SVG and replaces images to embedded base64 images
 	@param none
 	*/
-	polifySVG: function() {
+	polifySVG: function(svg) {
 		var _this	= this;
-		var svgs	= _this.chart.div.getElementsByTagName('svg');
 
 		// Recursive function to force the attributes
 		function recursiveChange(svg, tag) {
-			var items = svg.getElementsByTagName(tag);
+			var items	= svg.getElementsByTagName(tag);
+			var i		= items.length;
 
-			for (var i = 0; i < items.length; i++) {
-
+			while(i--) {
 				if (_this.cfg.removeImagery) {
-					//items[i].parentNode.removeChild(items[i]); // hides automatically
+					items[i].parentNode.removeChild(items[i]);
 
 				} else {
 					var image		= document.createElement('img');
@@ -458,29 +456,26 @@ AmCharts.AmExport = AmCharts.Class({
 			}
 		}
 
-		// Loop through svgs to add some standardization
-		for (var i = 0; i < svgs.length; i++) {
-			// Put some attrs to it; fixed 20/03/14 xmlns is required to produce a valid svg file
-			if (AmCharts.IEversion == 0) {
-				svgs[i].setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-				if ( !_this.cfg.removeImagery ) {
-					svgs[i].setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
-				}
+		// Put some attrs to it; fixed 20/03/14 xmlns is required to produce a valid svg file
+		if (AmCharts.IEversion == 0) {
+			svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+			if ( !_this.cfg.removeImagery ) {
+				svg.setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
 			}
-
-			// DEBUG
-			if (_this.DEBUG == 10) {
-				_this.log('POLIFIED', svgs[i]);
-			}
-
-			// Force link adaption
-			recursiveChange(svgs[i], 'pattern');
-			recursiveChange(svgs[i], 'image');
-
-			_this.svgs.push(svgs[i]);
 		}
 
-		return svgs;
+		// DEBUG
+		if (_this.DEBUG == 10) {
+			_this.log('POLIFIED', svg);
+		}
+
+		// Force link adaption
+		recursiveChange(svg, 'pattern');
+		recursiveChange(svg, 'image');
+
+		_this.svgs.push(svg);
+
+		return svg;
 	},
 
 
@@ -525,9 +520,10 @@ AmCharts.AmExport = AmCharts.Class({
 		tmp = {};
 
 		// Reset
-		_this.processing.buffer = [];
-		_this.processing.drawn = 0;
-		_this.canvas = canvas;
+		_this.processing.buffer	= [];
+		_this.processing.drawn	= 0;
+		_this.canvas			= canvas;
+		_this.svgs				= [];
 
 		// Walkthroug SVGs
 		if (_this.DEBUG == 10) {
@@ -537,10 +533,11 @@ AmCharts.AmExport = AmCharts.Class({
 			_this.log('START BUFFERING');
 		} // DEBUG
 		for (var i = 0; i < svgs.length; i++) {
-			var parent = svgs[i].parentNode,
-				svgX = Number(parent.style.left.slice(0, -2)),
-				svgY = Number(parent.style.top.slice(0, -2));
-			tmp = AmCharts.extend({}, offset);
+			var parent	= svgs[i].parentNode,
+			svgX		= Number(parent.style.left.slice(0, -2)),
+			svgY		= Number(parent.style.top.slice(0, -2)),
+			svgClone	= _this.polifySVG(svgs[i].cloneNode(true)),
+			tmp			= AmCharts.extend({}, offset);
 
 			// Overtake parent position if given; fixed 20/03/14 distinguish between relativ and others
 			if (parent.style.position == 'relative') {
@@ -551,7 +548,7 @@ AmCharts.AmExport = AmCharts.Class({
 				offset.y = svgY;
 			}
 
-			_this.processing.buffer.push([svgs[i].cloneNode(true), AmCharts.extend({}, offset)]);
+			_this.processing.buffer.push([svgClone, AmCharts.extend({}, offset)]);
 
 			// Put back from "cache"
 			if (svgY && svgX) {
@@ -577,9 +574,9 @@ AmCharts.AmExport = AmCharts.Class({
 		if (_this.DEBUG == 10) {
 			_this.log('FILL BACKGROUND');
 		} // DEBUG
-		canvas.id = AmCharts.getUniqueId();
-		canvas.width = _this.chart.divRealWidth;
-		canvas.height = _this.chart.divRealHeight;
+		canvas.id		= AmCharts.getUniqueId();
+		canvas.width	= _this.chart.divRealWidth;
+		canvas.height	= _this.chart.divRealHeight;
 
 
 		// Stockchart exception
@@ -643,9 +640,9 @@ AmCharts.AmExport = AmCharts.Class({
 
 				// NATIVE
 				if (cfg.render == 'browser') {
-					img = new Image();
-					img.id = AmCharts.getUniqueId();
-					source = 'data:image/svg+xml;base64,' + btoa(source);
+					img		= new Image();
+					img.id	= AmCharts.getUniqueId();
+					source	= 'data:image/svg+xml;base64,' + btoa(source);
 
 					//img.crossOrigin	= "Anonymous";
 					img.onload = function() {
