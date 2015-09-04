@@ -1,6 +1,6 @@
 # amCharts Responsive
 
-Version: 0.9.1
+Version: 0.9.2
 
 
 ## Description
@@ -340,6 +340,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 0.9.2
+* Fixed a custom rules being applied in the wrong order
 
 ### 0.9.1
 * Made all examples use minified version of the plugin

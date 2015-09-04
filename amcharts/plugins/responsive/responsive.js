@@ -2,7 +2,7 @@
 Plugin Name: amCharts Responsive
 Description: This plugin add responsive functionality to JavaScript Charts and Maps.
 Author: Martynas Majeris, amCharts
-Version: 0.9.1
+Version: 0.9.2
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -1106,7 +1106,7 @@ AmCharts.addInitHandler( function ( chart ) {
 	if ( undefined == r.rules || 0 == r.rules.length || !isArray( r.rules ) )
 		r.rules = defaults[chart.type];
 	else if ( false !== r.addDefaultRules )
-		r.rules = r.rules.concat( defaults[chart.type] );
+		r.rules = defaults[chart.type].concat( r.rules );
 
 	// set original 
 	setOriginalProperty( chart, 'zoomOutOnDataUpdate', chart.zoomOutOnDataUpdate );
