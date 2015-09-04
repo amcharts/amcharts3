@@ -139,7 +139,10 @@ AmCharts.addInitHandler( function( chart ) {
         chart.startDuration = 0;
       }
 
-      chart.dataProvider = [];
+      // set empty data set
+      if ( undefined === chart.dataProvider )
+        chart.dataProvider = chart.type === 'map' ? {} : [];
+
       loadFile( l.url, chart, l, 'dataProvider' );
 
     }

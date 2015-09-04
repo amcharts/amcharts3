@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.1.1
+Version: 1.1.3
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -26,7 +26,7 @@ not apply to any other amCharts products that are covered by different licenses.
 AmCharts.addInitHandler( function( chart ) {
 	var _this = {
 		name: "export",
-		version: "1.1.1",
+		version: "1.1.3",
 		libs: {
 			async: true,
 			autoLoad: true,
@@ -38,7 +38,9 @@ AmCharts.addInitHandler( function( chart ) {
 			}, "fabric.js/fabric.js", "FileSaver.js/FileSaver.js" ]
 		},
 		config: {},
-		setup: {},
+		setup: {
+			hasBlob: false
+		},
 		drawing: {
 			enabled: false,
 			actions: [ "undo", "redo", "done", "cancel" ],
@@ -205,7 +207,7 @@ AmCharts.addInitHandler( function( chart ) {
 
 		download: function( data, type, filename ) {
 			// SAVE
-			if ( window.saveAs ) {
+			if ( window.saveAs && _this.setup.hasBlob ) {
 				var blob = _this.toBlob( {
 					data: data,
 					type: type
@@ -390,6 +392,18 @@ AmCharts.addInitHandler( function( chart ) {
 			return thingy instanceof Object && thingy && thingy.nodeType === 1;
 		},
 
+		// CHECK IF TAINTED
+		isTainted: function( source ) {
+			if (
+				source &&
+				source.indexOf( "//" ) != -1 &&
+				source.indexOf( location.origin ) == -1
+			) {
+				return true;
+			}
+			return false;
+		},
+
 		// CAPTURE EMOTIONAL MOMENT
 		capture: function( options, callback ) {
 			var i1, i2, i3;
@@ -408,6 +422,7 @@ AmCharts.addInitHandler( function( chart ) {
 				var group = {
 					svg: svgs[ i1 ],
 					parent: svgs[ i1 ].parentNode,
+					children: svgs[ i1 ].getElementsByTagName( "*" ),
 					offset: {
 						x: 0,
 						y: 0
@@ -416,52 +431,63 @@ AmCharts.addInitHandler( function( chart ) {
 					clippings: {}
 				}
 
-				// GATHER CLIPPATHS; make them invisible
-				var items = svgs[ i1 ].getElementsByTagName( "clipPath" );
-				for ( i2 = 0; i2 < items.length; i2++ ) {
-					for ( i3 = 0; i3 < items[ i2 ].childNodes.length; i3++ ) {
-						items[ i2 ].childNodes[ i3 ].setAttribute( "fill", "transparent" );
-					}
-					group.clippings[ items[ i2 ].id ] = items[ i2 ];
-				}
+				for ( i2 = 0; i2 < group.children.length; i2++ ) {
+					var childNode = group.children[ i2 ];
 
-				// GATHER PATTERNS
-				var items = svgs[ i1 ].getElementsByTagName( "pattern" );
-				for ( i2 = 0; i2 < items.length; i2++ ) {
-					var props = {
-						node: items[ i2 ],
-						source: items[ i2 ].getAttribute( "xlink:href" ),
-						width: Number( items[ i2 ].getAttribute( "width" ) ),
-						height: Number( items[ i2 ].getAttribute( "height" ) ),
-						repeat: "repeat"
-					}
+					// CLIPPATH
+					if ( childNode.tagName == "clipPath" ) {
+						for ( i3 = 0; i3 < childNode.childNodes.length; i3++ ) {
+							childNode.childNodes[ i3 ].setAttribute( "fill", "transparent" );
+						}
+						group.clippings[ childNode.id ] = childNode;
 
-					// REPLACE SOURCE
-					var rect = items[ i2 ].getElementsByTagName( "rect" );
-					if ( rect.length > 0 ) {
-						var IMG = new Image();
-						IMG.src = props.source;
+						// PATTERN
+					} else if ( childNode.tagName == "pattern" ) {
+						for ( i3 = 0; i3 < childNode.childNodes.length; i3++ ) {
 
-						var PSC = new fabric.StaticCanvas( undefined, {
-							width: props.width,
-							height: props.height,
-							backgroundColor: rect[ 0 ].getAttribute( "fill" )
-						} );
-
-						var RECT = new fabric.Rect( {
-							width: props.width,
-							height: props.height,
-							fill: new fabric.Pattern( {
-								source: IMG,
+							var props = {
+								node: childNode,
+								source: childNode.getAttribute( "xlink:href" ),
+								width: Number( childNode.getAttribute( "width" ) ),
+								height: Number( childNode.getAttribute( "height" ) ),
 								repeat: "repeat"
-							} )
-						} );
-						PSC.add( RECT );
-						props.source = PSC.toDataURL();
-					}
+							}
 
-					// BUFFER PATTERN
-					group.patterns[ items[ i2 ].id ] = new fabric.Pattern( props );
+							// TAINTED
+							if ( cfg.removeImages && _this.isTainted( props.source ) ) {
+								group.patterns[ childNode.id ] = "transparent";
+
+								// REPLACE SOURCE
+							} else {
+								var rect = childNode.getElementsByTagName( "rect" );
+								if ( rect.length > 0 ) {
+									var IMG = new Image();
+									IMG.src = props.source;
+
+									var PSC = new fabric.StaticCanvas( undefined, {
+										width: props.width,
+										height: props.height,
+										backgroundColor: rect[ 0 ].getAttribute( "fill" )
+									} );
+
+									var RECT = new fabric.Rect( {
+										width: props.width,
+										height: props.height,
+										fill: new fabric.Pattern( {
+											source: IMG,
+											repeat: "repeat"
+										} )
+									} );
+									PSC.add( RECT );
+									props.source = PSC.toDataURL();
+								}
+
+								// BUFFER PATTERN
+								group.patterns[ childNode.id ] = new fabric.Pattern( props );
+							}
+
+						}
+					}
 				}
 
 				// APPEND GROUP
@@ -543,6 +569,7 @@ AmCharts.addInitHandler( function( chart ) {
 			// DRAWING
 			if ( _this.drawing.enabled ) {
 				_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active" );
+				_this.setup.wrapper.style.backgroundColor = cfg.backgroundColor;
 			} else {
 				_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
 			}
@@ -597,12 +624,7 @@ AmCharts.addInitHandler( function( chart ) {
 							if ( g.paths[ i1 ] ) {
 
 								// CHECK ORIGIN; REMOVE TAINTED
-								if (
-									cfg.removeImages &&
-									g.paths[ i1 ][ "xlink:href" ] &&
-									g.paths[ i1 ][ "xlink:href" ].indexOf( "//" ) != -1 &&
-									g.paths[ i1 ][ "xlink:href" ].indexOf( location.origin ) == -1
-								) {
+								if ( cfg.removeImages && _this.isTainted( g.paths[ i1 ][ "xlink:href" ] ) ) {
 									g.paths.splice( i1, 1 );
 									continue;
 								}
@@ -694,8 +716,12 @@ AmCharts.addInitHandler( function( chart ) {
 
 						groups.pop();
 
+						// Trigger callback with safety delay
 						if ( !groups.length ) {
-							_this.handleCallback( callback );
+							setTimeout( function() {
+								_this.setup.fabric.renderAll();
+								_this.handleCallback( callback );
+							}, 1 );
 						}
 					}
 
@@ -738,6 +764,11 @@ AmCharts.addInitHandler( function( chart ) {
 								obj[ _this.capitalize( attr + "-opacity" ) ] = attrOpacity;
 							}
 						}
+					}
+
+					// REVIVER
+					if ( cfg.reviver && cfg.reviver instanceof Function ) {
+						cfg.reviver.apply( _this, [ obj ] );
 					}
 				} );
 			}
@@ -1252,8 +1283,8 @@ AmCharts.addInitHandler( function( chart ) {
 					if ( [ "CSV", "JSON", "XLSX" ].indexOf( item.format ) != -1 && [ "map", "gauge" ].indexOf( _this.setup.chart.type ) != -1 ) {
 						continue;
 
-						// IE EXCEPTION
-					} else if ( AmCharts.isIE && AmCharts.IEversion < 10 && item.format != "UNDEFINED" ) {
+						// BLOB EXCEPTION
+					} else if ( !_this.setup.hasBlob && item.format != "UNDEFINED" ) {
 						if ( item.mimeType && item.mimeType.split( "/" )[ 0 ] != "image" && item.mimeType != "text/plain" ) {
 							continue;
 						}
@@ -1464,6 +1495,10 @@ AmCharts.addInitHandler( function( chart ) {
 	if ( undefined === _this.setup.chart[ "export" ] || !_this.setup.chart[ "export" ].enabled ) {
 		return;
 	}
+
+	try {
+		_this.setup.hasBlob = !!new Blob;
+	} catch ( e ) {}
 
 	// MERGE SETTINGS
 	_this.deepMerge( _this.libs, _this.setup.chart[ "export" ].libs || {}, true );

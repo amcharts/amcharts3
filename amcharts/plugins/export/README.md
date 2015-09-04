@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.1.1
+Version: 1.1.3
 
 
 ## Description
@@ -26,7 +26,14 @@ bundled CSS file. I.e.:
 
 ```
 <script src="amcharts/plugins/export/export.min.js"></script>
-<link  type="text/css" href="../export.css" rel="stylesheet">
+<link  type="text/css" href="amcharts/plugins/export/export.css" rel="stylesheet">
+```
+
+Or if you'd rather use amCharts CDN:
+
+```
+<script src="//cdn.amcharts.com/lib/3/plugins/export/export.min.js"></script>
+<link  type="text/css" href="//cdn.amcharts.com/lib/3/plugins/export/export.css" rel="stylesheet">
 ```
 
 (this needs to go after all the other amCharts includes)
@@ -115,15 +122,16 @@ Property | Default | Description
 -------- | ------- | -----------
 backgroundColor | #FFFFFF | RGB code of the color for the background of the exported image
 enabled | true | Enables or disables export functionality
-legend | {} | Places the legend in case it is within an external container
+divId | | ID or a reference to div object in case you want the menu in a separate container.
+fabric | {} | Overwrites the default drawing settings (fabricJS library)
+fallback | {} | Holds the messages to guide the user to copy the generated output; `false` will disable the fallback feature
 fileName | amCharts | A file name to use for generated export files (an extension will be appended to it based on the export format)
+legend | {} | Places the legend in case it is within an external container
 libs | | 3rd party required library settings (see the above section)
 menu | [] | A list of menu or submenu items (see the next chapter for details)
-fabric | {} | Overwrites the default drawing settings (fabricJS library)
 pdfMake | {} | Overwrites the default settings for PDF export (pdfMake library)
+position | top-right | A position of export icon. Possible values: "top-left", "top-right" (default), "bottom-left", "bottom-right"
 removeImages | true | If true export checks for and removes "tainted" images that area lodead from different domains
-divId | | ID or a reference to div object in case you want the menu in a separate container.
-fallback | {} | Holds the messages to guide the user to copy the generated output; `false` will disable the fallback feature
 
 
 ## Configuring export menu
@@ -361,6 +369,16 @@ And that's not even the end of it. You can add menu items to cancel, undo, redo.
     } ]
   } ]
 } ]
+```
+
+If you need to filter the drawn elements you can pass the `reviver` method in your global configuration or pass it to the `capture` method if you export manually. To hide e.G. all free labels you can simply do so like following:
+```
+"menu": ["PNG"],
+"reviver": function(obj) {
+  if ( obj.className == "amcharts-label" ) {
+    obj.opacity = 0;
+  }
+}
 ```
 
 ### A list of menu item properties
@@ -629,6 +647,14 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.1.3
+* Added: Added reviver in capturing method to filter the drawn chart elements
+
+### 1.1.2
+* Added: Generalized fallback; does a lookup on the Blob constructor
+* Fix: Wait for lazy images, triggers capture callback only when all images have been fully loaded
+* Discovered: [Safari 5 issue](https://github.com/kangax/fabric.js/issues/2241) please adapt fabric.js manually to solve it
 
 ### 1.1.1
 * Fix: CSV export issue on date based charts
