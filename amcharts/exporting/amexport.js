@@ -695,7 +695,7 @@ AmCharts.AmExport = AmCharts.Class({
 	*/
 	generateButtons: function() {
 		var _this = this,lvl = 0;
-
+		var div;
 		if(_this.div){
 			div = _this.div;
 			div.innerHTML = "";
