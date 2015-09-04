@@ -35,7 +35,33 @@
                 categoryAxis.minPeriod = "DD"; // our data is daily, so we set minPeriod to DD
                 categoryAxis.dashLength = 1;
                 categoryAxis.minorGridEnabled = true;
-                categoryAxis.position = "top";
+                categoryAxis.twoLineMode = true;
+                categoryAxis.dateFormats = [{
+                    period: 'fff',
+                    format: 'JJ:NN:SS'
+                }, {
+                    period: 'ss',
+                    format: 'JJ:NN:SS'
+                }, {
+                    period: 'mm',
+                    format: 'JJ:NN'
+                }, {
+                    period: 'hh',
+                    format: 'JJ:NN'
+                }, {
+                    period: 'DD',
+                    format: 'DD'
+                }, {
+                    period: 'WW',
+                    format: 'DD'
+                }, {
+                    period: 'MM',
+                    format: 'MMM'
+                }, {
+                    period: 'YYYY',
+                    format: 'YYYY'
+                }];
+
                 categoryAxis.axisColor = "#DADADA";
 
                 // value

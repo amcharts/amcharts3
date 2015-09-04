@@ -32,6 +32,32 @@
                categoryAxis.minPeriod = "DD"; // our data is daily, so we set minPeriod to DD
                categoryAxis.minorGridEnabled = true;
                categoryAxis.axisColor = "#DADADA";
+               categoryAxis.twoLineMode = true;
+               categoryAxis.dateFormats = [{
+                    period: 'fff',
+                    format: 'JJ:NN:SS'
+                }, {
+                    period: 'ss',
+                    format: 'JJ:NN:SS'
+                }, {
+                    period: 'mm',
+                    format: 'JJ:NN'
+                }, {
+                    period: 'hh',
+                    format: 'JJ:NN'
+                }, {
+                    period: 'DD',
+                    format: 'DD'
+                }, {
+                    period: 'WW',
+                    format: 'DD'
+                }, {
+                    period: 'MM',
+                    format: 'MMM'
+                }, {
+                    period: 'YYYY',
+                    format: 'YYYY'
+                }];
 
                // first value axis (on the left)
                var valueAxis1 = new AmCharts.ValueAxis();
@@ -89,7 +115,8 @@
 
                // CURSOR
                var chartCursor = new AmCharts.ChartCursor();
-               chartCursor.cursorPosition = "mouse";
+               chartCursor.cursorAlpha = 0.1;
+               chartCursor.fullWidth = true;
                chart.addChartCursor(chartCursor);
 
                // SCROLLBAR
