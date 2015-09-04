@@ -310,10 +310,11 @@ AmCharts.AmExport = AmCharts.Class({
 		var _this = this;
 		cfg = AmCharts.extend(AmCharts.extend({}, _this.cfg.menuItemOutput), cfg || {});
 
+		// Prepare chart
 		if(_this.chart.prepareForExport){
 			_this.chart.prepareForExport();
 		}
-		
+
 		/* PRIVATE
 		Callback function which gets called after the drawing process is done
 		@param none
@@ -511,14 +512,34 @@ AmCharts.AmExport = AmCharts.Class({
 	*/
 	generateOutput: function(cfg, callback) {
 		var _this	= this,
-		svgs		= _this.chart.div.getElementsByTagName('svg'),
+		coll		= [],
+		svgs		= [],
 		canvas		= document.createElement('canvas'),
 		context		= canvas.getContext('2d'),
 		offset		= {
 			y: 0,
 			x: 0
 		},
-		tmp = {};
+
+		// Push svgs into array
+		coll = _this.chart.div.getElementsByTagName('svg');
+		for ( var i = 0; i < coll.length; i++ ) svgs.push(coll[i]);
+
+		// Add external legend
+		if ( _this.chart.legend && _this.chart.legend.position == 'outside' ) {
+			_this.chart.legend.container.container.externalLegend = true
+			svgs.push(_this.chart.legend.container.container);
+
+			// Add offset
+			if ( _this.cfg.legendPosition == 'left' ) {
+				offset.x = _this.chart.legend.div.offsetWidth;
+			} else if ( _this.cfg.legendPosition == 'top' ) {
+				offset.y = _this.chart.legend.div.offsetHeight;
+			} else if ( typeof _this.cfg.legendPosition == 'object' ) {
+				offset.y = _this.cfg.legendPosition.chartTop;
+				offset.x = _this.cfg.legendPosition.chartLeft;
+			}
+		}
 
 		// Reset
 		_this.processing.buffer	= [];
@@ -540,13 +561,33 @@ AmCharts.AmExport = AmCharts.Class({
 			svgClone	= _this.polifySVG(svgs[i].cloneNode(true)),
 			tmp			= AmCharts.extend({}, offset);
 
+			// Add external legend
+			if ( svgs[i].externalLegend ) {
+				if ( _this.cfg.legendPosition == 'right' ) {
+					offset.y = 0;
+					offset.x = _this.chart.divRealWidth;
+
+				} else if ( _this.cfg.legendPosition == 'bottom' ) {
+					offset.y = svgY ? svgY : offset.y;
+
+				} else if ( typeof _this.cfg.legendPosition == 'object' ) {
+					offset.x = _this.cfg.legendPosition.left;
+					offset.y = _this.cfg.legendPosition.top;
+
+				} else {
+					offset.x = 0;
+					offset.y = 0;
+				}
+
 			// Overtake parent position if given; fixed 20/03/14 distinguish between relativ and others
-			if (parent.style.position == 'relative') {
-				offset.x = svgX ? svgX : offset.x;
-				offset.y = svgY ? svgY : offset.y;
 			} else {
-				offset.x = svgX;
-				offset.y = svgY;
+				if ( parent.style.position == 'relative' ) {
+					offset.x = svgX ? svgX : offset.x;
+					offset.y = svgY ? svgY : offset.y;
+				} else {
+					offset.x = svgX;
+					offset.y = svgY;
+				}
 			}
 
 			_this.processing.buffer.push([svgClone, AmCharts.extend({}, offset)]);
@@ -555,7 +596,7 @@ AmCharts.AmExport = AmCharts.Class({
 			if (svgY && svgX) {
 				offset = tmp;
 
-				// New offset for next one
+			// New offset for next one
 			} else {
 				offset.y += svgY ? 0 : parent.offsetHeight;
 			}
@@ -579,6 +620,19 @@ AmCharts.AmExport = AmCharts.Class({
 		canvas.width	= _this.chart.divRealWidth;
 		canvas.height	= _this.chart.divRealHeight;
 
+		// External legend exception
+		if ( _this.chart.legend && _this.chart.legend.position == "outside" ) {
+			if ( ['left','right'].indexOf(_this.cfg.legendPosition) != -1 ) {
+				canvas.width	+= _this.chart.legend.div.offsetWidth;
+
+			} else if ( typeof _this.cfg.legendPosition == 'object' ) {
+				canvas.width	+= _this.cfg.legendPosition.width;
+				canvas.height	+= _this.cfg.legendPosition.height;
+
+			} else {
+				canvas.height	+= _this.chart.legend.div.offsetHeight;
+			}
+		}
 
 		// Stockchart exception
 		var adapted = {
@@ -701,9 +755,16 @@ AmCharts.AmExport = AmCharts.Class({
 	@param none;
 	*/
 	generateButtons: function() {
-		var _this = this,
+		var _this = this,lvl = 0;
+
+		if(_this.div){
+			div = _this.div;
+			div.innerHTML = "";
+		}
+		else{
 			div = document.createElement('div'),
-			lvl = 0;
+			_this.div = div;
+		}
 
 		// Push sublings
 		function createList(items) {
@@ -737,7 +798,7 @@ AmCharts.AmExport = AmCharts.Class({
 				// TITLE; STYLING
 				a.href = '#';
 				if (item['title']) {
-					img.setAttribute('style', 'margin-right: 5px;');
+					img.setAttribute('style', 'margin: 0px 5px;');
 					a.innerHTML += item.title;
 				}
 				a.setAttribute('style', 'display: block;');
@@ -786,7 +847,7 @@ AmCharts.AmExport = AmCharts.Class({
 		}
 
 		// Style wrapper; Push into chart div
-		div.setAttribute('style', 'width:39px; height:28px; position: absolute;top:' + _this.cfg.menuTop + ';right:' + _this.cfg.menuRight + ';bottom:' + _this.cfg.menuBottom + ';left:' + _this.cfg.menuLeft + ';box-shadow:0px 0px 1px 0px rgba(0,0,0,0);');
+		div.setAttribute('style', 'position: absolute;top:' + _this.cfg.menuTop + ';right:' + _this.cfg.menuRight + ';bottom:' + _this.cfg.menuBottom + ';left:' + _this.cfg.menuLeft + ';');
 		div.setAttribute('class', 'amExportButton');
 		div.appendChild(createList(_this.cfg.menuItems));
 		_this.chart.containerDiv.appendChild(div);
