@@ -135,7 +135,7 @@ AmCharts.themes.chalk = {
 
 	SmallMap: {
 		mapColor: "#FFFFFF",
-		rectangleColor: "#e384a6",
+		rectangleColor: "#FFFFFF",
 		backgroundColor: "#000000",
 		backgroundAlpha: 0.7,
 		borderThickness: 1,

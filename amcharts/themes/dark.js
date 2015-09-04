@@ -133,7 +133,7 @@ AmCharts.themes.dark = {
 
 	SmallMap: {
 		mapColor: "#FFFFFF",
-		rectangleColor: "#f15135",
+		rectangleColor: "#FFFFFF",
 		backgroundColor: "#000000",
 		backgroundAlpha: 0.7,
 		borderThickness: 1,

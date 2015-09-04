@@ -12,7 +12,7 @@
   plusplus: true */
 
 /*! @source http://purl.eligrey.com/github/FileSaver.js/blob/master/FileSaver.js */
-
+if(AmCharts.isModern){ /// added by AmCharts to avoid old IE problems if this file is included
 var saveAs = saveAs
   || (typeof navigator !== 'undefined' && navigator.msSaveOrOpenBlob && navigator.msSaveOrOpenBlob.bind(navigator))
   || (function(view) {
@@ -230,3 +230,4 @@ var saveAs = saveAs
 // with an attribute `content` that corresponds to the window
 
 if (typeof module !== 'undefined') module.exports = saveAs;
+}/// added by AmCharts to avoid old IE problems if this file is included

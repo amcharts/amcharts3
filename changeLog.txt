@@ -1,3 +1,7 @@
+###############################################################################################################################
+
+Since version 3.4.3, change log moved to: http://www.amcharts.com/javascript-charts/changelog/
+
 #### 3.4.2 ####################################################################################################################
 
 Bug fix: if pie slice had no label, the external method rollOverSlice(index) was not working
