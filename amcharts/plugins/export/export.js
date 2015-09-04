@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.0.6
+Version: 1.1.1
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -26,7 +26,7 @@ not apply to any other amCharts products that are covered by different licenses.
 AmCharts.addInitHandler( function( chart ) {
 	var _this = {
 		name: "export",
-		version: "1.0.6",
+		version: "1.1.1",
 		libs: {
 			async: true,
 			autoLoad: true,
@@ -60,14 +60,12 @@ AmCharts.addInitHandler( function( chart ) {
 					_this.drawing.undos.push( last );
 				}
 			},
-			done: function( print ) {
+			done: function() {
 				_this.drawing.enabled = false;
 				_this.drawing.undos = [];
 				_this.drawing.redos = [];
 				_this.createMenu( _this.config.menu );
-				setTimeout( function() {
-					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
-				}, print ? 100 : 0 );
+				_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
 			}
 		},
 		defaults: {
@@ -127,7 +125,7 @@ AmCharts.addInitHandler( function( chart ) {
 			menuReviver: null,
 			menuWalker: null,
 			menu: [ {
-				class: "export-main",
+				"class": "export-main",
 				label: "Export",
 				menu: [ {
 					label: "Download as ...",
@@ -145,35 +143,35 @@ AmCharts.addInitHandler( function( chart ) {
 					label: "Annotate",
 					action: "draw",
 					menu: [ {
-						class: "export-drawing",
+						"class": "export-drawing",
 						menu: [ {
 							label: "Color ...",
 							menu: [ {
-								class: "export-drawing-color export-drawing-color-black",
+								"class": "export-drawing-color export-drawing-color-black",
 								label: "Black",
 								click: function() {
 									this.setup.fabric.freeDrawingBrush.color = "#000";
 								}
 							}, {
-								class: "export-drawing-color export-drawing-color-white",
+								"class": "export-drawing-color export-drawing-color-white",
 								label: "White",
 								click: function() {
 									this.setup.fabric.freeDrawingBrush.color = "#fff";
 								}
 							}, {
-								class: "export-drawing-color export-drawing-color-red",
+								"class": "export-drawing-color export-drawing-color-red",
 								label: "Red",
 								click: function() {
 									this.setup.fabric.freeDrawingBrush.color = "#f00";
 								}
 							}, {
-								class: "export-drawing-color export-drawing-color-green",
+								"class": "export-drawing-color export-drawing-color-green",
 								label: "Green",
 								click: function() {
 									this.setup.fabric.freeDrawingBrush.color = "#0f0";
 								}
 							}, {
-								class: "export-drawing-color export-drawing-color-blue",
+								"class": "export-drawing-color export-drawing-color-blue",
 								label: "Blue",
 								click: function() {
 									this.setup.fabric.freeDrawingBrush.color = "#00f";
@@ -198,21 +196,84 @@ AmCharts.addInitHandler( function( chart ) {
 					label: "Print"
 				} ]
 			} ],
-			timer: 0
+			timer: 0,
+			fallback: {
+				text: "CTRL + C to copy the data into the clipboard.",
+				image: "Rightclick -> Save picture as... to save the image."
+			}
 		},
 
 		download: function( data, type, filename ) {
-			var blob = _this.toBlob( {
-				data: data,
-				type: type
-			}, function( data ) {
-				if ( window.saveAs ) {
+			// SAVE
+			if ( window.saveAs ) {
+				var blob = _this.toBlob( {
+					data: data,
+					type: type
+				}, function( data ) {
 					saveAs( data, filename );
-				} else {
-					throw new Error( "Unable to create file. Ensure saveAs (FileSaver.js) is supported." );
-				}
-			} );
+				} );
 
+				// FALLBACK TEXTAREA
+			} else if ( _this.config.fallback && type == "text/plain" ) {
+				var div = document.createElement( "div" );
+				var msg = document.createElement( "div" );
+				var textarea = document.createElement( "textarea" );
+
+				msg.innerHTML = _this.config.fallback.text;
+
+				div.appendChild( msg );
+				div.appendChild( textarea );
+				msg.setAttribute( "class", "amcharts-export-fallback-message" );
+				div.setAttribute( "class", "amcharts-export-fallback" );
+				_this.setup.chart.containerDiv.appendChild( div );
+
+				// Fulfill textarea and preselect
+				textarea.setAttribute( "readonly", "" );
+				textarea.value = data;
+				textarea.focus();
+				textarea.select();
+
+				// Update menu
+				_this.createMenu( [ {
+					"class": "export-main export-close",
+					label: "Done",
+					click: function() {
+						_this.createMenu( _this.config.menu );
+						_this.setup.chart.containerDiv.removeChild( div );
+					}
+				} ] );
+
+				// FALLBACK IMAGE
+			} else if ( _this.config.fallback && type.split( "/" )[ 0 ] == "image" ) {
+				var div = document.createElement( "div" );
+				var msg = document.createElement( "div" );
+				var img = _this.toImage( {
+					data: data
+				} );
+
+				msg.innerHTML = _this.config.fallback.image;
+
+				// Fulfill textarea and preselect
+				div.appendChild( msg );
+				div.appendChild( img );
+				msg.setAttribute( "class", "amcharts-export-fallback-message" );
+				div.setAttribute( "class", "amcharts-export-fallback" );
+				_this.setup.chart.containerDiv.appendChild( div );
+
+				// Update menu
+				_this.createMenu( [ {
+					"class": "export-main export-close",
+					label: "Done",
+					click: function() {
+						_this.createMenu( _this.config.menu );
+						_this.setup.chart.containerDiv.removeChild( div );
+					}
+				} ] );
+
+				// ERROR
+			} else {
+				throw new Error( "Unable to create file. Ensure saveAs (FileSaver.js) is supported." );
+			}
 			return data;
 		},
 
@@ -311,7 +372,7 @@ AmCharts.addInitHandler( function( chart ) {
 					}
 				}
 
-				if ( !( v instanceof Function || v instanceof Date || v instanceof Element ) && ( v instanceof Object || v instanceof Array ) ) {
+				if ( !( v instanceof Function || v instanceof Date || _this.isElement( v ) ) && ( v instanceof Object || v instanceof Array ) ) {
 					_this.deepMerge( a[ i1 ], v, overwrite );
 				} else {
 					if ( a instanceof Array && !overwrite ) {
@@ -322,6 +383,11 @@ AmCharts.addInitHandler( function( chart ) {
 				}
 			}
 			return a;
+		},
+
+		// CHECK IF IT'S AN ELEMENT
+		isElement: function( thingy ) {
+			return thingy instanceof Object && thingy && thingy.nodeType === 1;
 		},
 
 		// CAPTURE EMOTIONAL MOMENT
@@ -595,22 +661,24 @@ AmCharts.addInitHandler( function( chart ) {
 						_this.setup.fabric.add( g );
 
 						// ADD BALLOONS
-						var balloons = group.svg.parentNode.getElementsByClassName( _this.setup.chart.classNamePrefix + "-balloon-div" );
-						for ( i1 = 0; i1 < balloons.length; i1++ ) {
-							if ( cfg.balloonFunction instanceof Function ) {
-								cfg.balloonFunction.apply( _this, [ balloons[ i1 ], group ] );
-							} else {
-								var parent = balloons[ i1 ];
-								var text = parent.childNodes[ 0 ];
-								var label = new fabric.Text( text.innerText || text.innerHTML, {
-									fontSize: _this.pxToNumber( text.style.fontSize ),
-									fontFamily: text.style.fontFamily,
-									fill: text.style.color,
-									top: _this.pxToNumber( parent.style.top ) + group.offset.y,
-									left: _this.pxToNumber( parent.style.left ) + group.offset.x
-								} );
+						if ( group.svg.parentNode && group.svg.parentNode.getElementsByTagName ) {
+							var balloons = group.svg.parentNode.getElementsByClassName( _this.setup.chart.classNamePrefix + "-balloon-div" );
+							for ( i1 = 0; i1 < balloons.length; i1++ ) {
+								if ( cfg.balloonFunction instanceof Function ) {
+									cfg.balloonFunction.apply( _this, [ balloons[ i1 ], group ] );
+								} else {
+									var parent = balloons[ i1 ];
+									var text = parent.childNodes[ 0 ];
+									var label = new fabric.Text( text.innerText || text.innerHTML, {
+										fontSize: _this.pxToNumber( text.style.fontSize ),
+										fontFamily: text.style.fontFamily,
+										fill: text.style.color,
+										top: _this.pxToNumber( parent.style.top ) + group.offset.y,
+										left: _this.pxToNumber( parent.style.left ) + group.offset.x
+									} );
 
-								_this.setup.fabric.add( label );
+									_this.setup.fabric.add( label );
+								}
 							}
 						}
 						if ( group.svg.nextSibling && group.svg.nextSibling.tagName == "A" ) {
@@ -686,6 +754,32 @@ AmCharts.addInitHandler( function( chart ) {
 			return data;
 		},
 
+		toImage: function( options, callback ) {
+			var cfg = _this.deepMerge( {
+				format: "png",
+				quality: 1,
+				multiplier: 1
+			}, options || {} );
+			var data = cfg.data;
+			var img = document.createElement( "img" );
+
+			if ( !cfg.data ) {
+				if ( cfg.lossless || cfg.format == "svg" ) {
+					data = _this.toSVG( _this.deepMerge( cfg, {
+						getBase64: true
+					} ) );
+				} else {
+					data = _this.setup.fabric.toDataURL( cfg );
+				}
+			}
+
+			img.setAttribute( "src", data );
+
+			_this.handleCallback( callback, img );
+
+			return img;
+		},
+
 		toBlob: function( options, callback ) {
 			var cfg = _this.deepMerge( {
 				data: "empty",
@@ -719,8 +813,7 @@ AmCharts.addInitHandler( function( chart ) {
 			var cfg = _this.deepMerge( {
 				format: "jpeg",
 				quality: 1,
-				multiplier: 1,
-				background: "#FF00FF"
+				multiplier: 1
 			}, options || {} );
 			var data = _this.setup.fabric.toDataURL( cfg );
 
@@ -748,6 +841,10 @@ AmCharts.addInitHandler( function( chart ) {
 			}, options || {} );
 			var data = _this.setup.fabric.toSVG( cfg );
 
+			if ( cfg.getBase64 ) {
+				data = "data:image/svg+xml;base64," + btoa( data );
+			}
+
 			_this.handleCallback( callback, data );
 
 			return data;
@@ -774,36 +871,36 @@ AmCharts.addInitHandler( function( chart ) {
 		toPRINT: function( options, callback ) {
 			var i1;
 			var cfg = _this.deepMerge( {
-				// nothing in here
+				delay: 1,
+				lossless: false
 			}, options || {} );
-			var data = _this.toPNG( cfg );
+			var data = _this.toImage( cfg );
 			var states = [];
 			var items = document.body.childNodes;
-			var img = document.createElement( "img" );
 
-			img.src = data;
-			img.setAttribute( "style", "width: 100%; max-height: 100%;" );
+			data.setAttribute( "style", "width: 100%; max-height: 100%;" );
 
 			for ( i1 = 0; i1 < items.length; i1++ ) {
-				if ( items[ i1 ].nodeType === 1 ) {
+				if ( _this.isElement( items[ i1 ] ) ) {
 					states[ i1 ] = items[ i1 ].style.display;
 					items[ i1 ].style.display = "none";
 				}
 			}
 
-			document.body.appendChild( img );
+			document.body.appendChild( data );
 			window.print();
 
-			for ( i1 = 0; i1 < items.length; i1++ ) {
-				if ( items[ i1 ].nodeType === 1 ) {
-					items[ i1 ].style.display = states[ i1 ];
+			setTimeout( function() {
+				for ( i1 = 0; i1 < items.length; i1++ ) {
+					if ( _this.isElement( items[ i1 ] ) ) {
+						items[ i1 ].style.display = states[ i1 ];
+					}
 				}
-			}
-			document.body.removeChild( img );
+				document.body.removeChild( data );
+				_this.handleCallback( callback, data );
+			}, cfg.delay );
 
-			_this.handleCallback( callback, data );
-
-			return true;
+			return data;
 		},
 
 		toJSON: function( options, callback ) {
@@ -828,41 +925,55 @@ AmCharts.addInitHandler( function( chart ) {
 				dateFormat: _this.setup.chart.dataDateFormat || "YYYY-MM-DD"
 			}, options || {}, true );
 			var data = "";
+			var cols = [];
+			var buffer = [];
 
 			if ( _this.setup.chart.categoryAxis && _this.setup.chart.categoryAxis.parseDates && _this.setup.chart.categoryField ) {
 				cfg.dateFields.push( _this.setup.chart.categoryField );
 			}
 
+			function enchant( value, column ) {
+
+				// STRING
+				if ( typeof value === "string" ) {
+					value = value;
+
+					// DATE FORMAT
+				} else if ( column && cfg.dateFormat && value instanceof Date && cfg.dateFields.indexOf( column ) != -1 ) {
+					value = AmCharts.formatDate( value, cfg.dateFormat );
+				}
+
+				// WRAP IN QUOTES				
+				if ( typeof value === "string" ) {
+					if ( cfg.escape ) {
+						value = value.replace( '"', '""' );
+					}
+					if ( cfg.quotes ) {
+						value = [ '"', value, '"' ].join( "" );
+					}
+				}
+
+				return value;
+			}
+
+			// HEADER
+			for ( value in cfg.data[ 0 ] ) {
+				buffer.push( enchant( value ) );
+				cols.push( value );
+			}
+			data += buffer.join( cfg.delimiter ) + "\n";
+
+			// BODY
 			for ( row in cfg.data ) {
-				var buffer = [];
+				buffer = [];
 				if ( !isNaN( row ) ) {
-					for ( col in cfg.data[ row ] ) {
-						var value = cfg.data[ row ][ col ];
+					for ( col in cols ) {
+						if ( !isNaN( col ) ) {
+							var column = cols[ col ];
+							var value = cfg.data[ row ][ column ];
 
-						// HEADER
-						if ( row == 0 ) {
-							value = col;
-
-							// BODY
-						} else {
-							if ( typeof value === "string" ) {
-								value = value;
-							} else if ( cfg.dateFormat && value instanceof Date && cfg.dateFields.indexOf( col ) != -1 ) {
-								value = AmCharts.formatDate( value, cfg.dateFormat );
-							}
+							buffer.push( enchant( value, column ) );
 						}
-
-						// WRAP IN QUOTES
-						if ( typeof value === "string" ) {
-							if ( cfg.escape ) {
-								value = value.replace( '"', '""' );
-							}
-							if ( cfg.quotes ) {
-								value = [ '"', value, '"' ].join( "" );
-							}
-						}
-
-						buffer.push( value );
 					}
 					data += buffer.join( cfg.delimiter ) + "\n";
 				}
@@ -1140,6 +1251,12 @@ AmCharts.addInitHandler( function( chart ) {
 					// FILTER; TOGGLE FLAG
 					if ( [ "CSV", "JSON", "XLSX" ].indexOf( item.format ) != -1 && [ "map", "gauge" ].indexOf( _this.setup.chart.type ) != -1 ) {
 						continue;
+
+						// IE EXCEPTION
+					} else if ( AmCharts.isIE && AmCharts.IEversion < 10 && item.format != "UNDEFINED" ) {
+						if ( item.mimeType && item.mimeType.split( "/" )[ 0 ] != "image" && item.mimeType != "text/plain" ) {
+							continue;
+						}
 					}
 
 					// ADD CLICK HANDLER
@@ -1159,16 +1276,16 @@ AmCharts.addInitHandler( function( chart ) {
 							item.click = ( function( item ) {
 								return function() {
 									this[ "to" + item.format ]( item, function( data ) {
+										this.drawing.done();
 										if ( item.action != "print" && item.format != "PRINT" ) {
 											this.download( data, item.mimeType, [ item.fileName, item.extension ].join( "." ) );
 										}
-										this.drawing.done( item.action == "print" || item.format == "PRINT" );
 									} );
 								}
 							} )( item );
 
 							// REGULAR
-						} else if ( item.format != "UNKNOWN" ) {
+						} else if ( item.format != "UNDEFINED" ) {
 							item.click = ( function( item ) {
 								return function() {
 									if ( item.capture || ( item.action == "print" || item.format == "PRINT" ) ) {
@@ -1255,7 +1372,7 @@ AmCharts.addInitHandler( function( chart ) {
 			if ( !container ) {
 				if ( typeof _this.config.divId == "string" ) {
 					_this.config.divId = container = document.getElementById( _this.config.divId );
-				} else if ( _this.config.divId instanceof Element ) {
+				} else if ( _this.isElement( _this.config.divId ) ) {
 					container = _this.config.divId;
 				} else {
 					container = _this.setup.chart.containerDiv;
@@ -1263,25 +1380,22 @@ AmCharts.addInitHandler( function( chart ) {
 			}
 
 			// CREATE / RESET MENU CONTAINER
-			div = container.getElementsByClassName( "amExportButton" );
-			if ( div.length ) {
-				div = div[ 0 ];
-				div.innerHTML = "";
+			if ( _this.isElement( _this.setup.menu ) ) {
+				_this.setup.menu.innerHTML = "";
 			} else {
-				div = document.createElement( "div" );
-				_this.setup.menu = div;
+				_this.setup.menu = document.createElement( "div" );
 			}
-			div.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-menu " + _this.setup.chart.classNamePrefix + "-export-menu-" + _this.config.position + " amExportButton" );
+			_this.setup.menu.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-menu " + _this.setup.chart.classNamePrefix + "-export-menu-" + _this.config.position + " amExportButton" );
 
 			// CALLBACK; REPLACES THE MENU WALKER
 			if ( _this.config.menuWalker ) {
 				buildList = _this.config.menuWalker;
 			}
-			buildList.apply( this, [ list, div ] );
+			buildList.apply( this, [ list, _this.setup.menu ] );
 
-			container.appendChild( div );
+			container.appendChild( _this.setup.menu );
 
-			return div;
+			return _this.setup.menu;
 		},
 
 		migrateSetup: function( chart ) {
@@ -1309,6 +1423,8 @@ AmCharts.addInitHandler( function( chart ) {
 							config.menu = value;
 						} else if ( key == "libs" ) {
 							config.libs = value;
+						} else if ( typeof key == "string" ) {
+							config[ key ] = value;
 						}
 					}
 				}
@@ -1319,7 +1435,7 @@ AmCharts.addInitHandler( function( chart ) {
 		},
 
 		// INITIATE; DELAYED UNTIL CHART CONTAINER IS READY
-		init: function( chart ) {
+		init: function() {
 			clearTimeout( _this.timer );
 			_this.timer = setInterval( function() {
 				if ( _this.setup.chart.containerDiv ) {
@@ -1349,24 +1465,21 @@ AmCharts.addInitHandler( function( chart ) {
 		return;
 	}
 
-	// POLYFILL BLOB
-	if ( !window.Blob ) {
-		_this.libs.resources.push( "blob.js/blob.js" );
-	}
-
 	// MERGE SETTINGS
 	_this.deepMerge( _this.libs, _this.setup.chart[ "export" ].libs || {}, true );
 	_this.deepMerge( _this.defaults.pdfMake, _this.setup.chart[ "export" ] );
 	_this.deepMerge( _this.defaults.fabric, _this.setup.chart[ "export" ] );
 	_this.config = _this.deepMerge( _this.defaults, _this.setup.chart[ "export" ], true );
 
+	// SUPPORT IE ONLY IF WE'VE ACCESS TO THE HEAD
+	if ( AmCharts.isIE && AmCharts.IEversion <= 9 ) {
+		if ( !document.head || _this.config.fallback === false ) {
+			return;
+		}
+	}
+
 	_this.setup.chart[ "export" ] = _this;
 	_this.setup.chart.addClassNames = true;
-
-	// WITH IE?
-	if ( AmCharts.isIE && AmCharts.IEversion < 9 ) {
-		return;
-	}
 
 	// LOAD DEPENDENCIES
 	_this.loadDependencies( _this.libs.resources, _this.libs.reload );

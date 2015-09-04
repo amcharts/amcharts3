@@ -8,7 +8,7 @@
     <script src="http://www.amcharts.com/lib/3/amcharts.js"></script>
     <script src="http://www.amcharts.com/lib/3/serial.js"></script>
     <script src="http://www.amcharts.com/lib/3/themes/dark.js"></script>
-    <script src="../dataloader.js"></script>
+    <script src="../dataloader.min.js"></script>
     <style>
     body, html {
       font-family: Verdana;
@@ -27,13 +27,13 @@
         "dataLoader": {
           "url": "data/serial2.json",
           "showErrors": true,
-          "complete": function () {
+          "complete": function ( chart ) {
             console.log( "Loading complete" );
           },
-          "load": function ( options ) {
+          "load": function ( options, chart ) {
             console.log( "File loaded: ", options.url );
           },
-          "error": function ( options ) {
+          "error": function ( options, chart ) {
             console.log( "Error occured loading file: ", options.url );
           }
         },
@@ -70,11 +70,16 @@
           "enabled": true
         }
       });
+
+      function reloadData() {
+        chart.dataLoader.loadData();
+      }
     </script>
   </head>
 
   <body>
     <div id="chartdiv"></div>
+    <input type="button" value="Trigger data reload" onclick="reloadData();" />
   </body>
 
 </html>

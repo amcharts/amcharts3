@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.0.6
+Version: 1.1.1
 
 
 ## Description
@@ -101,7 +101,6 @@ Here is a full list of the files that need to be loaded for each operation:
 
 File | Located in | Required for
 ---- | ---------- | ------------
-blob.js | libs/blob.js/ | Exporting to any image format
 fabric.min.js | libs/fabric.js/ | Any export operation
 FileSaver.js | libs/FileSaver.js/ | Used to offer download files
 pdfmake.min.js | libs/pdfmake/ | Export to PDF format
@@ -124,6 +123,7 @@ fabric | {} | Overwrites the default drawing settings (fabricJS library)
 pdfMake | {} | Overwrites the default settings for PDF export (pdfMake library)
 removeImages | true | If true export checks for and removes "tainted" images that area lodead from different domains
 divId | | ID or a reference to div object in case you want the menu in a separate container.
+fallback | {} | Holds the messages to guide the user to copy the generated output; `false` will disable the fallback feature
 
 
 ## Configuring export menu
@@ -283,7 +283,8 @@ Or if you want to change the label:
 "menu": [
   "PNG", 
   "SVG",
-  { "format": "PRINT",
+  {
+    "format": "PRINT",
     "label": "Print Chart"
   }
 ]
@@ -378,11 +379,13 @@ backgroundColor | The background color of the canvas
 fileName | A file name to use for generated export files (an extension will be appended to it based on the export format)
 extension | File extension for the generated export file (uses format default if not defined)
 mimeType | Internet media type to generate the export file (usses format default if not defined)
-pageSize | a string or { width: number, height: number } ([details](#exporting-to-pdf))
-pageOrientation | by default we use portrait, you can change it to landscape if you wish ([details](#exporting-to-pdf))
+pageSize | A string or { width: number, height: number } ([details](#exporting-to-pdf))
+pageOrientation | By default we use portrait, you can change it to landscape if you wish ([details](#exporting-to-pdf))
 pageMargins | [left, top, right, bottom] or [horizontal, vertical] or just a number for equal margins ([details](#exporting-to-pdf))
-content | array of elements which represents the content ([details](#exporting-to-pdf))
+content | Array of elements which represents the content ([details](#exporting-to-pdf))
 freeDrawingBrush | Object which hold the settings of the brush e.G.: { color: "#FF00FF" }
+multiplier | Scale factor for the generated image
+lossless | Flag to print the actual vector graphic instead of buffered bitmap (print option only, experimental)
 
 Available `format` values:
 
@@ -540,7 +543,37 @@ toXLSX | (object) options, (function) callback | Prepares a XLSX representation 
 toBlob | (object) options, (function) callback | Prepares a BLOB and passes the instance to the callback function
 toCanvas | (object) options, (function) callback | Prepares a Canvas and passes the element to the callback function
 toArray | (object) options, (function) callback | Prepares an Array and passes the data to the callback function
+toImage | (object) options, (function) callback | Generates an image element which holds the output in an embedded base64 data url
 
+
+## Fallback for IE9
+
+Unfortunately our lovely Internet Explorer 9 does not allow us to offer downloads which has been locally generated.
+For those cases the plugin will place an overlay on top of the chart to place an `img` or `textarea` to let the user manually save the generated output with some instructions above.
+To avoid having a bigger payload by including senseless polyfills to your site, you may need to add following metatag in your `<head>` of your HTML document.
+
+```
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+```
+
+This feature will kick in by default if you want to disable it simply pass `false` to the `fallback` parameter.
+
+```
+{
+  fallback: false
+}
+```
+
+In case you want to change our default messages you can modify it like following.
+
+```
+{
+  fallback: {
+    text: "CTRL + C to copy the data into the clipboard.",
+    image: "Rightclick -> Save picture as... to save the image."
+  }
+}
+```
 
 ## Requirements
 
@@ -551,7 +584,7 @@ The export will also need relatively recent browsers.
 
 IE10 and up are supported.
 
-Partial support for IE9 will be implemented in the future versions.
+Partial support for IE9; Fallback mechanism.
 
 IE8 and older are not supported I'm afraid. Hey, it's time to upgrade!
 
@@ -596,6 +629,28 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.1.1
+* Fix: CSV export issue on date based charts
+* Fix: Enhanced migration script to obtain more settings
+
+### 1.1.0
+* Fix: Print issue on safari which captured the actual page instead of the export
+* Added: IE9 download fallback for `text/plain` and `image/*` mime types (CSS has been modified)
+* Added: `toImage` method; returns `img` element with embedded base64 imagery
+* Added: `getBase64` option in `toSVG`
+* Added: `toImage` usage in `toPRINT` to be able to choose the image type + settings.
+* Added: `lossless` option in `toPRINT` (experimental)
+
+### 1.0.9
+* Added: IE9 base64 export
+* Added: Third party updates + minified versions
+
+### 1.0.8
+* Fix: IE8 issue which prevents the chart from initiating
+
+### 1.0.7
+* Fix: issue on toCSV handling the header (first row)
 
 ### 1.0.6
 * Fix: issue on revalidation the chart/map

@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.3
+Version: 1.0.5
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -83,61 +83,73 @@ AmCharts.addInitHandler( function( chart ) {
   };
 
   /**
-   * Load all files in a row
+   * Create a function that can be used to load data (or reload via API)
    */
-  if ( 'stock' === chart.type ) {
+  l.loadData = function() {
 
-    // delay this a little bit so the chart has the chance to build itself
-    setTimeout( function() {
+    /**
+     * Load all files in a row
+     */
+    if ( 'stock' === chart.type ) {
+
+      // delay this a little bit so the chart has the chance to build itself
+      setTimeout( function() {
+
+        // preserve animation
+        if ( 0 > chart.panelsSettings.startDuration ) {
+          l.startDuration = chart.panelsSettings.startDuration;
+          chart.panelsSettings.startDuration = 0;
+        }
+
+        // cycle through all of the data sets
+        for ( var x = 0; x < chart.dataSets.length; x++ ) {
+          var ds = chart.dataSets[ x ];
+
+          // load data
+          if ( undefined !== ds.dataLoader && undefined !== ds.dataLoader.url ) {
+
+            ds.dataProvider = [];
+            applyDefaults( ds.dataLoader );
+            loadFile( ds.dataLoader.url, ds, ds.dataLoader, 'dataProvider' );
+
+          }
+
+          // load events data
+          if ( undefined !== ds.eventDataLoader && undefined !== ds.eventDataLoader.url ) {
+
+            ds.events = [];
+            applyDefaults( ds.eventDataLoader );
+            loadFile( ds.eventDataLoader.url, ds, ds.eventDataLoader, 'stockEvents' );
+
+          }
+        }
+
+      }, 100 );
+
+    } else {
+
+      applyDefaults( l );
+
+      if ( undefined === l.url )
+        return;
 
       // preserve animation
-      if ( 0 > chart.panelsSettings.startDuration ) {
-        l.startDuration = chart.panelsSettings.startDuration;
-        chart.panelsSettings.startDuration = 0;
+      if ( undefined !== chart.startDuration && ( 0 < chart.startDuration ) ) {
+        l.startDuration = chart.startDuration;
+        chart.startDuration = 0;
       }
 
-      // cycle through all of the data sets
-      for ( var x = 0; x < chart.dataSets.length; x++ ) {
-        var ds = chart.dataSets[ x ];
+      chart.dataProvider = [];
+      loadFile( l.url, chart, l, 'dataProvider' );
 
-        // load data
-        if ( undefined !== ds.dataLoader && undefined !== ds.dataLoader.url ) {
-
-          ds.dataProvider = [];
-          applyDefaults( ds.dataLoader );
-          loadFile( ds.dataLoader.url, ds, ds.dataLoader, 'dataProvider' );
-
-        }
-
-        // load events data
-        if ( undefined !== ds.eventDataLoader && undefined !== ds.eventDataLoader.url ) {
-
-          ds.events = [];
-          applyDefaults( ds.eventDataLoader );
-          loadFile( ds.eventDataLoader.url, ds, ds.eventDataLoader, 'stockEvents' );
-
-        }
-      }
-
-    }, 100 );
-
-  } else {
-
-    applyDefaults( l );
-
-    if ( undefined === l.url )
-      return;
-
-    // preserve animation
-    if ( undefined !== chart.startDuration && ( 0 < chart.startDuration ) ) {
-      l.startDuration = chart.startDuration;
-      chart.startDuration = 0;
     }
 
-    chart.dataProvider = [];
-    loadFile( l.url, chart, l, 'dataProvider' );
+  };
 
-  }
+  /**
+   * Trigger load
+   */
+  l.loadData();
 
   /**
    * Loads a file and determines correct parsing mechanism for it
@@ -160,7 +172,7 @@ AmCharts.addInitHandler( function( chart ) {
 
       // error?
       if ( false === response ) {
-        callFunction( options.error, url, options );
+        callFunction( options.error, options, chart );
         raiseError( AmCharts.__( 'Error loading the file', chart.language ) + ': ' + url, false, options );
       } else {
 
@@ -181,13 +193,13 @@ AmCharts.addInitHandler( function( chart ) {
             holder[ providerKey ] = AmCharts.parseJSON( response );
 
             if ( false === holder[ providerKey ] ) {
-              callFunction( options.error, options );
+              callFunction( options.error, options, chart );
               raiseError( AmCharts.__( 'Error parsing JSON file', chart.language ) + ': ' + l.url, false, options );
               holder[ providerKey ] = [];
               return;
             } else {
               holder[ providerKey ] = postprocess( holder[ providerKey ], options );
-              callFunction( options.load, options );
+              callFunction( options.load, options, chart );
             }
 
             break;
@@ -197,19 +209,19 @@ AmCharts.addInitHandler( function( chart ) {
             holder[ providerKey ] = AmCharts.parseCSV( response, options );
 
             if ( false === holder[ providerKey ] ) {
-              callFunction( options.error, options );
+              callFunction( options.error, options, chart );
               raiseError( AmCharts.__( 'Error parsing CSV file', chart.language ) + ': ' + l.url, false, options );
               holder[ providerKey ] = [];
               return;
             } else {
               holder[ providerKey ] = postprocess( holder[ providerKey ], options );
-              callFunction( options.load, options );
+              callFunction( options.load, options, chart );
             }
 
             break;
 
           default:
-            callFunction( options.error, options );
+            callFunction( options.error, options, chart );
             raiseError( AmCharts.__( 'Unsupported data format', chart.language ) + ': ' + options.format, false, options.noStyles );
             return;
         }
@@ -221,7 +233,7 @@ AmCharts.addInitHandler( function( chart ) {
         if ( 0 === l.remaining ) {
 
           // callback
-          callFunction( options.complete );
+          callFunction( options.complete, chart );
 
           // take in the new data
           if ( options.async ) {
@@ -250,14 +262,14 @@ AmCharts.addInitHandler( function( chart ) {
           }
 
           // restore default period
-          if ( 'stock' === chart.type && !options.reloading )
+          if ( 'stock' === chart.type && !options.reloading && undefined !== chart.periodSelector )
             chart.periodSelector.setDefaultPeriod();
 
           // remove curtain
           removeCurtain();
         }
 
-        // schedule another load of necessary
+        // schedule another load if necessary
         if ( options.reload ) {
 
           if ( options.timeout )
@@ -360,7 +372,12 @@ AmCharts.addInitHandler( function( chart ) {
       curtain.style.textAlign = 'center';
       curtain.style.display = 'table';
       curtain.style.fontSize = '20px';
-      curtain.style.background = 'rgba(255, 255, 255, 0.3)';
+      try {
+        curtain.style.background = 'rgba(255, 255, 255, 0.3)';
+      }
+      catch ( e ) {
+        curtain.style.background = 'rgb(255, 255, 255)';
+      }
       curtain.innerHTML = '<div style="display: table-cell; vertical-align: middle;">' + msg + '</div>';
     } else {
       curtain.innerHTML = msg;
@@ -388,9 +405,9 @@ AmCharts.addInitHandler( function( chart ) {
   /**
    * Execute callback function
    */
-  function callFunction( func, param1, param2 ) {
+  function callFunction( func, param1, param2, param3 ) {
     if ( 'function' === typeof func )
-      func.call( l, param1, param2 );
+      func.call( l, param1, param2, param3 );
   }
 
 }, [ 'pie', 'serial', 'xy', 'funnel', 'radar', 'gauge', 'gantt', 'stock', 'map' ] );

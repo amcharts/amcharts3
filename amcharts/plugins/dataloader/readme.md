@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.3
+Version: 1.0.5
 
 
 ## Description
@@ -65,7 +65,7 @@ AmCharts.makeChart( "chartdiv", {
   "dataSets": [{
     ...,
     "dataLoader": {
-      "url": "data.csv"
+      "url": "data.csv",
       "format": "csv",
       "delimiter": ",",       // column separator
       "useColumnNames": true, // use first row for column names
@@ -156,6 +156,45 @@ Sure. You just add a `eventDataLoader` object to your data set. All the same
 settings apply.
 
 
+## Manually triggering a reload of all data
+
+Once chart is initialized, you can trigger the reload of all data manually by
+calling `chart.dataLoader.loadData()` function. (replace "chart" with the actual
+variable that holds reference to your chart object)
+
+## Using callback functions
+
+Data Loader can call your own function when certain event happens, like data
+loading is complete, error occurs, etc.
+
+To set custom event handlers, use these config options:
+
+* "complete"
+
+Example:
+
+```
+AmCharts.makeChart( "chartdiv", {
+  ...,
+  "dataSets": [{
+    ...,
+    "dataLoader": {
+      "url": "data.json",
+      "load": function ( options, chart ) {
+        console.log( 'Loaded file: ' + options.url );
+      },
+      "complete": function ( chart ) {
+        console.log( 'Woohoo! Finished loading' );
+      },
+      "error": function ( options, chart ) {
+        console.log( 'Ummm something went wrong loading this file: ' + options.url );
+      }
+    }
+  }]
+} );
+```
+
+
 ## Translating into other languages
 
 Depending on configuration options the plugin will display a small number of 
@@ -230,6 +269,13 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.5
+* Fixed JS error if periodSelector was not defined in chart config
+* Now all callback functions (complete, error, load) receive additional parameter: chart
+
+### 1.0.4
+* Added chart.dataLoader.loadData() function which can be used to manually trigger all data reload
 
 ### 1.0.3
 * Fixed the bug where defaults were not being applied properly
