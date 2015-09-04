@@ -65,26 +65,33 @@
                 transition: all .3s ease-out;
             }
 
+
             .amcharts-graph-g2 {
-                stroke-linejoin: round;
-                stroke-linecap: round;
-                stroke-dasharray: 200%;
-                stroke-dashoffset: 200%;
-                stroke-dasharray: 0 \0/;    /* fixes IE prob */
-                stroke-dashoffset: 0 \0/;   /* fixes IE prob */
-                -webkit-animation: am-draw 20s;
-                animation: am-draw 20s;
+              stroke-linejoin: round;
+              stroke-linecap: round;
+              stroke-dasharray: 500%;
+              stroke-dasharray: 0 \0/;    /* fixes IE prob */
+              stroke-dashoffset: 0 \0/;   /* fixes IE prob */
+              -webkit-animation: am-draw 40s;
+              animation: am-draw 40s;
             }
             @-webkit-keyframes am-draw {
+                0% {
+                    stroke-dashoffset: 500%;
+                }
                 100% {
-                    stroke-dashoffset: 0%;
+                    stroke-dashoffset: 0px;
                 }
             }
             @keyframes am-draw {
+                0% {
+                    stroke-dashoffset: 500%;
+                }
                 100% {
-                    stroke-dashoffset: 0%;
+                    stroke-dashoffset: 0px;
                 }
             }
+
 
 
 
