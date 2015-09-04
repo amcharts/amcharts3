@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.2.2
+Version: 1.2.8
 
 
 ## Description
@@ -135,7 +135,10 @@ pdfMake | {} | Overwrites the default settings for PDF export (pdfMake library)
 position | top-right | A position of export icon. Possible values: "top-left", "top-right" (default), "bottom-left", "bottom-right"
 removeImages | true | If true export checks for and removes "tainted" images that area lodead from different domains
 delay | | General setting to delay the capturing of the chart ([skip to chapter](#delay-the-capturing-before-export))
-exportTitles | | Exchanges the data field names with it's dedicated title ( data export only )
+exportTitles | false | Exchanges the data field names with it's dedicated title ( data export only )
+exportSelection | false | Exports the current data selection only ( data export only )
+dataDateFormat | | Format to convert date strings to date objects, uses by default charts dataDateFormat ( data export only )
+dateFormat | YYYY-MM-DD | Formats the category field in given date format ( data export only )
 keyListener | false | If true it observes the pressed keys to undo/redo the annotations
 fileListener | false | If true it observes the drag and drop feature and loads the dropped image file into the annotation
 drawing | {} | Object which holds all possible settings for the annotation mode ([skip to chaper](#annotation-settings))
@@ -554,6 +557,9 @@ multiplier | Scale factor for the generated image
 lossless | Flag to print the actual vector graphic instead of buffered bitmap (print option only, experimental)
 delay | A numeric value to delay the capturing in seconds ([details](#delay-the-capturing-before-export))
 exportTitles | Exchanges the data field names with it's dedicated title ( data export only )
+exportSelection | Exports the current data selection only ( data export only )
+dataDateFormat | Format to convert date strings to date objects, uses by default charts dataDateFormat ( data export only )
+dateFormat | Formats the category field in given date format ( data export only )
 
 Available `format` values:
 
@@ -803,6 +809,31 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.2.8
+* Fixed: Issue in `gatherClassName` checking element type
+
+### 1.2.7
+* Fixed: Generates true JPG file instead PNG with JPG extension
+* Fixed: Drag&Drop feature does not activate automatically the annotation mode
+
+### 1.2.6
+* Added: Native EXCEL date cell type for date fields, forced by default
+* Fixed: Issue in `getChartData` which ignored given data array ( affected API usage only )
+
+### 1.2.5
+* Added: Illustrator support; `reviver` method to `toSVG`; converts by default RGBA to HEX colors codes and places it's dedicated opacity property
+* Fixed: Multiline text positioning / line heights
+
+### 1.2.4
+* Added: `exportSelection` exports the current data selection
+* Added: `dataDateFormat` converts the date-strings to date objects with given format
+* Added: `dateFormat` converts the date in given format
+* Added: `processData` to format date fields and translate fields
+* Changed: `gatherChartData` collects data, fields and titles only and uses `processData` to format
+
+### 1.2.3
+* Fixed: Positioning issue on multiline labels
 
 ### 1.2.2
 * Fixed: Issue with object changes which overwrite undo/redo object states

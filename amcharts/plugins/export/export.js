@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.2.2
+Version: 1.2.8
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts.export = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.2.2",
+			version: "1.2.8",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -239,8 +239,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 							// UPDATE GIVE OPTIONS ONLY
 							if ( state ) {
-								cfg.color   = cfg.color || state.color;
-								cfg.width   = cfg.width || state.width;
+								cfg.color = cfg.color || state.color;
+								cfg.width = cfg.width || state.width;
 								cfg.opacity = cfg.opacity || state.opacity;
 								cfg.fontSize = cfg.fontSize || cfg.width * 3;
 
@@ -830,7 +830,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var value, lvl = lvl ? lvl : 0,
 					limit = limit ? limit : 3;
 
-				if ( elm ) {
+				if ( _this.isElement(elm) ) {
 					value = ( elm.getAttribute( "class" ) || "" ).split( " " ).indexOf( className ) != -1;
 
 					if ( !value && lvl < limit ) {
@@ -1546,11 +1546,12 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								lines.push( svg.childNodes[ i1 ].textContent );
 							}
 
-							if ( obj.classList.indexOf( _this.setup.chart.classNamePrefix + "-label" ) != -1 ) {
-								obj.originalBBox = obj.getBoundingRect()
+							if ( textAnchor != "middle" ) {
+								obj.originalBBox = obj.getBoundingRect();
 							}
 							obj.set( {
-								top: obj.top + ( ( obj.height / 2 ) * ( lines.length - 1 ) ),
+								lineHeight: 1.05,
+								top: obj.top + obj.height - ( obj.fontSize * ( 0.18 + obj._fontSizeFraction ) / 2 ),
 								text: lines.join( "\n" ),
 								textAlign: anchorMap[ textAnchor ],
 								selectable: false
@@ -1582,7 +1583,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 									attrRGBA.pop();
 									attrRGBA.push( attrOpacity )
 									obj[ attr ] = "rgba(" + attrRGBA.join() + ")";
-									obj[ _this.capitalize( attr + "-opacity" ) ] = attrOpacity;
+									obj[ attr + _this.capitalize( "opacity" ) ] = attrOpacity;
 								}
 							}
 						}
@@ -1678,6 +1679,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					quality: 1,
 					multiplier: 1
 				}, options || {} );
+				cfg.format = cfg.format.toLowerCase();
 				var data = _this.setup.fabric.toDataURL( cfg );
 
 				_this.handleCallback( callback, data );
@@ -1706,9 +1708,39 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			toSVG: function( options, callback ) {
 				var cfg = _this.deepMerge( {
-					// NOTHING IN HERE
+					reviver: function( string ) {
+						var matcher = new RegExp( /\bstyle=(['"])(.*?)\1/ );
+						var match = matcher.exec( string )[ 0 ].slice( 7, -1 );
+						var styles = match.split( ";" );
+						var replacement = [];
+
+						for ( i1 = 0; i1 < styles.length; i1++ ) {
+							if ( styles[ i1 ] ) {
+								var pair = styles[ i1 ].replace( /\s/g, "" ).split( ":" );
+								var key = pair[ 0 ];
+								var value = pair[ 1 ];
+
+								if ( [ "fill", "stroke" ].indexOf( key ) != -1 ) {
+									value = fabric.Color.fromRgba( value );
+									if ( value && value._source ) {
+										var color = "#" + value.toHex();
+										var opacity = value._source[ 3 ];
+
+										replacement.push( [ key, color ].join( ":" ) );
+										replacement.push( [ key + "-opacity", opacity ].join( ":" ) );
+									} else {
+										replacement.push( styles[ i1 ] );
+									}
+								} else if ( key != "opactiy" ) {
+									replacement.push( styles[ i1 ] );
+								}
+							}
+						}
+
+						return string.replace( match, replacement.join( ";" ) );
+					}
 				}, options || {} );
-				var data = _this.setup.fabric.toSVG( cfg );
+				var data = _this.setup.fabric.toSVG( cfg, cfg.reviver );
 
 				if ( cfg.getBase64 ) {
 					data = "data:image/svg+xml;base64," + btoa( data );
@@ -1801,27 +1833,17 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					data: _this.getChartData( options ),
 					delimiter: ",",
 					quotes: true,
-					escape: true,
-					dateFields: [],
-					dateFormat: _this.setup.chart.dataDateFormat || "YYYY-MM-DD"
+					escape: true
 				}, options || {}, true );
 				var data = "";
 				var cols = [];
 				var buffer = [];
-
-				if ( _this.setup.chart.categoryAxis && _this.setup.chart.categoryAxis.parseDates && _this.setup.chart.categoryField ) {
-					cfg.dateFields.push( _this.setup.chart.categoryField );
-				}
 
 				function enchant( value, column ) {
 
 					// STRING
 					if ( typeof value === "string" ) {
 						value = value;
-
-						// DATE FORMAT
-					} else if ( column && cfg.dateFormat && value instanceof Date && cfg.dateFields.indexOf( column ) != -1 ) {
-						value = AmCharts.formatDate( value, cfg.dateFormat );
 					}
 
 					// WRAP IN QUOTES				
@@ -1870,15 +1892,18 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			toXLSX: function( options, callback ) {
 				var cfg = _this.deepMerge( {
-					data: _this.getChartData( options ),
 					name: "amCharts",
-					withHeader: true
+					dateFormat: "dateObject",
+					withHeader: true,
+					stringify: false
 				}, options || {}, true );
 				var data = "";
 				var wb = {
 					SheetNames: [],
 					Sheets: {}
 				}
+
+				cfg.data = cfg.data ? cfg.data : _this.getChartData( cfg );
 
 				function datenum( v, date1904 ) {
 					if ( date1904 ) v += 1462;
@@ -1951,9 +1976,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var row, col;
 				var cfg = _this.deepMerge( {
 					data: _this.getChartData( options ),
-					dateFields: [],
-					dateFormat: false,
-					withHeader: false
+					withHeader: false,
+					stringify: true
 				}, options || {}, true );
 				var data = [];
 				var cols = [];
@@ -1975,12 +1999,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								var col = cols[ col ];
 								var value = cfg.data[ row ][ col ] || "";
 
-								if ( cfg.dateFormat && value instanceof Date && cfg.dateFields.indexOf( col ) != -1 ) {
-									value = AmCharts.formatDate( value, cfg.dateFormat );
+								if ( cfg.stringify ) {
+									value = String( value );
 								} else {
-									value = String( value )
+									value = value;
 								}
-
 								buffer.push( value );
 							}
 						}
@@ -2094,37 +2117,32 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 * Handles drag/drop events; loads given imagery
 			 */
 			handleDropbox: function( e ) {
-				e.preventDefault();
-				e.stopPropagation();
-
-				// AUTOMATICALLY CAPTURE
-				if ( !_this.setup.wrapper && !_this.drawing.buffer.enabled ) {
-					_this.drawing.buffer.enabled = true;
-					_this.capture( {}, function() {
-						this.createMenu( _this.config.fabric.drawing.menu );
-					} );
+				if ( _this.drawing.buffer.enabled ) {
+					e.preventDefault();
+					e.stopPropagation();
 
 					// DRAG OVER
-				} else if ( e.type == "dragover" ) {
-					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active dropbox" );
+					if ( e.type == "dragover" ) {
+						_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active dropbox" );
 
-					// DRAGLEAVE; DROP
-				} else {
-					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active" );
+						// DRAGLEAVE; DROP
+					} else {
+						_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active" );
 
-					if ( e.type == "drop" && e.dataTransfer.files.length ) {
-						for ( var i1 = 0; i1 < e.dataTransfer.files.length; i1++ ) {
-							var reader = new FileReader();
-							reader.onloadend = ( function( index ) {
-								return function() {
-									_this.drawing.handler.add( {
-										url: reader.result,
-										top: e.layerY - ( index * 10 ),
-										left: e.layerX - ( index * 10 )
-									} );
-								}
-							} )( i1 );
-							reader.readAsDataURL( e.dataTransfer.files[ i1 ] );
+						if ( e.type == "drop" && e.dataTransfer.files.length ) {
+							for ( var i1 = 0; i1 < e.dataTransfer.files.length; i1++ ) {
+								var reader = new FileReader();
+								reader.onloadend = ( function( index ) {
+									return function() {
+										_this.drawing.handler.add( {
+											url: reader.result,
+											top: e.layerY - ( index * 10 ),
+											left: e.layerX - ( index * 10 )
+										} );
+									}
+								} )( i1 );
+								reader.readAsDataURL( e.dataTransfer.files[ i1 ] );
+							}
 						}
 					}
 				}
@@ -2135,20 +2153,22 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			getChartData: function( options ) {
 				var cfg = _this.deepMerge( {
-					exportTitles: _this.config.exportTitles
+					data: [],
+					titles: {},
+					dateFields: [],
+					dataFields: [],
+					dataFieldsMap: {},
+					exportTitles: _this.config.exportTitles,
+					exportSelection: _this.config.exportSelection
 				}, options || {}, true );
 				var uid, i1, i2, i3;
-				var data = [];
-				var dataFields = [];
 				var lookupFields = [ "valueField", "openField", "closeField", "highField", "lowField", "xField", "yField" ];
-				var titles = {};
-				var dataFieldsMap = {};
 
 				// HANDLE FIELDS
 				function addField( field, title, type ) {
 
 					function checkExistance( field, type ) {
-						if ( dataFields.indexOf( field ) != -1 ) {
+						if ( cfg.dataFields.indexOf( field ) != -1 ) {
 							return checkExistance( [ field, ".", type ].join( "" ) );
 						}
 						return field;
@@ -2156,134 +2176,160 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 					if ( field && cfg.exportTitles && _this.setup.chart.type != "gantt" ) {
 						uid = checkExistance( field, type );
-						dataFieldsMap[ uid ] = field;
-						dataFields.push( uid );
-						titles[ uid ] = title || uid;
+						cfg.dataFieldsMap[ uid ] = field;
+						cfg.dataFields.push( uid );
+						cfg.titles[ uid ] = title || uid;
 					}
 				}
 
-				// STOCK DATA; GATHER COMPARED GRAPHS
-				if ( _this.setup.chart.type == "stock" ) {
-					data = _this.setup.chart.mainDataSet.dataProvider;
+				if ( cfg.data.length == 0 ) {
+					// STOCK DATA; GATHER COMPARED GRAPHS
+					if ( _this.setup.chart.type == "stock" ) {
+						cfg.data = _this.setup.chart.mainDataSet.dataProvider;
 
-					// CATEGORY AXIS
-					addField( _this.setup.chart.mainDataSet.categoryField );
+						// CATEGORY AXIS
+						addField( _this.setup.chart.mainDataSet.categoryField );
+						cfg.dateFields.push( _this.setup.chart.mainDataSet.categoryField );
 
-					// WALKTHROUGH GRAPHS
-					for ( i1 = 0; i1 < _this.setup.chart.mainDataSet.fieldMappings.length; i1++ ) {
-						var fieldMap = _this.setup.chart.mainDataSet.fieldMappings[ i1 ];
-						for ( i2 = 0; i2 < _this.setup.chart.panels.length; i2++ ) {
-							var panel = _this.setup.chart.panels[ i2 ]
-							for ( i3 = 0; i3 < panel.stockGraphs.length; i3++ ) {
-								var graph = panel.stockGraphs[ i3 ];
+						// WALKTHROUGH GRAPHS
+						for ( i1 = 0; i1 < _this.setup.chart.mainDataSet.fieldMappings.length; i1++ ) {
+							var fieldMap = _this.setup.chart.mainDataSet.fieldMappings[ i1 ];
+							for ( i2 = 0; i2 < _this.setup.chart.panels.length; i2++ ) {
+								var panel = _this.setup.chart.panels[ i2 ]
+								for ( i3 = 0; i3 < panel.stockGraphs.length; i3++ ) {
+									var graph = panel.stockGraphs[ i3 ];
 
-								for ( i4 = 0; i4 < lookupFields.length; i4++ ) {
-									if ( graph[ lookupFields[ i4 ] ] == fieldMap.toField ) {
-										addField( fieldMap.fromField, graph.title, lookupFields[ i4 ] );
+									for ( i4 = 0; i4 < lookupFields.length; i4++ ) {
+										if ( graph[ lookupFields[ i4 ] ] == fieldMap.toField ) {
+											addField( fieldMap.fromField, graph.title, lookupFields[ i4 ] );
+										}
 									}
 								}
 							}
 						}
-					}
 
-					// WALKTHROUGH COMPARISON AND MERGE IT'S DATA
-					for ( i1 = 0; i1 < _this.setup.chart.comparedGraphs.length; i1++ ) {
-						var graph = _this.setup.chart.comparedGraphs[ i1 ];
-						for ( i2 = 0; i2 < graph.dataSet.dataProvider.length; i2++ ) {
-							for ( i3 = 0; i3 < graph.dataSet.fieldMappings.length; i3++ ) {
-								var fieldMap = graph.dataSet.fieldMappings[ i3 ];
-								var uid = graph.dataSet.id + "_" + fieldMap.toField;
+						// WALKTHROUGH COMPARISON AND MERGE IT'S DATA
+						for ( i1 = 0; i1 < _this.setup.chart.comparedGraphs.length; i1++ ) {
+							var graph = _this.setup.chart.comparedGraphs[ i1 ];
+							for ( i2 = 0; i2 < graph.dataSet.dataProvider.length; i2++ ) {
+								for ( i3 = 0; i3 < graph.dataSet.fieldMappings.length; i3++ ) {
+									var fieldMap = graph.dataSet.fieldMappings[ i3 ];
+									var uid = graph.dataSet.id + "_" + fieldMap.toField;
 
-								data[ i2 ][ uid ] = graph.dataSet.dataProvider[ i2 ][ fieldMap.fromField ];
+									cfg.data[ i2 ][ uid ] = graph.dataSet.dataProvider[ i2 ][ fieldMap.fromField ];
 
-								if ( !titles[ uid ] ) {
-									addField( uid, graph.dataSet.title )
+									if ( !cfg.titles[ uid ] ) {
+										addField( uid, graph.dataSet.title )
+									}
 								}
 							}
 						}
-					}
 
-					// GANTT DATA; FLATTEN SEGMENTS
-				} else if ( _this.setup.chart.type == "gantt" ) {
-					// CATEGORY AXIS
-					addField( _this.setup.chart.categoryField );
+						// GANTT DATA; FLATTEN SEGMENTS
+					} else if ( _this.setup.chart.type == "gantt" ) {
+						// CATEGORY AXIS
+						addField( _this.setup.chart.categoryField );
+						cfg.dateFields.push( _this.setup.chart.categoryField );
 
-					var field = _this.setup.chart.segmentsField;
-					for ( i1 = 0; i1 < _this.setup.chart.dataProvider.length; i1++ ) {
-						var dataItem = _this.setup.chart.dataProvider[ i1 ];
-						if ( dataItem[ field ] ) {
-							for ( i2 = 0; i2 < dataItem[ field ].length; i2++ ) {
-								dataItem[ field ][ i2 ][ _this.setup.chart.categoryField ] = dataItem[ _this.setup.chart.categoryField ];
-								data.push( dataItem[ field ][ i2 ] );
+						var field = _this.setup.chart.segmentsField;
+						for ( i1 = 0; i1 < _this.setup.chart.dataProvider.length; i1++ ) {
+							var dataItem = _this.setup.chart.dataProvider[ i1 ];
+							if ( dataItem[ field ] ) {
+								for ( i2 = 0; i2 < dataItem[ field ].length; i2++ ) {
+									dataItem[ field ][ i2 ][ _this.setup.chart.categoryField ] = dataItem[ _this.setup.chart.categoryField ];
+									cfg.data.push( dataItem[ field ][ i2 ] );
+								}
+							}
+						}
+
+						// GRAPHS
+						for ( i1 = 0; i1 < _this.setup.chart.graphs.length; i1++ ) {
+							var graph = _this.setup.chart.graphs[ i1 ];
+
+							for ( i2 = 0; i2 < lookupFields.length; i2++ ) {
+								var dataField = lookupFields[ i2 ];
+								var graphField = graph[ dataField ];
+								var title = graph.title;
+
+								addField( graphField, graph.title, dataField );
+							}
+						}
+
+						// PIE/FUNNEL DATA;
+					} else if ( [ "pie", "funnel" ].indexOf( _this.setup.chart.type ) != -1 ) {
+						cfg.data = _this.setup.chart.dataProvider;
+
+						// CATEGORY AXIS
+						addField( _this.setup.chart.titleField );
+						cfg.dateFields.push( _this.setup.chart.titleField );
+
+						// VALUE
+						addField( _this.setup.chart.valueField );
+
+						// DEFAULT DATA;
+					} else if ( _this.setup.chart.type != "map" ) {
+						cfg.data = _this.setup.chart.dataProvider;
+
+						// CATEGORY AXIS
+						if ( _this.setup.chart.categoryAxis ) {
+							addField( _this.setup.chart.categoryField, _this.setup.chart.categoryAxis.title );
+							cfg.dateFields.push( _this.setup.chart.categoryField );
+						}
+
+						// GRAPHS
+						for ( i1 = 0; i1 < _this.setup.chart.graphs.length; i1++ ) {
+							var graph = _this.setup.chart.graphs[ i1 ];
+
+							for ( i2 = 0; i2 < lookupFields.length; i2++ ) {
+								var dataField = lookupFields[ i2 ];
+								var graphField = graph[ dataField ];
+
+								addField( graphField, graph.title, dataField );
 							}
 						}
 					}
-
-					// GRAPHS
-					for ( i1 = 0; i1 < _this.setup.chart.graphs.length; i1++ ) {
-						var graph = _this.setup.chart.graphs[ i1 ];
-
-						for ( i2 = 0; i2 < lookupFields.length; i2++ ) {
-							var dataField = lookupFields[ i2 ];
-							var graphField = graph[ dataField ];
-							var title = graph.title;
-
-							addField( graphField, graph.title, dataField );
-						}
-					}
-
-					// PIE/FUNNEL DATA;
-				} else if ( [ "pie", "funnel" ].indexOf( _this.setup.chart.type ) != -1 ) {
-					data = _this.setup.chart.dataProvider;
-
-					// CATEGORY AXIS
-					addField( _this.setup.chart.titleField );
-
-					// VALUE
-					addField( _this.setup.chart.valueField );
-
-					// DEFAULT DATA;
-				} else if ( _this.setup.chart.type != "map" ) {
-					data = _this.setup.chart.dataProvider;
-
-					// CATEGORY AXIS
-					if ( _this.setup.chart.categoryAxis ) {
-						addField( _this.setup.chart.categoryField, _this.setup.chart.categoryAxis.title );
-					}
-
-					// GRAPHS
-					for ( i1 = 0; i1 < _this.setup.chart.graphs.length; i1++ ) {
-						var graph = _this.setup.chart.graphs[ i1 ];
-
-						for ( i2 = 0; i2 < lookupFields.length; i2++ ) {
-							var dataField = lookupFields[ i2 ];
-							var graphField = graph[ dataField ];
-
-							addField( graphField, graph.title, dataField );
-						}
-					}
 				}
+				return _this.processData( cfg );
+			},
 
-				if ( data.length ) {
+			/**
+			 * Walkthrough data to format dates and titles
+			 */
+			processData: function( options ) {
+				var cfg = _this.deepMerge( {
+					data: [],
+					titles: {},
+					dateFields: [],
+					dataFields: [],
+					dataFieldsMap: {},
+					dataDateFormat: _this.setup.chart.dataDateFormat,
+					dateFormat: _this.config.dateFormat || _this.setup.chart.dataDateFormat || "YYYY-MM-DD",
+					exportTitles: _this.config.exportTitles,
+					exportSelection: _this.config.exportSelection
+				}, options || {}, true );
+				var i1, i2;
+
+				if ( cfg.data.length ) {
 					// GATHER MISSING FIELDS
-					for ( i1 = 0; i1 < data.length; i1++ ) {
-						for ( i2 in data[ i1 ] ) {
-							if ( dataFields.indexOf( i2 ) == -1 ) {
-								dataFields.push( i2 );
-								dataFieldsMap[ i2 ] = i2;
+					for ( i1 = 0; i1 < cfg.data.length; i1++ ) {
+						for ( i2 in cfg.data[ i1 ] ) {
+							if ( cfg.dataFields.indexOf( i2 ) == -1 ) {
+								cfg.dataFields.push( i2 );
+								cfg.dataFieldsMap[ i2 ] = i2;
 							}
 						}
 					}
 
 					// REBUILD DATA
 					var buffer = [];
-					for ( i1 = 0; i1 < data.length; i1++ ) {
+					for ( i1 = 0; i1 < cfg.data.length; i1++ ) {
 						var tmp = {};
-						for ( i2 = 0; i2 < dataFields.length; i2++ ) {
-							var uniqueField = dataFields[ i2 ];
-							var dataField = dataFieldsMap[ uniqueField ];
-							var title = titles[ uniqueField ] || uniqueField;
-							var value = data[ i1 ][ dataField ] || undefined;
+						var skip = false;
+						for ( i2 = 0; i2 < cfg.dataFields.length; i2++ ) {
+							var uniqueField = cfg.dataFields[ i2 ];
+							var dataField = cfg.dataFieldsMap[ uniqueField ];
+							var title = cfg.titles[ uniqueField ] || uniqueField;
+							var value = cfg.data[ i1 ][ dataField ] || undefined;
 
 							// TITLEFY
 							if ( cfg.exportTitles && _this.setup.chart.type != "gantt" ) {
@@ -2292,14 +2338,41 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								}
 							}
 
+							// PROCESS CATEGORY
+							if ( cfg.dateFields.indexOf( dataField ) != -1 ) {
+
+								// CONVERT DATESTRING WITH GIVEN DATADATEFORMAT
+								if ( cfg.dataDateFormat && ( value instanceof String || typeof value == "string" ) ) {
+									value = AmCharts.stringToDate( value, cfg.dataDateFormat );
+								}
+
+								// CATEGORY RANGE
+								if ( cfg.exportSelection ) {
+									if ( value instanceof Date ) {
+										if ( value < chart.startDate || value > chart.endDate ) {
+											skip = true;
+										}
+
+									} else if ( i1 < chart.startIndex || i1 > chart.endIndex ) {
+										skip = true;
+									}
+								}
+
+								// CATEGORY FORMAT
+								if ( cfg.dateFormat && cfg.dateFormat != "dateObject" && value instanceof Date ) {
+									value = AmCharts.formatDate( value, cfg.dateFormat );
+								}
+							}
+
 							tmp[ title ] = value;
 						}
-						buffer.push( tmp );
+						if ( !skip ) {
+							buffer.push( tmp );
+						}
 					}
-					data = buffer;
+					cfg.data = buffer;
 				}
-
-				return data;
+				return cfg.data;
 			},
 
 			/**
