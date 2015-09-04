@@ -26,7 +26,6 @@ AmCharts.themes.chalk = {
 	},
 
 	AmRectangularChart: {
-
 		zoomOutButtonColor: '#FFFFFF',
 		zoomOutButtonRollOverAlpha: 0.15,
 		zoomOutButtonImage: "lensWhite.png"
@@ -128,10 +127,7 @@ AmCharts.themes.chalk = {
 	ZoomControl: {
 		buttonRollOverColor: "#4d90d6",
 		buttonFillColor: "#e384a6",
-		buttonFillAlpha: 0.8,
-		buttonBorderColor: "#FFFFFF",
-		gridBackgroundColor: "#FFFFFF",
-		gridAlpha: 0.8
+		buttonFillAlpha: 0.8
 	},
 
 	SmallMap: {

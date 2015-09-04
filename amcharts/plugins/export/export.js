@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.2.8
+Version: 1.3.0
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -65,10 +65,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
  ** Polyfill export class
  */
 ( function() {
-	AmCharts.export = function( chart, config ) {
+	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.2.8",
+			version: "1.3.0",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -164,6 +164,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						_this.createMenu( _this.config.menu );
 						_this.setup.fabric.deactivateAll();
 						_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
+						_this.setup.wrapper.style.display = "none";
 					},
 					add: function( options ) {
 						var cfg = _this.deepMerge( {
@@ -1286,15 +1287,18 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				if ( _this.drawing.buffer.enabled ) {
 					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active" );
 					_this.setup.wrapper.style.backgroundColor = cfg.backgroundColor;
+					_this.setup.wrapper.style.display = "block";
+
 				} else {
 					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
+					_this.setup.wrapper.style.display = "none";
 				}
 
 				for ( i1 = 0; i1 < groups.length; i1++ ) {
 					var group = groups[ i1 ];
 					var isLegend = _this.gatherClassName( group.parent, _this.setup.chart.classNamePrefix + "-legend-div", 1 );
 					var isPanel = _this.gatherClassName( group.parent, _this.setup.chart.classNamePrefix + "-stock-panel-div" );
-					var isScrollbar = _this.gatherClassName( group.parent, _this.setup.chart.classNamePrefix + "-scrollbar-chart-div" )
+					var isScrollbar = _this.gatherClassName( group.parent, _this.setup.chart.classNamePrefix + "-scrollbar-chart-div" );
 
 					// STOCK CHART; SVG OFFSET;; SVG OFFSET
 					if ( _this.setup.chart.type == "stock" && _this.setup.chart.legendSettings.position ) {
@@ -1303,7 +1307,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						if ( [ "top", "bottom" ].indexOf( _this.setup.chart.legendSettings.position ) != -1 ) {
 
 							// POSITION; ABSOLUTE
-							if ( group.parent.style.top || group.parent.style.left ) {
+							if ( group.parent.style.top && group.parent.style.left ) {
 								group.offset.y = _this.pxToNumber( group.parent.style.top );
 								group.offset.x = _this.pxToNumber( group.parent.style.left );
 
@@ -1343,7 +1347,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} else {
 
 						// POSITION; ABSOLUTE
-						if ( group.parent.style.top || group.parent.style.left ) {
+						if ( group.parent.style.top && group.parent.style.left ) {
 							group.offset.y = _this.pxToNumber( group.parent.style.top );
 							group.offset.x = _this.pxToNumber( group.parent.style.left );
 
@@ -1525,7 +1529,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						var i1;
 						var className = _this.gatherAttribute( svg, "class" );
 						var visibility = _this.gatherAttribute( svg, "visibility" );
-						var clipPath = _this.gatherAttribute( svg, "clip-path" );
+						var clipPath = _this.gatherAttribute( svg, "clip-path", 1 );
 
 						obj.className = String( className );
 						obj.classList = String( className ).split( " " );
@@ -2628,7 +2632,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 
 					// JUST ADD THOSE WITH ENTRIES
-					return container.appendChild( ul );
+					if ( ul.childNodes.length ) {
+						container.appendChild( ul );
+					}
+
+					return ul;
 				}
 
 				// DETERMINE CONTAINER
@@ -2656,7 +2664,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 				buildList.apply( this, [ list, _this.setup.menu ] );
 
-				container.appendChild( _this.setup.menu );
+				// JUST ADD THOSE WITH ENTRIES
+				if ( _this.setup.menu.childNodes.length ) {
+					container.appendChild( _this.setup.menu );
+				}
 
 				return _this.setup.menu;
 			},
@@ -2973,6 +2984,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
  * Set init handler
  */
 AmCharts.addInitHandler( function( chart ) {
-	new AmCharts.export( chart );
+	new AmCharts["export"]( chart );
 
 }, [ "pie", "serial", "xy", "funnel", "radar", "gauge", "stock", "map", "gantt" ] );

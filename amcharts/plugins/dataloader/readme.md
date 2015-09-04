@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.6
+Version: 1.0.7
 
 
 ## Description
@@ -269,6 +269,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.7
+* Fixed an issue with the Pie chart when it is being loaded in inactive tab
 
 ### 1.0.6
 * Added support for Gauge chart (loads "arrows" array)
