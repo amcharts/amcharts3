@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.7
+Version: 1.0.8
 
 
 ## Description
@@ -93,6 +93,7 @@ complete | | Callback function to execute when loader is done
 delimiter | , | [CSV only] a delimiter for columns (use \t for tab delimiters)
 error | | Callback function to execute if file load fails
 format | json | Type of data: json, csv
+headers | | An array of objects with two properties (key and value) to attach to HTTP request
 load | | Callback function to execute when file is successfully loaded (might be invoked multiple times)
 noStyles | false | If set to true no styles will be applied to "Data loading" curtain
 postProcess | | If set to function reference, that function will be called to "post-process" loaded data before passing it on to chart. The handler function will receive two parameters: loaded data, Data Loader options
@@ -154,6 +155,23 @@ var chart = AmCharts.makeChart("chartdiv", {
 
 Sure. You just add a `eventDataLoader` object to your data set. All the same 
 settings apply.
+
+
+## Adding custom headers to HTTP requests
+
+If you want to add additional headers to your data load HTTP requests, use
+"headers" array. Each header is an object with two keys: "key" and "value":
+
+```
+"dataLoader": {
+  "url": "data/serial.json",
+  "format": "json",
+  "headers": [{
+    "key": "x-access-token",
+    "value": "123456789"
+  }]
+}
+```
 
 
 ## Manually triggering a reload of all data
@@ -269,6 +287,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.8
+* Added "headers" config variable which allows adding custom headers to HTTP requests
 
 ### 1.0.7
 * Fixed an issue with the Pie chart when it is being loaded in inactive tab

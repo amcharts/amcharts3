@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.3.2
+Version: 1.3.3
 
 
 ## Description
@@ -873,6 +873,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.3.3
+* Added: English as default language when define language does not exist
 
 ### 1.3.2
 * Added: ([drawing.autoClose](#annotation-settings)) new flag to automatically close the annotation mode after download

@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.7
+Version: 1.0.8
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -80,6 +80,7 @@ AmCharts.addInitHandler( function( chart ) {
     'reloading': false,
     'complete': false,
     'error': false,
+    'headers': [],
     'chart': chart
   };
 
@@ -258,7 +259,7 @@ AmCharts.addInitHandler( function( chart ) {
               chart.validateData();
 
               // invalidate size for the pie chart
-              if ( 'pie' === chart.type && chart.invalidateSize !== undefined)
+              if ( 'pie' === chart.type && chart.invalidateSize !== undefined )
                 chart.invalidateSize();
 
               // make the chart animate again
@@ -457,6 +458,21 @@ AmCharts.loadFile = function( url, options, handler ) {
     request = new ActiveXObject( 'Microsoft.XMLHTTP' );
   }
 
+  // open the connection
+  try {
+    request.open( 'GET', options.timestamp ? AmCharts.timestampUrl( url ) : url, options.async );
+  } catch ( e ) {
+    handler.call( this, false );
+  }
+
+  // add headers?
+  if ( options.headers.length ) {
+    for ( var i = 0; i < options.headers.length; i++ ) {
+      var header = options.headers[ i ];
+      request.setRequestHeader( header.key, header.value );
+    }
+  }
+
   // set handler for data if async loading
   request.onreadystatechange = function() {
 
@@ -470,7 +486,6 @@ AmCharts.loadFile = function( url, options, handler ) {
 
   // load the file
   try {
-    request.open( 'GET', options.timestamp ? AmCharts.timestampUrl( url ) : url, options.async );
     request.send();
   } catch ( e ) {
     handler.call( this, false );
