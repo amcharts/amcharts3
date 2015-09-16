@@ -2,7 +2,7 @@
   "name": "amcharts3",
   "version": "3.17.1",
   "description": "JavaScript Charts V3",
-  "main": "amcharts.js",
+  "main": "amcharts/amcharts.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/amcharts/amcharts3.git"
