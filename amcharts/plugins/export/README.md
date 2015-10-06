@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.3.3
+Version: 1.3.5
 
 
 ## Description
@@ -873,6 +873,12 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.3.5
+* Fixed: Scrollbar issue hiding the unselected scrollbar background area
+
+### 1.3.4
+* Fixed: Absolute legend positioning issue.
 
 ### 1.3.3
 * Added: English as default language when define language does not exist

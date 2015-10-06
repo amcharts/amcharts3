@@ -1,6 +1,6 @@
 # amCharts Responsive
 
-Version: 1.0.1
+Version: 1.0.2
 
 
 ## Description
@@ -340,6 +340,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.2
+* Fixed a bug where the plugin was causing an error when chart/map container was being hidden
 
 ### 1.0.1
 * Fixed bug with overrides being overwritten with chart object in some cases

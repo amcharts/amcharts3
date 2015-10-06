@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.8
+Version: 1.0.10
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -75,6 +75,7 @@ AmCharts.addInitHandler( function( chart ) {
     'timestamp': false,
     'delimiter': ',',
     'skip': 0,
+    'skipEmpty': true,
     'useColumnNames': false,
     'reverse': false,
     'reloading': false,
@@ -466,7 +467,7 @@ AmCharts.loadFile = function( url, options, handler ) {
   }
 
   // add headers?
-  if ( options.headers.length ) {
+  if ( options.headers !== undefined && options.headers.length ) {
     for ( var i = 0; i < options.headers.length; i++ ) {
       var header = options.headers[ i ];
       request.setRequestHeader( header.key, header.value );
@@ -547,6 +548,8 @@ AmCharts.parseCSV = function( response, options ) {
   // iterate through the result set
   var row;
   while ( ( row = options.reverse ? data.pop() : data.shift() ) ) {
+    if ( options.skipEmpty && row.length === 1 && row[ 0 ] === '' )
+      continue;
     var dataPoint = {};
     for ( i = 0; i < row.length; i++ ) {
       col = undefined === cols[ i ] ? 'col' + i : cols[ i ];

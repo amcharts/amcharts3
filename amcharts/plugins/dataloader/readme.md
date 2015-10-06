@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.8
+Version: 1.0.10
 
 
 ## Description
@@ -102,6 +102,7 @@ showCurtain | true| Show curtain over the chart area when loading data
 reload | 0 | Reload data every X seconds
 reverse | false | [CSV only] add data points in revers order
 skip | 0 | [CSV only] skip X first rows in data (includes first row if useColumnNames is used)
+skipEmpty | true | [CSV only] Ignore empty lines in data
 timestamp | false | Add current timestamp to data URLs (to avoid caching)
 useColumnNames | false | [CSV only] Use first row in data as column names when parsing
 
@@ -288,14 +289,20 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 ## Changelog
 
+### 1.0.10
+* Fixed error related to headers not being set when using standalone data load functions
+
+### 1.0.9
+* Plugin will now ignore empty CSV lines by default (configurable with `skipEmpty` property)
+
 ### 1.0.8
-* Added "headers" config variable which allows adding custom headers to HTTP requests
+* Added `headers` config variable which allows adding custom headers to HTTP requests
 
 ### 1.0.7
 * Fixed an issue with the Pie chart when it is being loaded in inactive tab
 
 ### 1.0.6
-* Added support for Gauge chart (loads "arrows" array)
+* Added support for Gauge chart (loads `arrows` array)
 
 ### 1.0.5
 * Fixed JS error if periodSelector was not defined in chart config
@@ -303,7 +310,7 @@ http://www.apache.org/licenses/LICENSE-2.0
 * postProcess function will now have "this" context set to Data Loader object as well as receive chart reference as third paramater
 
 ### 1.0.4
-* Added chart.dataLoader.loadData() function which can be used to manually trigger all data reload
+* Added `chart.dataLoader.loadData()` function which can be used to manually trigger all data reload
 
 ### 1.0.3
 * Fixed the bug where defaults were not being applied properly
@@ -314,7 +321,7 @@ http://www.apache.org/licenses/LICENSE-2.0
 * Fixed the issue with modified Array prototypes
 
 ### 1.0.1
-* Added "complete", "load" and "error" properties that can be set with function handlers to be invoked on load completion, successful file load or failed load respectively
+* Added `complete`, `load` and `error` properties that can be set with function handlers to be invoked on load completion, successful file load or failed load respectively
 * Fixed language container initialization bug
 * Fixed bug that was causing parse errors not be displayed
 

@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.3.3
+Version: 1.3.5
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.3.3",
+			version: "1.3.5",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -653,7 +653,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			/**
 			 * Converts string to number
 			 */
-			pxToNumber: function( attr ) {
+			pxToNumber: function( attr, returnUndefined ) {
+				if ( !attr && returnUndefined ) {
+					return undefined;
+				}
 				return Number( String( attr ).replace( "px", "" ) ) || 0;
 			},
 
@@ -1346,13 +1349,22 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						// REGULAR CHARTS; SVG OFFSET
 					} else {
-
 						// POSITION; ABSOLUTE
-						if ( group.parent.style.top && group.parent.style.left ) {
+						if ( group.parent.style.position == "absolute"  ) {
+							group.offset.absolute = true;
+							group.offset.top = _this.pxToNumber(group.parent.style.top);
+							group.offset.right = _this.pxToNumber(group.parent.style.right,true);
+							group.offset.bottom = _this.pxToNumber(group.parent.style.bottom,true);
+							group.offset.left = _this.pxToNumber(group.parent.style.left);
+							group.offset.width = _this.pxToNumber(group.parent.style.width);
+							group.offset.height = _this.pxToNumber(group.parent.style.height);
+
+						// POSITION; RELATIVE
+						} else if ( group.parent.style.top && group.parent.style.left ) {
 							group.offset.y = _this.pxToNumber( group.parent.style.top );
 							group.offset.x = _this.pxToNumber( group.parent.style.left );
 
-							// POSITION; RELATIVE
+							// POSITION; GENERIC
 						} else {
 
 							// EXTERNAL LEGEND
@@ -1391,10 +1403,26 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							var i1;
 							var g = fabric.util.groupSVGElements( objects, options );
 							var tmp = {
-								top: group.offset.y,
-								left: group.offset.x,
 								selectable: false
 							};
+
+							if ( group.offset.absolute ) {
+								if ( group.offset.bottom !== undefined ) {
+									tmp.top = offset.height - group.offset.height - group.offset.bottom;
+								} else {
+									tmp.top = group.offset.top;
+								}
+
+								if ( group.offset.right !== undefined ) {
+									tmp.left = offset.width - group.offset.width - group.offset.right;
+								} else {
+									tmp.left = group.offset.left;
+								}
+
+							} else {
+								tmp.top = group.offset.y;
+								tmp.left = group.offset.x;
+							}
 
 							for ( i1 = 0; i1 < g.paths.length; i1++ ) {
 
@@ -1530,7 +1558,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						var i1;
 						var className = _this.gatherAttribute( svg, "class" );
 						var visibility = _this.gatherAttribute( svg, "visibility" );
-						var clipPath = _this.gatherAttribute( svg, "clip-path", 1 );
+						var clipPath = _this.gatherAttribute( svg, "clip-path" );
 
 						obj.className = String( className );
 						obj.classList = String( className ).split( " " );
