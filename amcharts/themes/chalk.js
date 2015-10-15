@@ -28,7 +28,7 @@ AmCharts.themes.chalk = {
 	AmRectangularChart: {
 		zoomOutButtonColor: '#FFFFFF',
 		zoomOutButtonRollOverAlpha: 0.15,
-		zoomOutButtonImage: "lensWhite.png"
+		zoomOutButtonImage: "lensWhite"
 	},
 
 	AxisBase: {

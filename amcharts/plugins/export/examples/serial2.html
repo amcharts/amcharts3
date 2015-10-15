@@ -86,8 +86,17 @@
 				"export": {
 					"enabled": true,
 					"fileName": "exportedChart",
+					
 					// set background color for exported image
-					"backgroundColor": "#282828"
+					"backgroundColor": "#282828",
+
+					// set column names when exporting as data
+					"exportTitles": true,
+					"columnNames": {
+						"year": "Year",
+						"income": "Income, USD",
+						"expenses": "Expenses, USD"
+					}
 				}
 			} );
 		</script>

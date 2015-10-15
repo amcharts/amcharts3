@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.3.5
+Version: 1.3.7
 
 
 ## Description
@@ -136,12 +136,13 @@ position | top-right | A position of export icon. Possible values: "top-left", "
 removeImages | true | If true export checks for and removes "tainted" images that area lodead from different domains
 delay | | General setting to delay the capturing of the chart ([skip to chapter](#delay-the-capturing-before-export))
 exportTitles | false | Exchanges the data field names with it's dedicated title ( data export only )
+columnNames | {} | An object of key/value pairs to use as column names when exporting to data formats. `exportTitles` needs to be set for this to work as well.
 exportSelection | false | Exports the current data selection only ( data export only )
 dataDateFormat | | Format to convert date strings to date objects, uses by default charts dataDateFormat ( data export only )
 dateFormat | YYYY-MM-DD | Formats the category field in given date format ( data export only )
 keyListener | false | If true it observes the pressed keys to undo/redo the annotations
 fileListener | false | If true it observes the drag and drop feature and loads the dropped image file into the annotation
-drawing | {} | Object which holds all possible settings for the annotation mode ([skip to chaper](#annotation-settings))
+drawing | {} | Object which holds all possible settings for the annotation mode ([skip to chapter](#annotation-settings))
 
 
 ## Configuring export menu
@@ -621,6 +622,7 @@ multiplier | Scale factor for the generated image
 lossless | Flag to print the actual vector graphic instead of buffered bitmap (print option only, experimental)
 delay | A numeric value to delay the capturing in seconds ([details](#delay-the-capturing-before-export))
 exportTitles | Exchanges the data field names with it's dedicated title ( data export only )
+columnNames | An object of key/value pairs to use as column names when exporting ( data export only )
 exportSelection | Exports the current data selection only ( data export only )
 dataDateFormat | Format to convert date strings to date objects, uses by default charts dataDateFormat ( data export only )
 dateFormat | Formats the category field in given date format ( data export only )
@@ -873,6 +875,12 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.3.7
+* Added: `columnNames` property, which allows overriding column names when expoerting chart data
+
+### 1.3.6
+* Fixed: Checking parseDates for category values for date interpretation
 
 ### 1.3.5
 * Fixed: Scrollbar issue hiding the unselected scrollbar background area

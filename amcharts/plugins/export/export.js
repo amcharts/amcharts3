@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.3.5
+Version: 1.3.7
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.3.5",
+			version: "1.3.7",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -2193,7 +2193,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					dataFields: [],
 					dataFieldsMap: {},
 					exportTitles: _this.config.exportTitles,
-					exportSelection: _this.config.exportSelection
+					exportSelection: _this.config.exportSelection,
+					columnNames: _this.config.columnNames
 				}, options || {}, true );
 				var uid, i1, i2, i3;
 				var lookupFields = [ "valueField", "openField", "closeField", "highField", "lowField", "xField", "yField" ];
@@ -2309,7 +2310,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						// CATEGORY AXIS
 						if ( _this.setup.chart.categoryAxis ) {
 							addField( _this.setup.chart.categoryField, _this.setup.chart.categoryAxis.title );
-							cfg.dateFields.push( _this.setup.chart.categoryField );
+							if ( _this.setup.chart.categoryAxis.parseDates !== false ) {
+								cfg.dateFields.push( _this.setup.chart.categoryField );
+							}
 						}
 
 						// GRAPHS
@@ -2341,7 +2344,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					dataDateFormat: _this.setup.chart.dataDateFormat,
 					dateFormat: _this.config.dateFormat || _this.setup.chart.dataDateFormat || "YYYY-MM-DD",
 					exportTitles: _this.config.exportTitles,
-					exportSelection: _this.config.exportSelection
+					exportSelection: _this.config.exportSelection,
+					columnNames: _this.config.columnNames
 				}, options || {}, true );
 				var i1, i2;
 
@@ -2364,7 +2368,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						for ( i2 = 0; i2 < cfg.dataFields.length; i2++ ) {
 							var uniqueField = cfg.dataFields[ i2 ];
 							var dataField = cfg.dataFieldsMap[ uniqueField ];
-							var title = cfg.titles[ uniqueField ] || uniqueField;
+							var title = ( cfg.columnNames && cfg.columnNames[ uniqueField ] ) || cfg.titles[ uniqueField ] || uniqueField;
 							var value = cfg.data[ i1 ][ dataField ] || undefined;
 
 							// TITLEFY

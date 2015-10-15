@@ -77,7 +77,7 @@ AmCharts.themes.patterns = {
 	AmRectangularChart: {
 		zoomOutButtonColor: '#000000',
 		zoomOutButtonRollOverAlpha: 0.15,
-		zoomOutButtonImage: "lens.png"
+		zoomOutButtonImage: "lens"
 	},
 
 
