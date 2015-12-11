@@ -189,7 +189,12 @@
                 var chartCursor = new AmCharts.ChartCursor();
                 chartCursor.zoomable = false; // as the chart displayes not too many values, we disabled zooming
                 chartCursor.cursorAlpha = 0;
+                chartCursor.valueZoomable = true;
+                chartCursor.pan = true;
                 chart.addChartCursor(chartCursor);
+
+                //  VALUE SCROLLBAR
+                chart.valueScrollbar = new AmCharts.ChartScrollbar();
 
                 // WRITE
                 chart.write("chartdiv");

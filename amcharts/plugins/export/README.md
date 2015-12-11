@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.3.7
+Version: 1.4.8
 
 
 ## Description
@@ -135,6 +135,7 @@ pdfMake | {} | Overwrites the default settings for PDF export (pdfMake library)
 position | top-right | A position of export icon. Possible values: "top-left", "top-right" (default), "bottom-left", "bottom-right"
 removeImages | true | If true export checks for and removes "tainted" images that area lodead from different domains
 delay | | General setting to delay the capturing of the chart ([skip to chapter](#delay-the-capturing-before-export))
+exportFields | [] | If set, only fields in this array will be exported ( data export only )
 exportTitles | false | Exchanges the data field names with it's dedicated title ( data export only )
 columnNames | {} | An object of key/value pairs to use as column names when exporting to data formats. `exportTitles` needs to be set for this to work as well.
 exportSelection | false | Exports the current data selection only ( data export only )
@@ -143,6 +144,7 @@ dateFormat | YYYY-MM-DD | Formats the category field in given date format ( data
 keyListener | false | If true it observes the pressed keys to undo/redo the annotations
 fileListener | false | If true it observes the drag and drop feature and loads the dropped image file into the annotation
 drawing | {} | Object which holds all possible settings for the annotation mode ([skip to chapter](#annotation-settings))
+overflow | true | Flag to overwrite the css attribute 'overflow' of the chart container to avoid cropping the menu on small container
 
 
 ## Configuring export menu
@@ -345,6 +347,7 @@ Property | Default | Available values | Description
 delimiter | "," | string | A string to use as a column delimiter
 quotes | true | true/false | Set whether to enclose strings in doublequotes
 escape | true | true/false | Set whether to escape strings
+withHeader | true | true/false | Add header row with column names
 
 **XLSX**
 
@@ -621,6 +624,7 @@ content | Array of elements which represents the content ([details](#exporting-t
 multiplier | Scale factor for the generated image
 lossless | Flag to print the actual vector graphic instead of buffered bitmap (print option only, experimental)
 delay | A numeric value to delay the capturing in seconds ([details](#delay-the-capturing-before-export))
+exportFields | [] | If set, only fields in this array will be exported ( data export only )
 exportTitles | Exchanges the data field names with it's dedicated title ( data export only )
 columnNames | An object of key/value pairs to use as column names when exporting ( data export only )
 exportSelection | Exports the current data selection only ( data export only )
@@ -875,6 +879,43 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.8
+* Fixed: Clippath positioning issue
+* Fixed: Issue removing tainted images
+* Fixed: Hashbanged url interpretation issue in IE (related to reusable svg nodes)
+
+### 1.4.7
+* Fixed: Zeroes were being exported to data formats as empty strings rather than numbers
+
+### 1.4.6
+* Fixed: Loading issue with patterns in firefox
+
+### 1.4.5
+* Fixed: Issue with the "canvas-container" on chart revalidations
+
+### 1.4.4
+* Added: Balloon text orientation
+* Fixed: Issue with multiline label positioning
+
+### 1.4.3
+* Added: `exportFields` option which is an array of fields to export in data formats (if you want to export just some fields as opposed to all fields)
+
+### 1.4.2
+* Added: `overflow` flag to overwrite the css attribute 'overflow' of the chart container
+
+### 1.4.1
+* Fixed: cropped bullets on XY charts
+
+### 1.4.0
+* Fixed: beforeCapture issue on SVG document changes
+* Added: Namespace check within globals for required third party software
+
+### 1.3.9
+* Fixed: Base tag gradient drawing issue (includes embedded hotfix for fabricjs commit #c9745ff)
+
+### 1.3.8
+* Fixed: Base tag clip path issue which draw the lines outside the plotarea
 
 ### 1.3.7
 * Added: `columnNames` property, which allows overriding column names when expoerting chart data

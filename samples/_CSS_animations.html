@@ -286,13 +286,14 @@
                 var latitudeAxis = new AmCharts.ValueAxis();
                 latitudeAxis.gridAlpha = 0;
                 latitudeAxis.axisAlpha = 0;
-                latitudeAxis.labelsEnabled = false;
+                latitudeAxis.title = "duration and latitude";
+                latitudeAxis.offset = 83;
+                latitudeAxis.titleOffset = 10;
                 latitudeAxis.position = "right";
                 chart.addValueAxis(latitudeAxis);
 
                 // duration value axis
                 var durationAxis = new AmCharts.ValueAxis();
-                durationAxis.title = "duration";
                 // the following line makes this value axis to convert values to duration
                 // it tells the axis what duration unit it should use. mm - minute, hh - hour...
                 durationAxis.duration = "mm";
@@ -304,7 +305,7 @@
                 };
                 durationAxis.gridAlpha = 0;
                 durationAxis.axisAlpha = 0;
-                durationAxis.inside = true;
+                durationAxis.inside = false;
                 durationAxis.position = "right";
                 chart.addValueAxis(durationAxis);
 
@@ -370,9 +371,12 @@
                 // CURSOR
                 var chartCursor = new AmCharts.ChartCursor();
                 chartCursor.zoomable = false;
-                chartCursor.categoryBalloonDateFormat = "DD";
+                chartCursor.categoryBalloonDateFormat = undefined;
                 chartCursor.cursorAlpha = 0;
                 chartCursor.valueBalloonsEnabled = false;
+                chartCursor.valueLineBalloonEnabled = true;
+                chartCursor.valueLineEnabled = true;
+                chartCursor.valueLineAlpha = 0.5;
                 chart.addChartCursor(chartCursor);
 
                 // LEGEND

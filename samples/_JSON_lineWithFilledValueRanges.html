@@ -14,7 +14,6 @@
                 "type": "serial",
                 "theme": "dark",
                 "dataDateFormat": "YYYY-MM-DD",
-
                 "dataProvider": [{
                     "date": "2013-11-30",
                     "value": 104
@@ -70,11 +69,16 @@
                     "valueField": "value"
                 }],
                 "chartCursor": {
-                    "cursorAlpha": 0
+                    "cursorAlpha": 0,
+                    "zoomable":false,
+                    "valueZoomable":true
                 },
                 "categoryField": "date",
                 "categoryAxis": {
                     "parseDates": true
+                },
+                "valueScrollbar":{
+
                 }
             });
         </script>

@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.3.7
+Version: 1.4.8
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.3.7",
+			version: "1.4.8",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -76,12 +76,20 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				resources: [ {
 					"pdfmake/pdfmake.js": [ "pdfmake/vfs_fonts.js" ],
 					"jszip/jszip.js": [ "xlsx/xlsx.js" ]
-				}, "fabric.js/fabric.js", "FileSaver.js/FileSaver.js" ]
+				}, "fabric.js/fabric.js", "FileSaver.js/FileSaver.js" ],
+				namespaces: {
+					"pdfmake.js": "pdfMake",
+					"jszip.js": "JSZip",
+					"xlsx.js": "XLSX",
+					"fabric.js": "fabric",
+					"FileSaver.js": "saveAs"
+				}
 			},
 			config: {},
 			setup: {
 				chart: chart,
-				hasBlob: false
+				hasBlob: false,
+				wrapper: false
 			},
 			drawing: {
 				enabled: false,
@@ -163,8 +171,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						_this.drawing.redos = [];
 						_this.createMenu( _this.config.menu );
 						_this.setup.fabric.deactivateAll();
-						_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
-						_this.setup.wrapper.style.display = "none";
+
+						if ( _this.setup.wrapper ) {
+							_this.setup.chart.containerDiv.removeChild( _this.setup.wrapper );
+							_this.setup.wrapper = false;
+						}
 					},
 					add: function( options ) {
 						var cfg = _this.deepMerge( {
@@ -418,6 +429,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				position: "top-right",
 				fileName: "amCharts",
 				action: "download",
+				overflow: true,
 				path: ( ( chart.path || "" ) + "plugins/export/" ),
 				formats: {
 					JPG: {
@@ -611,6 +623,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					node.setAttribute( "href", url );
 				}
 
+				// NODE CHECK
 				for ( i1 = 0; i1 < document.head.childNodes.length; i1++ ) {
 					item = document.head.childNodes[ i1 ];
 					check = item ? ( item.src || item.href ) : false;
@@ -620,6 +633,17 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						if ( _this.libs.reload ) {
 							document.head.removeChild( item );
 						}
+						exist = true;
+						break;
+					}
+				}
+
+				// NAMESPACE CHECK
+				for ( i1 in _this.libs.namespaces ) {
+					var namespace = _this.libs.namespaces[ i1 ];
+					var check = src.toLowerCase();
+					var item = i1.toLowerCase();
+					if ( check.indexOf( item ) != -1 && window[ namespace ] !== undefined ) {
 						exist = true;
 						break;
 					}
@@ -722,6 +746,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			isElement: function( thingy ) {
 				return thingy instanceof Object && thingy && thingy.nodeType === 1;
+			},
+
+			/**
+			 * Checks if given argument contains a hashbang and returns it
+			 */
+			isHashbanged: function( thingy ) {
+				var str = String( thingy ).replace( /\"/g, "" );
+
+				return str.slice( 0, 3 ) == "url" ? str.slice( str.indexOf( "#" ) + 1, str.length - 1 ) : false;
 			},
 
 			/**
@@ -835,7 +868,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var value, lvl = lvl ? lvl : 0,
 					limit = limit ? limit : 3;
 
-				if ( _this.isElement(elm) ) {
+				if ( _this.isElement( elm ) ) {
 					value = ( elm.getAttribute( "class" ) || "" ).split( " " ).indexOf( className ) != -1;
 
 					if ( !value && lvl < limit ) {
@@ -857,10 +890,25 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 					// CLIPPATH
 					if ( childNode.tagName == "clipPath" ) {
+						var bbox = {};
+						var transform = fabric.parseTransformAttribute( _this.gatherAttribute( childNode, "transform" ) );
+
+						// HIDE SIBLINGS; GATHER IT'S DIMENSIONS
 						for ( i2 = 0; i2 < childNode.childNodes.length; i2++ ) {
 							childNode.childNodes[ i2 ].setAttribute( "fill", "transparent" );
+							bbox = {
+								x: _this.pxToNumber( childNode.childNodes[ i2 ].getAttribute( "x" ) ),
+								y: _this.pxToNumber( childNode.childNodes[ i2 ].getAttribute( "y" ) ),
+								width: _this.pxToNumber( childNode.childNodes[ i2 ].getAttribute( "width" ) ),
+								height: _this.pxToNumber( childNode.childNodes[ i2 ].getAttribute( "height" ) )
+							}
 						}
-						group.clippings[ childNode.id ] = childNode;
+
+						group.clippings[ childNode.id ] = {
+							svg: childNode,
+							bbox: bbox,
+							transform: transform
+						};
 
 						// PATTERN
 					} else if ( childNode.tagName == "pattern" ) {
@@ -885,30 +933,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						} else {
 							images.included++;
 
-							// LOAD IMAGE MANUALLY; TO RERENDER THE CANVAS
-							fabric.Image.fromURL( props.source, ( function( props ) {
-								return function( img ) {
-									images.loaded++;
-
-									var patternSourceCanvas = new fabric.StaticCanvas( undefined, {
-										backgroundColor: props.fill
-									} );
-									patternSourceCanvas.add( img );
-
-									var pattern = new fabric.Pattern( {
-										source: function() {
-											patternSourceCanvas.setDimensions( {
-												width: props.width,
-												height: props.height
-											} );
-											return patternSourceCanvas.getElement();
-										},
-										repeat: 'repeat'
-									} );
-
-									group.patterns[ props.node.id ] = pattern;
-								}
-							} )( props ) );
+							group.patterns[ props.node.id ] = props;
 						}
 
 						// IMAGES
@@ -975,6 +1000,22 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					included: 0
 				}
 
+				fabric.ElementsParser.prototype.resolveGradient = function( obj, property ) {
+
+					var instanceFillValue = obj.get( property );
+					if ( !( /^url\(/ ).test( instanceFillValue ) ) {
+						return;
+					}
+					var gradientId = instanceFillValue.slice( instanceFillValue.indexOf( "#" ) + 1, instanceFillValue.length - 1 );
+					if ( fabric.gradientDefs[ this.svgUid ][ gradientId ] ) {
+						obj.set( property,
+							fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj ) );
+					}
+				};
+
+				// BEFORE CAPTURING
+				_this.handleCallback( cfg.beforeCapture, cfg );
+
 				// GATHER SVGS
 				var svgs = _this.setup.chart.containerDiv.getElementsByTagName( "svg" );
 				for ( i1 = 0; i1 < svgs.length; i1++ ) {
@@ -1035,13 +1076,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				// CLEAR IF EXIST
 				_this.drawing.buffer.enabled = cfg.action == "draw";
 
-				if ( !_this.setup.wrapper ) {
-					_this.setup.wrapper = document.createElement( "div" );
-					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
-					_this.setup.chart.containerDiv.appendChild( _this.setup.wrapper );
-				} else {
-					_this.setup.wrapper.innerHTML = "";
-				}
+				_this.setup.wrapper = document.createElement( "div" );
+				_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
+				_this.setup.chart.containerDiv.appendChild( _this.setup.wrapper );
 
 				// STOCK CHART; SELECTOR OFFSET
 				if ( _this.setup.chart.type == "stock" ) {
@@ -1350,16 +1387,16 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						// REGULAR CHARTS; SVG OFFSET
 					} else {
 						// POSITION; ABSOLUTE
-						if ( group.parent.style.position == "absolute"  ) {
+						if ( group.parent.style.position == "absolute" ) {
 							group.offset.absolute = true;
-							group.offset.top = _this.pxToNumber(group.parent.style.top);
-							group.offset.right = _this.pxToNumber(group.parent.style.right,true);
-							group.offset.bottom = _this.pxToNumber(group.parent.style.bottom,true);
-							group.offset.left = _this.pxToNumber(group.parent.style.left);
-							group.offset.width = _this.pxToNumber(group.parent.style.width);
-							group.offset.height = _this.pxToNumber(group.parent.style.height);
+							group.offset.top = _this.pxToNumber( group.parent.style.top );
+							group.offset.right = _this.pxToNumber( group.parent.style.right, true );
+							group.offset.bottom = _this.pxToNumber( group.parent.style.bottom, true );
+							group.offset.left = _this.pxToNumber( group.parent.style.left );
+							group.offset.width = _this.pxToNumber( group.parent.style.width );
+							group.offset.height = _this.pxToNumber( group.parent.style.height );
 
-						// POSITION; RELATIVE
+							// POSITION; RELATIVE
 						} else if ( group.parent.style.top && group.parent.style.left ) {
 							group.offset.y = _this.pxToNumber( group.parent.style.top );
 							group.offset.x = _this.pxToNumber( group.parent.style.left );
@@ -1394,18 +1431,17 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					}
 
-					// BEFORE CAPTURING
-					_this.handleCallback( cfg.beforeCapture, cfg );
-
 					// ADD TO CANVAS
 					fabric.parseSVGDocument( group.svg, ( function( group ) {
 						return function( objects, options ) {
 							var i1;
 							var g = fabric.util.groupSVGElements( objects, options );
+							var paths = [];
 							var tmp = {
 								selectable: false
 							};
 
+							// GROUP OFFSET; ABSOLUTE
 							if ( group.offset.absolute ) {
 								if ( group.offset.bottom !== undefined ) {
 									tmp.top = offset.height - group.offset.height - group.offset.bottom;
@@ -1419,19 +1455,21 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 									tmp.left = group.offset.left;
 								}
 
+								// GROUP OFFSET; REGULAR
 							} else {
 								tmp.top = group.offset.y;
 								tmp.left = group.offset.x;
 							}
 
+							// WALKTHROUGH ELEMENTS
 							for ( i1 = 0; i1 < g.paths.length; i1++ ) {
+								var PID = null;
 
 								// OPACITY; TODO: DISTINGUISH OPACITY TYPES
 								if ( g.paths[ i1 ] ) {
 
 									// CHECK ORIGIN; REMOVE TAINTED
 									if ( cfg.removeImages && _this.isTainted( g.paths[ i1 ][ "xlink:href" ] ) ) {
-										g.paths.splice( i1, 1 );
 										continue;
 									}
 
@@ -1448,60 +1486,108 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 											opacity: g.paths[ i1 ].fillOpacity
 										} );
 
-										// PATTERN; TODO: DISTINGUISH OPACITY TYPES
-									} else if ( String( g.paths[ i1 ].fill ).slice( 0, 3 ) == "url" ) {
-										var PID = g.paths[ i1 ].fill.slice( 5, -1 );
+										// FILLING; TODO: DISTINGUISH OPACITY TYPES
+									} else if ( PID = _this.isHashbanged( g.paths[ i1 ].fill ) ) {
+
+										// PATTERN
 										if ( group.patterns && group.patterns[ PID ] ) {
-											g.paths[ i1 ].set( {
-												fill: group.patterns[ PID ],
-												opacity: g.paths[ i1 ].fillOpacity
-											} );
+
+											var props = group.patterns[ PID ];
+
+											// LOAD IMAGE MANUALLY; TO RERENDER THE CANVAS
+											fabric.Image.fromURL( props.source, ( function( props, i1 ) {
+												return function( img ) {
+													images.loaded++;
+
+													var pattern = null;
+													var patternSourceCanvas = new fabric.StaticCanvas( undefined, {
+														backgroundColor: props.fill
+													} );
+													patternSourceCanvas.add( img );
+
+													pattern = new fabric.Pattern( {
+														source: function() {
+															patternSourceCanvas.setDimensions( {
+																width: props.width,
+																height: props.height
+															} );
+															return patternSourceCanvas.getElement();
+														},
+														repeat: 'repeat'
+													} );
+
+													g.paths[ i1 ].set( {
+														fill: pattern,
+														opacity: g.paths[ i1 ].fillOpacity
+													} );
+												}
+											} )( props, i1 ) );
 										}
 									}
 
 									// CLIPPATH;
-									if ( String( g.paths[ i1 ].clipPath ).slice( 0, 3 ) == "url" ) {
-										var PID = g.paths[ i1 ].clipPath.slice( 5, -1 );
+									if ( PID = _this.isHashbanged( g.paths[ i1 ].clipPath ) ) {
 
-										if ( group.clippings[ PID ] ) {
-											var mask = group.clippings[ PID ].childNodes[ 0 ];
-											var transform = g.paths[ i1 ].svg.getAttribute( "transform" ) || "translate(0,0)";
-
-											transform = transform.slice( 10, -1 ).split( "," );
-
+										if ( group.clippings && group.clippings[ PID ] ) {
 											g.paths[ i1 ].set( {
-												clipTo: ( function( mask, transform ) {
+												clipTo: ( function( i1, PID ) {
 													return function( ctx ) {
-														var width = Number( mask.getAttribute( "width" ) || "0" );
-														var height = Number( mask.getAttribute( "height" ) || "0" );
-														var x = Number( mask.getAttribute( "x" ) || "0" );
-														var y = Number( mask.getAttribute( "y" ) || "0" );
+														var cp = group.clippings[ PID ];
+														var tm = this.transformMatrix || [ 1, 0, 0, 1, 0, 0 ];
+														var dim = {
+															top: ( cp.bbox.y - tm[ 5 ] ) + cp.transform[ 5 ],
+															left: ( cp.bbox.x - tm[ 4 ] ) + cp.transform[ 4 ],
+															width: cp.bbox.width,
+															height: cp.bbox.height
+														}
 
-														ctx.rect( Number( transform[ 0 ] ) * -1 + x, Number( transform[ 1 ] ) * -1 + y, width, height );
+														ctx.rect( dim.left, dim.top, dim.width, dim.height );
 													}
-												} )( mask, transform )
+												} )( i1, PID )
 											} );
 										}
 									}
 
 									// TODO; WAIT FOR TSPAN SUPPORT FROM FABRICJS SIDE
-									if ( g.paths[ i1 ].originalBBox ) {
-										var bb = g.paths[ i1 ].originalBBox;
-										if ( g.paths[ i1 ].textAlign == "left" ) {
-											g.paths[ i1 ].set( {
-												left: bb.left + ( g.paths[ i1 ].width / 2 )
+									if ( g.paths[ i1 ].TSPANWORKAROUND ) {
+										var parsedAttributes = fabric.parseAttributes( g.paths[ i1 ].svg, fabric.Text.ATTRIBUTE_NAMES );
+										var options = fabric.util.object.extend( {}, parsedAttributes );
+
+										// CREATE NEW SET
+										var tmpBuffer = [];
+										for ( var i = 0; i < g.paths[ i1 ].svg.childNodes.length; i++ ) {
+											var textNode = g.paths[ i1 ].svg.childNodes[ i ];
+											var textElement = fabric.Text.fromElement( textNode, options );
+
+											textElement.set( {
+												left: 0
 											} );
-										} else {
-											g.paths[ i1 ].set( {
-												left: bb.left - ( g.paths[ i1 ].width / 2 )
-											} );
+
+											tmpBuffer.push( textElement );
 										}
+
+										// HIDE ORIGINAL ELEMENT
+										g.paths[ i1 ].set( {
+											opacity: 0
+										} );
+
+										// REPLACE BY GROUP AND CANCEL FIRST OFFSET
+										var tmpGroup = new fabric.Group( tmpBuffer, {
+											top: g.paths[ i1 ].top * -1
+										} );
+										_this.setup.fabric.add( tmpGroup );
 									}
 								}
+								paths.push( g.paths[ i1 ] );
 							}
 
+							// REPLACE WITH WHITELIST
+							g.paths = paths;
+
+							// SET PROPS
 							g.set( tmp );
 
+							// ADD TO CANVAS
 							_this.setup.fabric.add( g );
 
 							// ADD BALLOONS
@@ -1511,31 +1597,38 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 									if ( cfg.balloonFunction instanceof Function ) {
 										cfg.balloonFunction.apply( _this, [ balloons[ i1 ], group ] );
 									} else {
-										var parent = balloons[ i1 ];
-										var text = parent.childNodes[ 0 ];
-										var label = new fabric.Text( text.innerText || text.innerHTML, {
-											fontSize: _this.pxToNumber( text.style.fontSize ),
-											fontFamily: text.style.fontFamily,
-											fill: text.style.color,
-											top: _this.pxToNumber( parent.style.top ) + group.offset.y,
-											left: _this.pxToNumber( parent.style.left ) + group.offset.x,
-											selectable: false
+										var elm_parent = balloons[ i1 ];
+										var style_parent = fabric.parseStyleAttribute( elm_parent );
+										var style_text = fabric.parseStyleAttribute( elm_parent.childNodes[ 0 ] );
+										var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.innerHTML, {
+											selectable: false,
+											top: style_parent.top + group.offset.y,
+											left: style_parent.left + group.offset.x,
+											fill: style_text[ "color" ],
+											fontSize: style_text[ "fontSize" ],
+											fontFamily: style_text[ "fontFamily" ],
+											textAlign: style_text[ "text-align" ]
 										} );
 
-										_this.setup.fabric.add( label );
+										_this.setup.fabric.add( fabric_label );
 									}
 								}
 							}
+
 							if ( group.svg.nextSibling && group.svg.nextSibling.tagName == "A" ) {
-								var label = new fabric.Text( group.svg.nextSibling.innerText || group.svg.nextSibling.innerHTML, {
-									fontSize: _this.pxToNumber( group.svg.nextSibling.style.fontSize ),
-									fontFamily: group.svg.nextSibling.style.fontFamily,
-									fill: group.svg.nextSibling.style.color,
-									top: _this.pxToNumber( group.svg.nextSibling.style.top ) + group.offset.y,
-									left: _this.pxToNumber( group.svg.nextSibling.style.left ) + group.offset.x,
-									selectable: false
+								var elm_parent = group.svg.nextSibling;
+								var style_parent = fabric.parseStyleAttribute( elm_parent );
+								var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.innerHTML, {
+									selectable: false,
+									top: style_parent.top + group.offset.y,
+									left: style_parent.left + group.offset.x,
+									fill: style_parent[ "color" ],
+									fontSize: style_parent[ "fontSize" ],
+									fontFamily: style_parent[ "fontFamily" ],
+									opacity: style_parent[ "opacity" ]
 								} );
-								_this.setup.fabric.add( label );
+
+								_this.setup.fabric.add( fabric_label );
 							}
 
 							groups.pop();
@@ -1567,28 +1660,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						// TODO; WAIT FOR TSPAN SUPPORT FROM FABRICJS SIDE
 						if ( svg.tagName == "text" && svg.childNodes.length > 1 ) {
-							var lines = [];
-							var textAnchor = svg.getAttribute( "text-anchor" ) || "left";
-							var anchorMap = {
-								"start": "left",
-								"middle": "center",
-								"end": "right"
-							}
-
-							for ( i1 = 0; i1 < svg.childNodes.length; i1++ ) {
-								lines.push( svg.childNodes[ i1 ].textContent );
-							}
-
-							if ( textAnchor != "middle" ) {
-								obj.originalBBox = obj.getBoundingRect();
-							}
-							obj.set( {
-								lineHeight: 1.05,
-								top: obj.top + obj.height - ( obj.fontSize * ( 0.18 + obj._fontSizeFraction ) / 2 ),
-								text: lines.join( "\n" ),
-								textAlign: anchorMap[ textAnchor ],
-								selectable: false
-							} );
+							obj.TSPANWORKAROUND = true;
 						}
 
 						// HIDE HIDDEN ELEMENTS; TODO: FIND A BETTER WAY TO HANDLE THAT
@@ -1867,7 +1939,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					data: _this.getChartData( options ),
 					delimiter: ",",
 					quotes: true,
-					escape: true
+					escape: true,
+					withHeader: true
 				}, options || {}, true );
 				var data = "";
 				var cols = [];
@@ -1875,12 +1948,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				function enchant( value, column ) {
 
-					// STRING
-					if ( typeof value === "string" ) {
-						value = value;
-					}
-
-					// WRAP IN QUOTES				
+					// WRAP IN QUOTES
 					if ( typeof value === "string" ) {
 						if ( cfg.escape ) {
 							value = value.replace( '"', '""' );
@@ -1898,7 +1966,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					buffer.push( enchant( value ) );
 					cols.push( value );
 				}
-				data += buffer.join( cfg.delimiter ) + "\n";
+				if ( cfg.withHeader ) {
+					data += buffer.join( cfg.delimiter ) + "\n";
+				}
 
 				// BODY
 				for ( row in cfg.data ) {
@@ -2031,9 +2101,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						for ( col in cols ) {
 							if ( !isNaN( col ) ) {
 								var col = cols[ col ];
-								var value = cfg.data[ row ][ col ] || "";
-
-								if ( cfg.stringify ) {
+								var value = cfg.data[ row ][ col ];
+								if ( value == null ) {
+									value = "";
+								} else if ( cfg.stringify ) {
 									value = String( value );
 								} else {
 									value = value;
@@ -2193,6 +2264,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					dataFields: [],
 					dataFieldsMap: {},
 					exportTitles: _this.config.exportTitles,
+					exportFields: _this.config.exportFields,
 					exportSelection: _this.config.exportSelection,
 					columnNames: _this.config.columnNames
 				}, options || {}, true );
@@ -2344,6 +2416,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					dataDateFormat: _this.setup.chart.dataDateFormat,
 					dateFormat: _this.config.dateFormat || _this.setup.chart.dataDateFormat || "YYYY-MM-DD",
 					exportTitles: _this.config.exportTitles,
+					exportFields: _this.config.exportFields,
 					exportSelection: _this.config.exportSelection,
 					columnNames: _this.config.columnNames
 				}, options || {}, true );
@@ -2360,6 +2433,13 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					}
 
+					// REMOVE FIELDS SELECTIVELY
+					if ( cfg.exportFields !== undefined ) {
+						cfg.dataFields = cfg.dataFields.filter( function( n ) {
+							return cfg.exportFields.indexOf( n ) != -1;
+						} );
+					}
+
 					// REBUILD DATA
 					var buffer = [];
 					for ( i1 = 0; i1 < cfg.data.length; i1++ ) {
@@ -2369,7 +2449,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							var uniqueField = cfg.dataFields[ i2 ];
 							var dataField = cfg.dataFieldsMap[ uniqueField ];
 							var title = ( cfg.columnNames && cfg.columnNames[ uniqueField ] ) || cfg.titles[ uniqueField ] || uniqueField;
-							var value = cfg.data[ i1 ][ dataField ] || undefined;
+							var value = cfg.data[ i1 ][ dataField ];
+							if ( value == null ) {
+								value = undefined;
+							}
 
 							// TITLEFY
 							if ( cfg.exportTitles && _this.setup.chart.type != "gantt" ) {
@@ -2385,9 +2468,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								if ( cfg.dataDateFormat && ( value instanceof String || typeof value == "string" ) ) {
 									value = AmCharts.stringToDate( value, cfg.dataDateFormat );
 
-								// CONVERT TIMESTAMP TO DATE OBJECT
+									// CONVERT TIMESTAMP TO DATE OBJECT
 								} else if ( cfg.dateFormat && ( value instanceof Number || typeof value == "number" ) ) {
-									value = new Date(value);
+									value = new Date( value );
 								}
 
 								// CATEGORY RANGE
@@ -2871,8 +2954,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							// CREATE REFERENCE
 							_this.setup.chart.AmExport = _this;
 
-							// OVERWRITE PARENT OVERVIEW
-							_this.setup.chart.div.style.overflow = "visible";
+							// OVERWRITE PARENT OVERFLOW
+							if ( _this.config.overflow ) {
+								_this.setup.chart.div.style.overflow = "visible";
+							}
 
 							// ATTACH EVENTS
 							_this.loadListeners();
@@ -3028,6 +3113,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
  * Set init handler
  */
 AmCharts.addInitHandler( function( chart ) {
-	new AmCharts["export"]( chart );
+	new AmCharts[ "export" ]( chart );
 
 }, [ "pie", "serial", "xy", "funnel", "radar", "gauge", "stock", "map", "gantt" ] );
