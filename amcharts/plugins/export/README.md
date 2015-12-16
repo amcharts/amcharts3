@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.8
+Version: 1.4.9
 
 
 ## Description
@@ -879,6 +879,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.9
+* Added: Radial gradient support on pie charts (new feature in amCharts v3.18.0)
 
 ### 1.4.8
 * Fixed: Clippath positioning issue

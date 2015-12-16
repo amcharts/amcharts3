@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.8
+Version: 1.4.9
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.8",
+			version: "1.4.9",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -1008,8 +1008,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 					var gradientId = instanceFillValue.slice( instanceFillValue.indexOf( "#" ) + 1, instanceFillValue.length - 1 );
 					if ( fabric.gradientDefs[ this.svgUid ][ gradientId ] ) {
-						obj.set( property,
-							fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj ) );
+						obj.set( property, fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj ) );
 					}
 				};
 
@@ -1478,13 +1477,29 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 										// MISINTERPRETATION OF FABRIC
 										if ( g.paths[ i1 ].fill.type == "radial" ) {
-											g.paths[ i1 ].fill.coords.r2 = g.paths[ i1 ].fill.coords.r1 * -1;
-											g.paths[ i1 ].fill.coords.r1 = 0;
-										}
 
-										g.paths[ i1 ].set( {
-											opacity: g.paths[ i1 ].fillOpacity
-										} );
+											// PIE EXCEPTION
+											if ( _this.setup.chart.type == "pie" ) {
+												var tmp_n = g.paths[ i1 ];
+												var tmp_c = tmp_n.getCenterPoint();
+												var tmp_cp = tmp_n.group.getCenterPoint();
+												var tmp_cd = {
+													x: tmp_n.pathOffset.x - tmp_cp.x,
+													y: tmp_n.pathOffset.y - tmp_cp.y
+												};
+
+												g.paths[ i1 ].fill.gradientTransform[ 4 ] = tmp_n.pathOffset.x - tmp_cd.x;
+												g.paths[ i1 ].fill.gradientTransform[ 5 ] = tmp_n.pathOffset.y - tmp_cd.y;
+
+												// OTHERS
+											} else {
+												g.paths[ i1 ].fill.coords.r2 = g.paths[ i1 ].fill.coords.r1 * -1;
+												g.paths[ i1 ].fill.coords.r1 = 0;
+												g.paths[ i1 ].set( {
+													opacity: g.paths[ i1 ].fillOpacity
+												} );
+											}
+										}
 
 										// FILLING; TODO: DISTINGUISH OPACITY TYPES
 									} else if ( PID = _this.isHashbanged( g.paths[ i1 ].fill ) ) {
