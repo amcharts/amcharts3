@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.10
+Version: 1.0.11
 
 
 ## Description
@@ -288,6 +288,10 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.11
+* New translation: Added French translation. Thanks Remy!
+* Tweaks to allow better animation after data load on Pie chart
 
 ### 1.0.10
 * Fixed error related to headers not being set when using standalone data load functions
