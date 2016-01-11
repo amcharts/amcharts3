@@ -20,22 +20,30 @@
     }
     </style>
     <script>
-      var map = AmCharts.makeChart( "chartdiv", {
-        type: "map",
-        "dataLoader": {
-          "url": "data/map.json",
-          "showErrors": false
-        },
-        "colorSteps": 10,
-        "areasSettings": {
-          "autoZoom": true
-        },
-        "smallMap": {},
-        "valueLegend": {
-          "right": 10,
-          "minValue": "little",
-          "maxValue": "a lot!"
-        }
+      /**
+       * We will use Data Loader's function to load data "externally"
+       * then create a map when it's loaded
+       */
+      AmCharts.loadFile( "data/map_areas.json", {}, function( areas ) {
+
+        // now that we loaded our areas, let's create the map
+        var map = AmCharts.makeChart( "chartdiv", {
+          "type": "map",
+          "colorSteps": 10,
+          "dataProvider": {
+            "map": "usaLow",
+            "areas": AmCharts.parseJSON( areas )
+          },
+          "areasSettings": {
+            "autoZoom": true
+          },
+          "valueLegend": {
+            "right": 10,
+            "minValue": "little",
+            "maxValue": "a lot!"
+          }
+        } );
+
       } );
     </script>
   </head>

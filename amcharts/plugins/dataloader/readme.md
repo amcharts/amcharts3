@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.11
+Version: 1.0.12
 
 
 ## Description
@@ -213,7 +213,6 @@ AmCharts.makeChart( "chartdiv", {
 } );
 ```
 
-
 ## Translating into other languages
 
 Depending on configuration options the plugin will display a small number of 
@@ -288,6 +287,11 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.12
+* Better default options handling in external calls to AmCharts.loadFile
+* Fixed the latest version of Stock Chart not resetting to default pre-defined period
+* New example: Using Data Loader functions externally (map_json_external_function.html)
 
 ### 1.0.11
 * New translation: Added French translation. Thanks Remy!

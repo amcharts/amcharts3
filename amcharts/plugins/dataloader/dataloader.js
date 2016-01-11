@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.11
+Version: 1.0.12
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -252,9 +252,33 @@ AmCharts.addInitHandler( function( chart ) {
           // take in the new data
           if ( options.async ) {
 
-            if ( 'map' === chart.type )
+            if ( 'map' === chart.type ) {
+
+              // take in new data
               chart.validateNow( true );
-            else {
+
+              // remove curtain
+              removeCurtain();
+              
+            } else {
+
+              // add a dataUpdated event to handle post-load stuff
+              if ( 'gauge' !== chart.type ) {
+                chart.addListener( "dataUpdated", function( event ) {
+
+                  // restore default period (stock chart)
+                  if ( 'stock' === chart.type && !options.reloading && undefined !== chart.periodSelector ) {
+                    chart.periodSelector.setDefaultPeriod();
+                  }
+
+                  // remove curtain
+                  removeCurtain();
+
+                  // remove this listener
+                  chart.events.dataUpdated.pop();
+                } );
+              }
+
 
               // take in new data
               chart.validateData();
@@ -263,6 +287,11 @@ AmCharts.addInitHandler( function( chart ) {
               // disabled for now as it is not longer necessary
               /*if ( 'pie' === chart.type && chart.invalidateSize !== undefined )
                 chart.invalidateSize();*/
+
+              // gauge chart does not trigger dataUpdated event
+              // let's explicitly remove the curtain for it
+              if ( 'gauge' === chart.type )
+                removeCurtain();
 
               // make the chart animate again
               if ( l.startDuration ) {
@@ -281,12 +310,6 @@ AmCharts.addInitHandler( function( chart ) {
             }
           }
 
-          // restore default period
-          if ( 'stock' === chart.type && !options.reloading && undefined !== chart.periodSelector )
-            chart.periodSelector.setDefaultPeriod();
-
-          // remove curtain
-          removeCurtain();
         }
 
         // schedule another load if necessary
@@ -449,6 +472,12 @@ if ( undefined === AmCharts.__ ) {
  * Loads a file from url and calls function handler with the result
  */
 AmCharts.loadFile = function( url, options, handler ) {
+
+  // prepopulate options with minimal defaults if necessary
+  if ( typeof( options ) !== "object" )
+    options = {};
+  if ( options.async === undefined )
+    options.async = true;
 
   // create the request
   var request;
