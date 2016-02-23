@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.10
+Version: 1.4.12
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.10",
+			version: "1.4.12",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -1544,6 +1544,18 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 									if ( PID = _this.isHashbanged( g.paths[ i1 ].clipPath ) ) {
 
 										if ( group.clippings && group.clippings[ PID ] ) {
+
+											// TODO: WAIT UNTIL FABRICJS HANDLES CLIPPATH FOR SVG OUTPUT
+											( function( i1, PID ) {
+												var toSVG = g.paths[ i1 ].toSVG;
+
+												g.paths[ i1 ].toSVG = function( original_reviver ) {
+													return toSVG.apply(this, [ function( string ) {
+														return original_reviver( string, group.clippings[ PID ] );
+													} ] );
+												}
+											} )( i1, PID );
+
 											g.paths[ i1 ].set( {
 												clipTo: ( function( i1, PID ) {
 													return function( ctx ) {
@@ -1590,7 +1602,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 										var tmpGroup = new fabric.Group( tmpBuffer, {
 											top: g.paths[ i1 ].top * -1
 										} );
-										_this.setup.fabric.add( tmpGroup );
+										g.paths[ i1 ] = tmpGroup;
 									}
 								}
 								paths.push( g.paths[ i1 ] );
@@ -1827,13 +1839,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 * Generates SVG image; returns base64 datastring
 			 */
 			toSVG: function( options, callback ) {
+				var clipPaths = [];
 				var cfg = _this.deepMerge( {
-					reviver: function( string ) {
+					reviver: function( string, clipPath ) {
 						var matcher = new RegExp( /\bstyle=(['"])(.*?)\1/ );
 						var match = matcher.exec( string )[ 0 ].slice( 7, -1 );
 						var styles = match.split( ";" );
 						var replacement = [];
 
+						// BEAUTIFY STYLES
 						for ( i1 = 0; i1 < styles.length; i1++ ) {
 							if ( styles[ i1 ] ) {
 								var pair = styles[ i1 ].replace( /\s/g, "" ).split( ":" );
@@ -1856,11 +1870,38 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								}
 							}
 						}
+						string = string.replace( match, replacement.join( ";" ) );
 
-						return string.replace( match, replacement.join( ";" ) );
+						// TODO: WAIT UNTIL FABRICJS HANDLES CLIPPATH FOR SVG OUTPUT
+						if ( clipPath ) {
+							var sliceOffset = 2;
+							var end = string.slice( - sliceOffset);
+
+							if ( end != "/>" ) {
+								sliceOffset = 3;
+								end = string.slice( - sliceOffset);
+							}
+
+							var start = string.slice(0,string.length - sliceOffset);
+							var clipPathAttr = " clip-path=\"url(#"+ clipPath.svg.id +")\" ";
+							var clipPathString = new XMLSerializer().serializeToString(clipPath.svg);
+
+							string = start + clipPathAttr + end;
+
+							clipPaths.push(clipPathString);
+						}
+
+						return string;
 					}
 				}, options || {} );
 				var data = _this.setup.fabric.toSVG( cfg, cfg.reviver );
+
+				// TODO: WAIT UNTIL FABRICJS HANDLES CLIPPATH FOR SVG OUTPUT
+				if ( clipPaths.length ) {
+					var start = data.slice(0,data.length-6);
+					var end = data.slice(-6);
+					data = start + clipPaths.join("") + end;
+				}
 
 				if ( cfg.getBase64 ) {
 					data = "data:image/svg+xml;base64," + btoa( data );

@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.10
+Version: 1.4.12
 
 
 ## Description
@@ -879,6 +879,12 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.12
+* Fixed: clipPath issue on SVG export (workaround until fabricJS handles that by themselves)
+
+### 1.4.11
+* Fixed: Depth issue on value labels on columns
 
 ### 1.4.10
 * Fixed: potential vulnerability with anonymous function declaration
