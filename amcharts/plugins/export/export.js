@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.12
+Version: 1.4.13
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.12",
+			version: "1.4.13",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -1627,7 +1627,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 										var elm_parent = balloons[ i1 ];
 										var style_parent = fabric.parseStyleAttribute( elm_parent );
 										var style_text = fabric.parseStyleAttribute( elm_parent.childNodes[ 0 ] );
-										var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.innerHTML, {
+										var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.textContent || elm_parent.innerHTML, {
 											selectable: false,
 											top: style_parent.top + group.offset.y,
 											left: style_parent.left + group.offset.x,
@@ -1645,7 +1645,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							if ( group.svg.nextSibling && group.svg.nextSibling.tagName == "A" ) {
 								var elm_parent = group.svg.nextSibling;
 								var style_parent = fabric.parseStyleAttribute( elm_parent );
-								var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.innerHTML, {
+								var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.textContent || elm_parent.innerHTML, {
 									selectable: false,
 									top: style_parent.top + group.offset.y,
 									left: style_parent.left + group.offset.x,

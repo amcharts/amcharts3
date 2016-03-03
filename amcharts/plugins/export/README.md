@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.12
+Version: 1.4.13
 
 
 ## Description
@@ -879,6 +879,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.13
+* Fixed: Issue on balloons showing it's content as HTML added "textContent" as alternative getter
 
 ### 1.4.12
 * Fixed: clipPath issue on SVG export (workaround until fabricJS handles that by themselves)
