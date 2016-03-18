@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.13
+Version: 1.4.14
 
 
 ## Description
@@ -145,6 +145,7 @@ keyListener | false | If true it observes the pressed keys to undo/redo the anno
 fileListener | false | If true it observes the drag and drop feature and loads the dropped image file into the annotation
 drawing | {} | Object which holds all possible settings for the annotation mode ([skip to chapter](#annotation-settings))
 overflow | true | Flag to overwrite the css attribute 'overflow' of the chart container to avoid cropping the menu on small container
+border | {} | An object of key/value pairs to define the overlaying border
 
 
 ## Configuring export menu
@@ -276,6 +277,20 @@ By default it obtains the dimensions from the container but you can optionally o
     "position": "top",  // or "right", "bottom" and "left" are possible
     "width": 200,       // optional
     "height": 200       // optional
+  }
+}
+```
+
+### Adding overlaying border
+
+In case you need a more visible separation of your chart for further processing you can add an overlaying border.
+
+```
+"export": {
+  "border": {
+    "stroke": "#000000",  // HEX-CODE to define the border color
+    "strokeWidth": 1,     // number which represents the width in pixel
+    "strokeOpacity": 1    // number which controls the opacity from 0 - 1
   }
 }
 ```
@@ -630,6 +645,7 @@ columnNames | An object of key/value pairs to use as column names when exporting
 exportSelection | Exports the current data selection only ( data export only )
 dataDateFormat | Format to convert date strings to date objects, uses by default charts dataDateFormat ( data export only )
 dateFormat | Formats the category field in given date format ( data export only )
+border | An object of key/value pairs to define the overlaying border
 
 Available `format` values:
 
@@ -879,6 +895,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.14 
+* Added: ([border](#adding-overlaying-border)) config-property to add an overlaying border on the output image. 
 
 ### 1.4.13
 * Fixed: Issue on balloons showing it's content as HTML added "textContent" as alternative getter

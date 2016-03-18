@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.13
+Version: 1.4.14
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -68,7 +68,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.13",
+			version: "1.4.14",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -485,6 +485,13 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						opacities: [ 1, 0.8, 0.6, 0.4, 0.2 ],
 						menu: undefined,
 						autoClose: true
+					},
+					border: {
+						fill: "",
+						fillOpacity: 0,
+						stroke: "#000000",
+						strokeWidth: 1,
+						strokeOpacity: 1
 					}
 				},
 				pdfMake: {
@@ -1665,6 +1672,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								var timer = setInterval( function() {
 									if ( images.loaded == images.included ) {
 										clearTimeout( timer );
+										_this.handleBorder( cfg );
 										_this.handleCallback( cfg.afterCapture, cfg );
 										_this.setup.fabric.renderAll();
 										_this.handleCallback( callback, cfg );
@@ -2271,6 +2279,23 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					}
 					callback.apply( _this, data );
+				}
+			},
+
+			/**
+			 * Border handler; injects additional border to canvas
+			 */
+			handleBorder: function( options ) {
+				if ( _this.config.border instanceof Object ) {
+					var cfg = _this.deepMerge( _this.defaults.fabric.border, options.border || {}, true );
+					var border = new fabric.Rect();
+
+					cfg.width = _this.setup.fabric.width - cfg.strokeWidth;
+					cfg.height = _this.setup.fabric.height - cfg.strokeWidth;
+
+					border.set(cfg);
+
+					_this.setup.fabric.add(border);
 				}
 			},
 
@@ -3046,6 +3071,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				// MERGE SETTINGS
 				_this.config.drawing = _this.deepMerge( _this.defaults.fabric.drawing, _this.config.drawing || {}, true );
+				if ( _this.config.border ) {
+					_this.config.border = _this.deepMerge( _this.defaults.fabric.border, _this.config.border || {}, true );
+				}
 				_this.deepMerge( _this.defaults.fabric, _this.config, true );
 				_this.deepMerge( _this.defaults.fabric, _this.config.fabric || {}, true );
 				_this.deepMerge( _this.defaults.pdfMake, _this.config, true );
