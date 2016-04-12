@@ -607,7 +607,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var i1, exist, node, item, check, type;
 				var url = src.indexOf( "//" ) != -1 ? src : [ _this.libs.path, src ].join( "" );
 
-				function callback() {
+				var loadCallback = function callback() {
 					if ( addons ) {
 						for ( i1 = 0; i1 < addons.length; i1++ ) {
 							_this.loadResource( addons[ i1 ] );
@@ -657,10 +657,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				if ( !exist || _this.libs.reload ) {
-					node.addEventListener( "load", callback );
+					node.addEventListener( "load", loadCallback );
 					document.head.appendChild( node );
-				}
 
+					if(!_this.listenersToRemove){
+						_this.listenersToRemove = [];
+					}
+
+					_this.listenersToRemove.push({node:node, method:loadCallback, event:"load"});
+				}
 			},
 
 			/**
@@ -2979,6 +2984,21 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				return cfg;
 			},
 
+			clear:function(){
+				_this.setup = undefined;
+				if(_this.docListener){
+					document.removeEventListener("keydown", _this.docListener);
+				}
+				var listenersToRemove = _this.listenersToRemove;
+				if(listenersToRemove){
+					for(var i = 0; i < listenersToRemove.length; i++){
+						var listenerToRemove = listenersToRemove[i];
+						listenerToRemove.node.removeEventListener(listenerToRemove.event, listenerToRemove.method)
+					}
+				}
+				_this.listenersToRemove = [];				
+			},
+
 			/*
 			 ** Add event listener
 			 */
@@ -2993,10 +3013,12 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 				}
 
+
+
 				// OBSERVE; KEY LISTENER; DRAWING FEATURES
 				if ( _this.config.keyListener && _this.config.keyListener != "attached" ) {
-					_this.config.keyListener = "attached";
-					document.addEventListener( "keydown", function( e ) {
+
+				_this.docListener = function( e ) {
 						var current = _this.drawing.buffer.target;
 
 						// REMOVE; key: BACKSPACE / DELETE
@@ -3033,7 +3055,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								_this.drawing.handler.undo();
 							}
 						}
-					} );
+					}
+
+					_this.config.keyListener = "attached";
+					
+					document.addEventListener("keydown", _this.docListener);
 				}
 
 				// OBSERVE; DRAG AND DROP LISTENER; DRAWING FEATURE
@@ -3049,6 +3075,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			init: function() {
 				clearTimeout( _this.timer );
+				
 				_this.timer = setInterval( function() {
 					if ( _this.setup.chart.containerDiv ) {
 						clearTimeout( _this.timer );
