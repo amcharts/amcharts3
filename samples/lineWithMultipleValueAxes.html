@@ -25,6 +25,8 @@
                // listen for "dataUpdated" event (fired when chart is inited) and call zoomChart method when it happens
                chart.addListener("dataUpdated", zoomChart);
 
+               chart.synchronizeGrid = true; // this makes all axes grid to be at the same intervals
+
                // AXES
                // category
                var categoryAxis = chart.categoryAxis;
@@ -63,7 +65,6 @@
                var valueAxis1 = new AmCharts.ValueAxis();
                valueAxis1.axisColor = "#FF6600";
                valueAxis1.axisThickness = 2;
-               valueAxis1.gridAlpha = 0;
                chart.addValueAxis(valueAxis1);
 
                // second value axis (on the right)

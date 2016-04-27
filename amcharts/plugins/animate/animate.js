@@ -2,7 +2,7 @@
 Plugin Name: amCharts Animate
 Description: Smoothly animates the `dataProvider`
 Author: Paul Chapman, amCharts
-Version: 1.0.0
+Version: 1.1.0
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -312,9 +312,18 @@ not apply to any other amCharts products that are covered by different licenses.
 		] );
 	}
 
-	function getKeysGraphs( graphs, keys, seen ) {
+	function getKeysXY( graph, keys, seen ) {
+		getKeysGraph( graph, keys, seen );
+
+		addKeys( keys, seen, graph, [
+			"xField",
+			"yField"
+		] );
+	}
+
+	function getKeysGraphs( graphs, keys, seen, f ) {
 		each( graphs, function( graph ) {
-			getKeysGraph( graph, keys, seen );
+			f( graph, keys, seen );
 		} );
 	}
 
@@ -339,10 +348,13 @@ not apply to any other amCharts products that are covered by different licenses.
 
 		} else if ( chart.type === "serial" ) {
 			getKeysCategoryAxis( chart.categoryAxis, keys, seen );
-			getKeysGraphs( chart.graphs, keys, seen );
+			getKeysGraphs( chart.graphs, keys, seen, getKeysGraph );
 
 		} else if ( chart.type === "radar" ) {
-			getKeysGraphs( chart.graphs, keys, seen );
+			getKeysGraphs( chart.graphs, keys, seen, getKeysGraph );
+
+		} else if ( chart.type === "xy" ) {
+			getKeysGraphs( chart.graphs, keys, seen, getKeysXY );
 		}
 
 		return keys;
@@ -407,7 +419,7 @@ not apply to any other amCharts products that are covered by different licenses.
 	}
 
 
-	function getTweens( dataProvider, categoryField, categories, keys ) {
+	function getNormalTweens( dataProvider, categoryField, categories, keys ) {
 		var tweens = [];
 
 		each( dataProvider, function( newData ) {
@@ -433,15 +445,51 @@ not apply to any other amCharts products that are covered by different licenses.
 	}
 
 
+	function getXYTweens( oldDataProvider, newDataProvider, keys ) {
+		var tweens = [];
+
+		var length = Math.min( oldDataProvider.length, newDataProvider.length );
+
+		for ( var i = 0; i < length; ++i ) {
+			var oldData = oldDataProvider[ i ];
+			var newData = newDataProvider[ i ];
+
+			each( keys, function( key ) {
+				var oldValue = getValue( oldData, key );
+				var newValue = getValue( newData, key );
+
+				// If the old field and new field both exist...
+				if ( oldValue != null && newValue != null ) {
+					tweens.push( new Tween( newData, key, oldValue, newValue ) );
+				}
+			} );
+		}
+
+		return tweens;
+	}
+
+
+	function getTweens( chart, dataProvider ) {
+		if ( chart.type === "xy" ) {
+			var keys = getKeys( chart );
+
+			return getXYTweens( chart.dataProvider, dataProvider, keys );
+
+		} else {
+			var categoryField = getCategoryField( chart );
+			var keys = getKeys( chart );
+
+			var categories = getCategories( chart.dataProvider, categoryField );
+
+			return getNormalTweens( dataProvider, categoryField, categories, keys );
+		}
+	}
+
+
 	function animateData( dataProvider, options ) {
 		var chart = this;
 
-		var categoryField = getCategoryField( chart );
-		var keys = getKeys( chart );
-
-		var categories = getCategories( chart.dataProvider, categoryField );
-
-		var tweens = getTweens( dataProvider, categoryField, categories, keys );
+		var tweens = getTweens( chart, dataProvider );
 
 		chart.dataProvider = dataProvider;
 
@@ -461,6 +509,6 @@ not apply to any other amCharts products that are covered by different licenses.
 
 	AmCharts.addInitHandler( function( chart ) {
 		chart.animateData = animateData;
-	}, [ "funnel", "pie", "serial", "radar" ] );
+	}, [ "funnel", "pie", "serial", "radar", "xy" ] );
 
 } )();

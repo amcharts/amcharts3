@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.15
+Version: 1.0.16
 
 
 ## Description
@@ -98,6 +98,7 @@ format | json | Type of data: json, csv
 headers | | An array of objects with two properties (key and value) to attach to HTTP request
 load | | Callback function to execute when file is successfully loaded (might be invoked multiple times)
 noStyles | false | If set to true no styles will be applied to "Data loading" curtain
+numberFields | | [CSV only] An array of fields in data to treat as numbers
 postProcess | | If set to function reference, that function will be called to "post-process" loaded data before passing it on to chart. The handler function will receive two parameters: loaded data, Data Loader options
 progress | | Set this to function reference to track progress of the load. The function will be passed in three parameters: global progress, individual file progress, file URL.
 showErrors | true | Show loading errors in a chart curtain
@@ -300,6 +301,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.16
+* Added "numberFields" config array
 
 ### 1.0.15
 * Added "emptyAs" config property. Empty CSV values will be set to this (default `undefined`)

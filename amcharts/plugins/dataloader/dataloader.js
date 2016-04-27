@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.15
+Version: 1.0.16
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -85,6 +85,7 @@ AmCharts.addInitHandler( function( chart ) {
     'reloading': false,
     'complete': false,
     'error': false,
+    'numberFields': [],
     'headers': [],
     'chart': chart
   };
@@ -589,6 +590,9 @@ AmCharts.parseCSV = function( response, options ) {
   // parse CSV into array
   var data = AmCharts.CSVToArray( response, options.delimiter );
 
+  // do we need to cast some fields to numbers?
+  var numbers = options.numberFields && ( options.numberFields.length > 0 );
+
   // init resuling array
   var res = [];
   var cols = [];
@@ -627,6 +631,10 @@ AmCharts.parseCSV = function( response, options ) {
     for ( i = 0; i < row.length; i++ ) {
       col = undefined === cols[ i ] ? 'col' + i : cols[ i ];
       dataPoint[ col ] = row[ i ] === "" ? options.emptyAs : row[ i ];
+
+      // check if we need to cast to integer
+      if ( numbers && options.numberFields.indexOf( col ) !== -1 )
+        dataPoint[ col ] = Number( dataPoint[ col ] );
     }
     res.push( dataPoint );
   }
@@ -713,7 +721,6 @@ AmCharts.CSVToArray = function( strData, strDelimiter ) {
       strMatchedValue = arrMatches[ 3 ];
 
     }
-
 
     // Now that we have our value string, let's add
     // it to the data array.
