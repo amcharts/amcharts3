@@ -25,5 +25,7 @@ AmCharts.translations[ "export" ][ "fr" ] = {
     "menu.label.draw.modes": "Mode ...",
     "menu.label.draw.modes.pencil": "Crayon",
     "menu.label.draw.modes.line": "Ligne",
-    "menu.label.draw.modes.arrow": "Flèche"
+    "menu.label.draw.modes.arrow": "Flèche",
+
+    "label.saved.from": "Sauvé de la: "
 }

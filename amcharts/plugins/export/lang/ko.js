@@ -25,5 +25,7 @@ AmCharts.translations[ "export" ][ "ko" ] = {
 	"menu.label.draw.modes": "모드 변경 ...",
 	"menu.label.draw.modes.pencil": "펜",
 	"menu.label.draw.modes.line": "선",
-	"menu.label.draw.modes.arrow": "화살표"
+	"menu.label.draw.modes.arrow": "화살표",
+
+    "label.saved.from": "에서 저장: "
 }

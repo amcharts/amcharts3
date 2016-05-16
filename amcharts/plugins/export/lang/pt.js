@@ -31,5 +31,7 @@ AmCharts.translations["export"]["pt"] = {
     "menu.label.draw.modes": "Ferramenta",
     "menu.label.draw.modes.pencil": "Pincel",
     "menu.label.draw.modes.line": "Linha",
-    "menu.label.draw.modes.arrow": "Seta"
+    "menu.label.draw.modes.arrow": "Seta",
+
+    "label.saved.from": "Salvar de: "
 }

@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.20
+Version: 1.4.24
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -57,7 +57,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		"menu.label.draw.modes": "Mode ...",
 		"menu.label.draw.modes.pencil": "Pencil",
 		"menu.label.draw.modes.line": "Line",
-		"menu.label.draw.modes.arrow": "Arrow"
+		"menu.label.draw.modes.arrow": "Arrow",
+
+		"label.saved.from": "Saved from: "
 	}
 }
 
@@ -68,15 +70,14 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.20",
+			version: "1.4.24",
 			libs: {
 				async: true,
 				autoLoad: true,
 				reload: false,
-				resources: [ {
-					"pdfmake/pdfmake.js": [ "pdfmake/vfs_fonts.js" ],
-					"jszip/jszip.js": [ "xlsx/xlsx.js" ]
-				}, "fabric.js/fabric.js", "FileSaver.js/FileSaver.js" ],
+				resources: [ "fabric.js/fabric.min.js", "FileSaver.js/FileSaver.min.js", "jszip/jszip.min.js", "xlsx/xlsx.min.js", {
+					"pdfmake/pdfmake.min.js": [ "pdfmake/vfs_fonts.js" ]
+				} ],
 				namespaces: {
 					"pdfmake.js": "pdfMake",
 					"jszip.js": "JSZip",
@@ -468,6 +469,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				fabric: {
 					backgroundColor: "#FFFFFF",
 					removeImages: true,
+					forceRemoveImages: false,
 					selection: false,
 					drawing: {
 						enabled: true,
@@ -495,13 +497,63 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 				},
 				pdfMake: {
-					pageSize: "A4",
-					pageOrientation: "portrait",
 					images: {},
-					content: [ "Saved from:", window.location.href, {
-						image: "reference",
-						fit: [ 515.28, 761.89 - ( 14.064 * 2 ) ]
-					} ]
+					pageOrientation: "portrait",
+					pageMargins: 40,
+					pageOrigin: true,
+					pageSize: "A4",
+					pageSizes: {
+						"4A0": [ 4767.87, 6740.79 ],
+						"2A0": [ 3370.39, 4767.87 ],
+						"A0": [ 2383.94, 3370.39 ],
+						"A1": [ 1683.78, 2383.94 ],
+						"A2": [ 1190.55, 1683.78 ],
+						"A3": [ 841.89, 1190.55 ],
+						"A4": [ 595.28, 841.89 ],
+						"A5": [ 419.53, 595.28 ],
+						"A6": [ 297.64, 419.53 ],
+						"A7": [ 209.76, 297.64 ],
+						"A8": [ 147.40, 209.76 ],
+						"A9": [ 104.88, 147.40 ],
+						"A10": [ 73.70, 104.88 ],
+						"B0": [ 2834.65, 4008.19 ],
+						"B1": [ 2004.09, 2834.65 ],
+						"B2": [ 1417.32, 2004.09 ],
+						"B3": [ 1000.63, 1417.32 ],
+						"B4": [ 708.66, 1000.63 ],
+						"B5": [ 498.90, 708.66 ],
+						"B6": [ 354.33, 498.90 ],
+						"B7": [ 249.45, 354.33 ],
+						"B8": [ 175.75, 249.45 ],
+						"B9": [ 124.72, 175.75 ],
+						"B10": [ 87.87, 124.72 ],
+						"C0": [ 2599.37, 3676.54 ],
+						"C1": [ 1836.85, 2599.37 ],
+						"C2": [ 1298.27, 1836.85 ],
+						"C3": [ 918.43, 1298.27 ],
+						"C4": [ 649.13, 918.43 ],
+						"C5": [ 459.21, 649.13 ],
+						"C6": [ 323.15, 459.21 ],
+						"C7": [ 229.61, 323.15 ],
+						"C8": [ 161.57, 229.61 ],
+						"C9": [ 113.39, 161.57 ],
+						"C10": [ 79.37, 113.39 ],
+						"RA0": [ 2437.80, 3458.27 ],
+						"RA1": [ 1729.13, 2437.80 ],
+						"RA2": [ 1218.90, 1729.13 ],
+						"RA3": [ 864.57, 1218.90 ],
+						"RA4": [ 609.45, 864.57 ],
+						"SRA0": [ 2551.18, 3628.35 ],
+						"SRA1": [ 1814.17, 2551.18 ],
+						"SRA2": [ 1275.59, 1814.17 ],
+						"SRA3": [ 907.09, 1275.59 ],
+						"SRA4": [ 637.80, 907.09 ],
+						"EXECUTIVE": [ 521.86, 756.00 ],
+						"FOLIO": [ 612.00, 936.00 ],
+						"LEGAL": [ 612.00, 1008.00 ],
+						"LETTER": [ 612.00, 792.00 ],
+						"TABLOID": [ 792.00, 1224.00 ]
+					}
 				},
 				menu: undefined,
 				divId: null,
@@ -660,11 +712,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					node.addEventListener( "load", loadCallback );
 					document.head.appendChild( node );
 
-					if(!_this.listenersToRemove){
+					if ( !_this.listenersToRemove ) {
 						_this.listenersToRemove = [];
 					}
 
-					_this.listenersToRemove.push({node:node, method:loadCallback, event:"load"});
+					_this.listenersToRemove.push( {
+						node: node,
+						method: loadCallback,
+						event: "load"
+					} );
 				}
 			},
 
@@ -792,19 +848,43 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			},
 
 			/**
+			 * Checks if given source needs to be removed
+			 */
+			removeImage: function( source ) {
+				if ( source ) {
+					// FORCE REMOVAL
+					if ( _this.config.fabric.forceRemoveImages ) {
+						return true;
+
+						// REMOVE TAINTED
+					} else if ( _this.config.fabric.removeImages && _this.isTainted( source ) ) {
+						return true;
+					}
+				}
+				return false
+			},
+
+			/**
 			 * Checks if given source is within the current origin
 			 */
 			isTainted: function( source ) {
 				var origin = String( window.location.origin || window.location.protocol + "//" + window.location.hostname + ( window.location.port ? ':' + window.location.port : '' ) );
 
-				// CHECK IF TAINTED
-				if (
-					source &&
-					source.indexOf( "//" ) != -1 &&
-					source.indexOf( origin.replace( /.*:/, "" ) ) == -1
-				) {
-					return true;
+				// CHECK GIVEN SOURCE
+				if ( source ) {
+					// LOCAL FILES ARE ALWAYS TAINTED
+					if (
+						origin.indexOf( ":\\" ) != -1 || source.indexOf( ":\\" ) != -1 ||
+						origin.indexOf( "file://" ) != -1 || source.indexOf( "file://" ) != -1
+					) {
+						return true
+
+						// MISMATCHING ORIGIN
+					} else if ( source.indexOf( "//" ) != -1 && source.indexOf( origin.replace( /.*:/, "" ) ) == -1 ) {
+						return true;
+					}
 				}
+
 				return false;
 			},
 
@@ -940,7 +1020,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 
 						// TAINTED
-						if ( cfg.removeImages && _this.isTainted( props.source ) ) {
+						if ( _this.removeImage( props.source ) ) {
 							group.patterns[ childNode.id ] = props.fill ? props.fill : "transparent";
 						} else {
 							images.included++;
@@ -1050,7 +1130,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				// GATHER EXTERNAL LEGEND
-				if ( _this.config.legend && _this.setup.chart.legend && _this.setup.chart.legend.position == "outside" ) {
+				if ( _this.config.legend && _this.setup.chart.legend && _this.setup.chart.legend.divId ) {
 					var group = {
 						svg: _this.setup.chart.legend.container.container,
 						parent: _this.setup.chart.legend.container.container.parentNode,
@@ -1438,9 +1518,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						// PANEL OFFSET (STOCK CHARTS)
 						if ( isLegend && isPanel && isPanel.style.marginTop ) {
 							offset.y += _this.pxToNumber( isPanel.style.marginTop );
-							group.offset.y += _this.pxToNumber( isPanel.style.marginTop );	
+							group.offset.y += _this.pxToNumber( isPanel.style.marginTop );
 
-						// GENERAL LEFT / RIGHT POSITION
+							// GENERAL LEFT / RIGHT POSITION
 						} else if ( _this.setup.chart.legend && [ "left", "right" ].indexOf( _this.setup.chart.legend.position ) != -1 ) {
 							group.offset.y = _this.pxToNumber( group.parent.style.top );
 							group.offset.x = _this.pxToNumber( group.parent.style.left );
@@ -1485,7 +1565,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								if ( g.paths[ i1 ] ) {
 
 									// CHECK ORIGIN; REMOVE TAINTED
-									if ( cfg.removeImages && _this.isTainted( g.paths[ i1 ][ "xlink:href" ] ) ) {
+									if ( _this.removeImage( g.paths[ i1 ][ "xlink:href" ] ) ) {
 										continue;
 									}
 
@@ -1495,8 +1575,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 										// MISINTERPRETATION OF FABRIC
 										if ( g.paths[ i1 ].fill.type == "radial" ) {
 
-												// OTHERS
-											if ( ["pie","gauge"].indexOf(_this.setup.chart.type) == -1 ) {
+											// OTHERS
+											if ( [ "pie", "gauge" ].indexOf( _this.setup.chart.type ) == -1 ) {
 												g.paths[ i1 ].fill.coords.r2 = g.paths[ i1 ].fill.coords.r1 * -1;
 												g.paths[ i1 ].fill.coords.r1 = 0;
 												g.paths[ i1 ].set( {
@@ -1762,7 +1842,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var cfg = _this.deepMerge( {
 					format: "png",
 					quality: 1,
-					multiplier: this.config.multiplier
+					multiplier: _this.config.multiplier
 				}, options || {} );
 				var data = cfg.data;
 				var img = document.createElement( "img" );
@@ -1824,7 +1904,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var cfg = _this.deepMerge( {
 					format: "jpeg",
 					quality: 1,
-					multiplier: this.config.multiplier
+					multiplier: _this.config.multiplier
 				}, options || {} );
 				cfg.format = cfg.format.toLowerCase();
 				var data = _this.setup.fabric.toDataURL( cfg );
@@ -1841,7 +1921,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var cfg = _this.deepMerge( {
 					format: "png",
 					quality: 1,
-					multiplier: this.config.multiplier
+					multiplier: _this.config.multiplier
 				}, options || {} );
 				var data = _this.setup.fabric.toDataURL( cfg );
 
@@ -1932,15 +2012,93 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			toPDF: function( options, callback ) {
 				var cfg = _this.deepMerge( _this.deepMerge( {
-					multiplier: 2
+					multiplier: _this.config.multiplier || 2,
+					pageOrigin: _this.config.pageOrigin === undefined ? true : false
 				}, _this.config.pdfMake ), options || {}, true );
-				cfg.images.reference = _this.toPNG( cfg );
 				var data = new pdfMake.createPdf( cfg );
 
-				
+				// Get image data
+				cfg.images.reference = _this.toPNG( cfg );
+
+				// Get page margins; exported from pdfMake
+				function getMargins( margin ) {
+					if ( typeof margin === 'number' || margin instanceof Number ) {
+						margin = {
+							left: margin,
+							right: margin,
+							top: margin,
+							bottom: margin
+						};
+					} else if ( margin instanceof Array ) {
+						if ( margin.length === 2 ) {
+							margin = {
+								left: margin[ 0 ],
+								top: margin[ 1 ],
+								right: margin[ 0 ],
+								bottom: margin[ 1 ]
+							};
+						} else if ( margin.length === 4 ) {
+							margin = {
+								left: margin[ 0 ],
+								top: margin[ 1 ],
+								right: margin[ 2 ],
+								bottom: margin[ 3 ]
+							};
+						} else throw 'Invalid pageMargins definition';
+					} else {
+						margin = {
+							left: _this.defaults.pdfMake.pageMargins,
+							top: _this.defaults.pdfMake.pageMargins,
+							right: _this.defaults.pdfMake.pageMargins,
+							bottom: _this.defaults.pdfMake.pageMargins
+						};
+					}
+
+					return margin;
+				}
+
+				// Get page dimensions
+				function getSize( pageSize, pageOrientation ) {
+					var pageDimensions = _this.defaults.pdfMake.pageSizes[ String( pageSize ).toUpperCase() ].slice();
+
+					if ( !pageDimensions ) {
+						throw new Error( "The given pageSize \"" + pageSize + "\" does not exist!" );
+					}
+
+					// Revers in case of landscape
+					if ( pageOrientation == "landscape" ) {
+						pageDimensions.reverse();
+					}
+
+					return pageDimensions;
+				}
+
+				// Polyfill default content if none is given
+				if ( !cfg.content ) {
+					var pageContent = [];
+					var pageDimensions = getSize( cfg.pageSize, cfg.pageOrientation );
+					var pageMargins = getMargins( cfg.pageMargins );
+
+					pageDimensions[ 0 ] -= ( pageMargins.left + pageMargins.right );
+					pageDimensions[ 1 ] -= ( pageMargins.top + pageMargins.bottom );
+
+					if ( cfg.pageOrigin ) {
+						pageContent.push( _this.i18l( "label.saved.from" ) );
+						pageContent.push( window.location.href );
+						pageDimensions[ 1 ] -= ( 14.064 * 2 );
+					}
+
+					pageContent.push( {
+						image: "reference",
+						fit: pageDimensions
+					} );
+
+					cfg.content = pageContent;
+				}
+
 				if ( callback ) {
 					data.getDataUrl( ( function( callback ) {
-						return function() {
+						return function( a ) {
 							callback.apply( _this, arguments );
 						}
 					} )( callback ) );
@@ -2084,7 +2242,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				function datenum( v, date1904 ) {
 					if ( date1904 ) v += 1462;
 					var epoch = Date.parse( v );
-					return ( epoch - new Date( Date.UTC( 1899, 11, 30 ) ) ) / ( 24 * 60 * 60 * 1000 );
+					var offset = v.getTimezoneOffset() * 60 * 1000;
+					return ( epoch - offset - new Date( Date.UTC( 1899, 11, 30 ) ) ) / ( 24 * 60 * 60 * 1000 );
 				}
 
 				function sheet_from_array_of_arrays( data, opts ) {
@@ -2286,7 +2445,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							data.push( arguments[ i1 ] );
 						}
 					}
-					callback.apply( _this, data );
+					return callback.apply( _this, data );
 				}
 			},
 
@@ -2591,11 +2750,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				if ( cfg.processData !== undefined ) {
-					return cfg.processData( cfg.data );
-
-				} else {
-					return cfg.data;
+					cfg.data = _this.handleCallback( cfg.processData, cfg.data, cfg );
 				}
+
+				return cfg.data;
 			},
 
 			/**
@@ -2972,19 +3130,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				return cfg;
 			},
 
-			clear:function(){
+			clear: function() {
 				_this.setup = undefined;
-				if(_this.docListener){
-					document.removeEventListener("keydown", _this.docListener);
+				if ( _this.docListener ) {
+					document.removeEventListener( "keydown", _this.docListener );
 				}
 				var listenersToRemove = _this.listenersToRemove;
-				if(listenersToRemove){
-					for(var i = 0; i < listenersToRemove.length; i++){
-						var listenerToRemove = listenersToRemove[i];
-						listenerToRemove.node.removeEventListener(listenerToRemove.event, listenerToRemove.method)
+				if ( listenersToRemove ) {
+					for ( var i = 0; i < listenersToRemove.length; i++ ) {
+						var listenerToRemove = listenersToRemove[ i ];
+						listenerToRemove.node.removeEventListener( listenerToRemove.event, listenerToRemove.method )
 					}
 				}
-				_this.listenersToRemove = [];				
+				_this.listenersToRemove = [];
 			},
 
 			/*
@@ -3006,7 +3164,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				// OBSERVE; KEY LISTENER; DRAWING FEATURES
 				if ( _this.config.keyListener && _this.config.keyListener != "attached" ) {
 
-				_this.docListener = function( e ) {
+					_this.docListener = function( e ) {
 						var current = _this.drawing.buffer.target;
 
 						// REMOVE; key: BACKSPACE / DELETE
@@ -3046,8 +3204,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 
 					_this.config.keyListener = "attached";
-					
-					document.addEventListener("keydown", _this.docListener);
+
+					document.addEventListener( "keydown", _this.docListener );
 				}
 
 				// OBSERVE; DRAG AND DROP LISTENER; DRAWING FEATURE
@@ -3063,7 +3221,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			init: function() {
 				clearTimeout( _this.timer );
-				
+
 				_this.timer = setInterval( function() {
 					if ( _this.setup.chart.containerDiv ) {
 						clearTimeout( _this.timer );

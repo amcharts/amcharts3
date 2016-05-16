@@ -2,7 +2,7 @@
 Plugin Name: amCharts Animate
 Description: Smoothly animates the `dataProvider`
 Author: Paul Chapman, amCharts
-Version: 1.1.0
+Version: 1.1.1
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -146,9 +146,7 @@ not apply to any other amCharts products that are covered by different licenses.
 	Animation.prototype._end = function( time ) {
 		this._tick( time );
 
-		if ( this._onComplete != null ) {
-			this._onComplete();
-		}
+		this._onComplete();
 	};
 
 
@@ -361,6 +359,54 @@ not apply to any other amCharts products that are covered by different licenses.
 	}
 
 
+	// Sets the minimum/maximum of the value axes while the animation is playing
+	function setAxesMinMax( chart ) {
+		var axes = {};
+
+		if ( chart.type === "serial" || chart.type === "radar" || chart.type === "xy" ) {
+			each( chart.valueAxes, function( axis ) {
+				// TODO is it guaranteed that every value axis has an id ?
+				if ( axes[ axis.id ] == null ) {
+					axes[ axis.id ] = {
+						minimum: axis.minimum,
+						maximum: axis.maximum
+					};
+
+					// TODO is this correct ?
+					if ( axis.minimum == null ) {
+						axis.minimum = axis.min;
+					}
+
+					if ( axis.maximum == null ) {
+						axis.maximum = axis.max;
+					}
+				}
+			} );
+		}
+
+		return axes;
+	}
+
+	// Resets the minimum/maximum of the value axes after the animation is finished
+	function resetAxesMinMax( chart, axes ) {
+		if ( chart.type === "serial" || chart.type === "radar" || chart.type === "xy" ) {
+			each( chart.valueAxes, function( axis ) {
+				var info = axes[ axis.id ];
+
+				if ( info != null ) {
+					if ( info.minimum == null ) {
+						delete axis.minimum;
+					}
+
+					if ( info.maximum == null ) {
+						delete axis.maximum;
+					}
+				}
+			} );
+		}
+	}
+
+
 	function getCategoryField( chart ) {
 		if ( chart.type === "funnel" || chart.type === "pie" ) {
 			return chart.titleField;
@@ -491,12 +537,22 @@ not apply to any other amCharts products that are covered by different licenses.
 
 		var tweens = getTweens( chart, dataProvider );
 
+		var axes = setAxesMinMax( chart );
+
 		chart.dataProvider = dataProvider;
+
+		function onComplete() {
+			resetAxesMinMax( chart, axes );
+
+			if ( options.complete != null ) {
+				options.complete();
+			}
+		}
 
 		var animation = new Animation(
 			options.duration,
 			options.easing,
-			options.complete,
+			onComplete,
 			tweens,
 			chart
 		);

@@ -25,5 +25,7 @@ AmCharts.translations[ "export" ][ "pl" ] = {
     "menu.label.draw.modes": "Tryb ...",
     "menu.label.draw.modes.pencil": "Ołówek",
     "menu.label.draw.modes.line": "Linia",
-    "menu.label.draw.modes.arrow": "Strzałka"
+    "menu.label.draw.modes.arrow": "Strzałka",
+
+    "label.saved.from": "Ocalić od: "
 }

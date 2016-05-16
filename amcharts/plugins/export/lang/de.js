@@ -25,5 +25,7 @@ AmCharts.translations[ "export" ][ "de" ] = {
 	"menu.label.draw.modes": "Modus...",
 	"menu.label.draw.modes.pencil": "Stift",
 	"menu.label.draw.modes.line": "Linie",
-	"menu.label.draw.modes.arrow": "Pfeil"
+	"menu.label.draw.modes.arrow": "Pfeil",
+
+	"label.saved.from": "Gespeichert von: "
 }
