@@ -1,6 +1,6 @@
 {
   "name": "amcharts3",
-  "version": "3.20.5",
+  "version": "3.20.6",
   "description": "JavaScript Charts V3",
   "main": "amcharts/amcharts.js",
   "repository": {

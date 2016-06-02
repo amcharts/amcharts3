@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.24
+Version: 1.4.26
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -70,7 +70,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.24",
+			version: "1.4.26",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -167,6 +167,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					},
 					done: function( options ) {
+						_this.drawing.enabled = false;
 						_this.drawing.buffer.enabled = false;
 						_this.drawing.undos = [];
 						_this.drawing.redos = [];
@@ -852,12 +853,17 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			removeImage: function( source ) {
 				if ( source ) {
+
 					// FORCE REMOVAL
 					if ( _this.config.fabric.forceRemoveImages ) {
 						return true;
 
 						// REMOVE TAINTED
 					} else if ( _this.config.fabric.removeImages && _this.isTainted( source ) ) {
+						return true;
+
+						// IE 10 internal bug handling SVG images in canvas context
+					} else if ( AmCharts.isIE && AmCharts.IEversion == 10 && source.toLowerCase().indexOf( ".svg" ) != -1 ) {
 						return true;
 					}
 				}
@@ -1165,7 +1171,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				// CLEAR IF EXIST
-				_this.drawing.buffer.enabled = cfg.action == "draw";
+				_this.drawing.enabled = cfg.action == "draw";
+				_this.drawing.buffer.enabled = _this.drawing.enabled; // history reasons
 
 				_this.setup.wrapper = document.createElement( "div" );
 				_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas" );
@@ -1416,7 +1423,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				} );
 
 				// DRAWING
-				if ( _this.drawing.buffer.enabled ) {
+				if ( _this.drawing.enabled ) {
 					_this.setup.wrapper.setAttribute( "class", _this.setup.chart.classNamePrefix + "-export-canvas active" );
 					_this.setup.wrapper.style.backgroundColor = cfg.backgroundColor;
 					_this.setup.wrapper.style.display = "block";
@@ -2470,7 +2477,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 * Handles drag/drop events; loads given imagery
 			 */
 			handleDropbox: function( e ) {
-				if ( _this.drawing.buffer.enabled ) {
+				if ( _this.drawing.enabled ) {
 					e.preventDefault();
 					e.stopPropagation();
 
@@ -2892,7 +2899,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								} )( item );
 
 								// DRAWING
-							} else if ( _this.drawing.buffer.enabled ) {
+							} else if ( _this.drawing.enabled ) {
 								item.click = ( function( item ) {
 									return function() {
 										if ( this.config.drawing.autoClose ) {

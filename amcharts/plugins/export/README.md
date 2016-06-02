@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.24
+Version: 1.4.26
 
 
 ## Description
@@ -911,6 +911,16 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.26
+* Fixed: IE10 SVG image handing issue, caused by an internal bug of IE10 (removes SVGs automatically to avoid triggering the security policy)
+
+### 1.4.25
+* Fixed: `export.config.advanced.js` sample config issue with drawing callbacks
+* Fixed: `delay` property reset issue, did not get considered after first usage
+* Fixed: `drawing.enabled` propery issue after first usage, stayed on true
+* Changed: Updated fabric.js source to `1.6.2`
+* Added: Advanced sample using the advanced config
 
 ### 1.4.24
 * Fixed: Issue with external legends in maps
