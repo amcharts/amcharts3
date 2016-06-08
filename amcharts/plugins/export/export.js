@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.26
+Version: 1.4.27
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -70,7 +70,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.26",
+			version: "1.4.27",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -1371,6 +1371,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					item.recentState = state;
 
 					if ( item.selectable && !item.known && !item.noUndo ) {
+						item.isAnnotation = true;
 						_this.drawing.undos.push( {
 							action: "added",
 							target: item,
@@ -1541,7 +1542,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							var g = fabric.util.groupSVGElements( objects, options );
 							var paths = [];
 							var tmp = {
-								selectable: false
+								selectable: false,
+								isCoreElement: true
 							};
 
 							// GROUP OFFSET; ABSOLUTE
@@ -1735,7 +1737,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 											fill: style_text[ "color" ],
 											fontSize: style_text[ "fontSize" ],
 											fontFamily: style_text[ "fontFamily" ],
-											textAlign: style_text[ "text-align" ]
+											textAlign: style_text[ "text-align" ],
+											isCoreElement: true
 										} );
 
 										_this.setup.fabric.add( fabric_label );
@@ -1753,7 +1756,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 									fill: style_parent[ "color" ],
 									fontSize: style_parent[ "fontSize" ],
 									fontFamily: style_parent[ "fontFamily" ],
-									opacity: style_parent[ "opacity" ]
+									opacity: style_parent[ "opacity" ],
+									isCoreElement: true
 								} );
 
 								_this.setup.fabric.add( fabric_label );
@@ -2656,6 +2660,61 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 				}
 				return _this.processData( cfg );
+			},
+
+			/**
+			 * Returns embedded annotations in an array
+			 */
+			getAnnotations: function( options, callback ) {
+				var cfg = _this.deepMerge( {
+					// For the future
+				}, options || {}, true );
+				var i1;
+				var data = [];
+
+				// Collect annotations
+				for ( i1 = 0; i1 < _this.setup.fabric._objects.length; i1++ ) {
+
+					// Internal flag to distinguish between annotations and "core" elements
+					if ( !_this.setup.fabric._objects[i1].isCoreElement ) {
+						var obj = _this.setup.fabric._objects[i1].toJSON();
+
+						// Revive before adding to allow modifying the object
+						_this.handleCallback( cfg.reviver, obj, i1 );
+
+						// Push into output
+						data.push(obj);
+					}
+				}
+
+				_this.handleCallback( callback, data );
+
+				return data;
+			},
+
+			/**
+			 * Inserts the given annotations
+			 */
+			setAnnotations: function( options, callback ) {
+				var cfg = _this.deepMerge( {
+					data: []
+				}, options || {}, true );
+
+				// Convert annotations objects into fabric instances
+				fabric.util.enlivenObjects( cfg.data, function( enlivenedObjects ) {
+					enlivenedObjects.forEach( function( obj, i1 ) {
+
+						// Revive before adding to allow modifying the object
+						_this.handleCallback( cfg.reviver, obj, i1 );
+
+						// Add into active instance canvas
+						_this.setup.fabric.add( obj );
+					} );
+
+					_this.handleCallback( callback, cfg );
+				} );
+
+				return cfg.data;
 			},
 
 			/**

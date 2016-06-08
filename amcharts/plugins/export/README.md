@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.26
+Version: 1.4.27
 
 
 ## Description
@@ -823,6 +823,40 @@ toCanvas | (object) options, (function) callback | Prepares a Canvas and passes 
 toArray | (object) options, (function) callback | Prepares an Array and passes the data to the callback function
 toImage | (object) options, (function) callback | Generates an image element which holds the output in an embedded base64 data url
 
+## Annotation API
+
+Since version 1.4.27 we've introduced the functionality to manage the annotations on the fly. The setter returns an array of objects, where each element represents an annotation.
+On the other hand the setter processes the given annotations within options (options.data). Both methods support the reviver callback which allows you to modify the annotations if needed.
+
+Function | Parameters | Description
+-------- | ---------- | -----------
+getAnnotations | (object) options, (function) callback | Returns an array of objects where each element represents an annotation.
+setAnnotations | (object) options, (function) callback | Draws the given annotations (options.data).
+
+Here's an example how to insert annotations, please ensure your chart is in annotation mode:
+
+```
+chart.export.setAnnotations({
+
+  // Array of annotations, accepts this simple handwritten format or the detailed output of the getter
+  data: [{
+    top: 200,
+    left: 200,
+    text: "Test annotation",
+    type: "text"
+  }],
+
+  // Allows you to modify the annotation before it's being added into the canvas.
+  reviver: function(obj,index) {
+    obj.fill = "#FF00FF";
+  }
+
+
+},function() {
+  // Callback when finished 
+});
+```
+
 ## Fallback for IE9
 
 Unfortunately, Internet Explorer 9 has restrictions in place that prevent the
@@ -911,6 +945,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.27
+* Added: [Annotations API](#annotations-api) to get or set annotations within drawing mode.
 
 ### 1.4.26
 * Fixed: IE10 SVG image handing issue, caused by an internal bug of IE10 (removes SVGs automatically to avoid triggering the security policy)
