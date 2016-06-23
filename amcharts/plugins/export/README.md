@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.27
+Version: 1.4.30
 
 
 ## Description
@@ -619,7 +619,32 @@ your exported images.
         });
         this.setup.fabric.add(text);
     }
-  }]
+  }],
+```
+
+Since version 1.4.29 we have added the `onReady` callback to get your stuff done
+right after the plugin or specific dependency is ready to use. Ensure to check the
+`timedout` flag to be sure the dependency got fully loaded.
+
+```
+"export": {
+  "onReady": function( type, timedout ) {
+
+    // Plugin ready for data exports
+    if ( type == "data" ) {
+      this.toCSV( {}, function( data ) {
+        // Exported to CSV
+      } );
+
+    // Plugin ready for image exports
+    } else if ( type == "fabric" && !timedout ) {
+      this.capture( {}, function() {
+        this.toPNG( {}, function( data ) {
+          // Exported to PNG
+        } );
+      } );
+    }
+  }
 }
 ```
 
@@ -945,6 +970,20 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.30
+* Fixed: Pattern loading, positioning issue, supports x,y offset now
+
+### 1.4.29
+* Added: `libs.loadTimeout` dependency namespace timeout used within onReady handler
+* Added: `fabric.loadTimeout` loading image timeout to avoid blocking the export process
+* Added: [onReady](#events) ready callback handler to get notified when the export or specific dependency is ready to use
+* Fixed: fill/stroke issue on SVG elements which caused a crash within the export process
+* Fixed: Image loader which freezed occasionally and caused an unexpected behaviour
+
+### 1.4.28
+* Fixed: Positioning / handling issue on multiline labels (injected modifed fabricJS snippet to handle it)
+* Fixed: Cursor issue on regular exports which flashed the crosshair cursor for a moment
 
 ### 1.4.27
 * Added: [Annotations API](#annotations-api) to get or set annotations within drawing mode.

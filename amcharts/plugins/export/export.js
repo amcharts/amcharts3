@@ -2,10 +2,10 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.27
+Version: 1.4.30
 Author URI: http://www.amcharts.com/
 
-Copyright 2015 amCharts
+Copyright 2016 amCharts
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -70,7 +70,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.27",
+			version: "1.4.30",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -84,7 +84,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					"xlsx.js": "XLSX",
 					"fabric.js": "fabric",
 					"FileSaver.js": "saveAs"
-				}
+				},
+				loadTimeout: 10000
 			},
 			config: {},
 			setup: {
@@ -472,6 +473,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					removeImages: true,
 					forceRemoveImages: false,
 					selection: false,
+					loadTimeout: 5000,
 					drawing: {
 						enabled: true,
 						arrow: "end",
@@ -1015,13 +1017,25 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							source: childNode.getAttribute( "xlink:href" ),
 							width: Number( childNode.getAttribute( "width" ) ),
 							height: Number( childNode.getAttribute( "height" ) ),
-							repeat: "repeat"
+							repeat: "repeat",
+							offsetX: 0,
+							offsetY: 0
 						}
 
-						// GATHER BACKGROUND COLOR
+						// GATHER BACKGROUND
 						for ( i2 = 0; i2 < childNode.childNodes.length; i2++ ) {
+							// RECT; COLOR
 							if ( childNode.childNodes[ i2 ].tagName == "rect" ) {
 								props.fill = childNode.childNodes[ i2 ].getAttribute( "fill" );
+
+								// IMAGE
+							} else if ( childNode.childNodes[ i2 ].tagName == "image" ) {
+								var attrs = fabric.parseAttributes( childNode.childNodes[ i2 ], fabric.SHARED_ATTRIBUTES );
+
+								if ( attrs.transformMatrix ) {
+									props.offsetX = attrs.transformMatrix[ 4 ];
+									props.offsetY = attrs.transformMatrix[ 5 ];
+								}
 							}
 						}
 
@@ -1029,8 +1043,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						if ( _this.removeImage( props.source ) ) {
 							group.patterns[ childNode.id ] = props.fill ? props.fill : "transparent";
 						} else {
-							images.included++;
-
 							group.patterns[ props.node.id ] = props;
 						}
 
@@ -1042,6 +1054,25 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						fabric.Image.fromURL( childNode.getAttribute( "xlink:href" ), function( img ) {
 							images.loaded++;
 						} );
+
+						// FILL STROKE POLYFILL ON EVERY ELEMENT
+					} else {
+						var attrs = [ "fill", "stroke" ];
+						for ( i2 = 0; i2 < attrs.length; i2++ ) {
+							var attr = attrs[ i2 ]
+							var attrVal = String( childNode.getAttribute( attr ) || "none" );
+
+							// CHECk VALUE AGAINST BLACKLIST
+							if ( [ "none", "transparent" ].indexOf( attrVal ) == -1 && !_this.isHashbanged( attrVal ) ) {
+								var attrRGBA = fabric.Color.fromHex( attrVal ).getSource();
+
+								// ENOUGH IS ENOUGH, SOMETHING IS WRONG, LETS RESET IT
+								if ( attrRGBA === undefined ) {
+									childNode.setAttribute( attr, "none" );
+									childNode.setAttribute( attr + "-opacity", "0" );
+								}
+							}
+						}
 					}
 				}
 				return group;
@@ -1078,6 +1109,104 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				return ref;
 			},
 
+			modifyFabric: function() {
+
+				// ADAPTED THE WAY TO RECEIVE THE GRADIENTID
+				fabric.ElementsParser.prototype.resolveGradient = function( obj, property ) {
+
+					var instanceFillValue = obj.get( property );
+					if ( !( /^url\(/ ).test( instanceFillValue ) ) {
+						return;
+					}
+					var gradientId = instanceFillValue.slice( instanceFillValue.indexOf( "#" ) + 1, instanceFillValue.length - 1 );
+					if ( fabric.gradientDefs[ this.svgUid ][ gradientId ] ) {
+						obj.set( property, fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj ) );
+					}
+				};
+
+				// MULTILINE SUPPORT; TODO: BETTER POSITIONING
+				fabric.Text.fromElement = function( element, options ) {
+					if ( !element ) {
+						return null;
+					}
+
+					var parsedAttributes = fabric.parseAttributes( element, fabric.Text.ATTRIBUTE_NAMES );
+					options = fabric.util.object.extend( ( options ? fabric.util.object.clone( options ) : {} ), parsedAttributes );
+
+					options.top = options.top || 0;
+					options.left = options.left || 0;
+					if ( 'dx' in parsedAttributes ) {
+						options.left += parsedAttributes.dx;
+					}
+					if ( 'dy' in parsedAttributes ) {
+						options.top += parsedAttributes.dy;
+					}
+					if ( !( 'fontSize' in options ) ) {
+						options.fontSize = fabric.Text.DEFAULT_SVG_FONT_SIZE;
+					}
+
+					if ( !options.originX ) {
+						options.originX = 'left';
+					}
+
+					var textContent = '';
+					var textBuffer = [];
+
+					// The XML is not properly parsed in IE9 so a workaround to get
+					// textContent is through firstChild.data. Another workaround would be
+					// to convert XML loaded from a file to be converted using DOMParser (same way loadSVGFromString() does)
+					if ( !( 'textContent' in element ) ) {
+						if ( 'firstChild' in element && element.firstChild !== null ) {
+							if ( 'data' in element.firstChild && element.firstChild.data !== null ) {
+								textBuffer.push( element.firstChild.data );
+							}
+						}
+					} else if ( element.childNodes ) {
+						for ( var i1 = 0; i1 < element.childNodes.length; i1++ ) {
+							textBuffer.push( element.childNodes[ i1 ].textContent );
+						}
+					} else {
+						textBuffer.push( element.textContent );
+					}
+
+					textContent = textBuffer.join( "\n" );
+					//textContent = textContent.replace(/^\s+|\s+$|\n+/g, '').replace(/\s+/g, ' ');
+
+					var text = new fabric.Text( textContent, options ),
+						/*
+						  Adjust positioning:
+						    x/y attributes in SVG correspond to the bottom-left corner of text bounding box
+						    top/left properties in Fabric correspond to center point of text bounding box
+						*/
+						offX = 0;
+
+					if ( text.originX === 'left' ) {
+						offX = text.getWidth() / 2;
+					}
+					if ( text.originX === 'right' ) {
+						offX = -text.getWidth() / 2;
+					}
+
+					if ( textBuffer.length > 1 ) {
+
+						text.set( {
+							left: text.getLeft() + offX,
+							top: text.getTop() + text.fontSize * ( textBuffer.length - 1 ) * ( 0.18 + text._fontSizeFraction ),
+							textAlign: options.originX,
+							lineHeight: textBuffer.length > 1 ? 0.965 : 1.16,
+						} );
+
+					} else {
+						text.set( {
+							left: text.getLeft() + offX,
+							top: text.getTop() - text.getHeight() / 2 + text.fontSize * ( 0.18 + text._fontSizeFraction ) /* 0.3 is the old lineHeight */
+						} );
+					}
+
+					return text;
+				};
+			},
+
 			/**
 			 * Method to capture the current state of the chart
 			 */
@@ -1098,17 +1227,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					included: 0
 				}
 
-				fabric.ElementsParser.prototype.resolveGradient = function( obj, property ) {
-
-					var instanceFillValue = obj.get( property );
-					if ( !( /^url\(/ ).test( instanceFillValue ) ) {
-						return;
-					}
-					var gradientId = instanceFillValue.slice( instanceFillValue.indexOf( "#" ) + 1, instanceFillValue.length - 1 );
-					if ( fabric.gradientDefs[ this.svgUid ][ gradientId ] ) {
-						obj.set( property, fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj ) );
-					}
-				};
+				// MODIFY FABRIC UNTIL IT'S OFFICIALLY SUPPORTED
+				_this.modifyFabric();
 
 				// BEFORE CAPTURING
 				_this.handleCallback( cfg.beforeCapture, cfg );
@@ -1171,7 +1291,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				// CLEAR IF EXIST
-				_this.drawing.enabled = cfg.action == "draw";
+				_this.drawing.enabled = cfg.drawing.enabled = cfg.action == "draw";
 				_this.drawing.buffer.enabled = _this.drawing.enabled; // history reasons
 
 				_this.setup.wrapper = document.createElement( "div" );
@@ -1213,6 +1333,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				// CREATE CANVAS
 				_this.setup.canvas = document.createElement( "canvas" );
 				_this.setup.wrapper.appendChild( _this.setup.canvas );
+
+
 				_this.setup.fabric = new fabric.Canvas( _this.setup.canvas, _this.deepMerge( {
 					width: offset.width,
 					height: offset.height,
@@ -1538,7 +1660,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					// ADD TO CANVAS
 					fabric.parseSVGDocument( group.svg, ( function( group ) {
 						return function( objects, options ) {
-							var i1;
+							var i1, i2;
 							var g = fabric.util.groupSVGElements( objects, options );
 							var paths = [];
 							var tmp = {
@@ -1602,28 +1724,48 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 											var props = group.patterns[ PID ];
 
+											images.included++;
+
 											// LOAD IMAGE MANUALLY; TO RERENDER THE CANVAS
 											fabric.Image.fromURL( props.source, ( function( props, i1 ) {
 												return function( img ) {
 													images.loaded++;
 
-													var pattern = null;
+													// ADAPT IMAGE
+													img.set( {
+														top: props.offsetY,
+														left: props.offsetX,
+														width: props.width,
+														height: props.height
+													} );
+
+													// RETINA DISPLAY
+													if ( _this.setup.fabric._isRetinaScaling() ) {
+														img.set( {
+															top: props.offsetY / 2,
+															left: props.offsetX / 2,
+															scaleX: 0.5,
+															scaleY: 0.5
+														} );
+													}
+
+													// CREATE CANVAS WITH BACKGROUND COLOR
 													var patternSourceCanvas = new fabric.StaticCanvas( undefined, {
-														backgroundColor: props.fill
+														backgroundColor: props.fill,
+														width: img.getWidth(),
+														height: img.getHeight()
 													} );
 													patternSourceCanvas.add( img );
 
-													pattern = new fabric.Pattern( {
-														source: function() {
-															patternSourceCanvas.setDimensions( {
-																width: props.width,
-																height: props.height
-															} );
-															return patternSourceCanvas.getElement();
-														},
-														repeat: 'repeat'
+													// CREATE PATTERN OBTAIN OFFSET TO TARGET
+													var pattern = new fabric.Pattern( {
+														source: patternSourceCanvas.getElement(),
+														offsetX: g.paths[ i1 ].width / 2,
+														offsetY: g.paths[ i1 ].height / 2,
+														repeat: 'repeat',
 													} );
 
+													// ASSIGN TO OBJECT
 													g.paths[ i1 ].set( {
 														fill: pattern,
 														opacity: g.paths[ i1 ].fillOpacity
@@ -1676,36 +1818,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 												} )( i1, PID )
 											} );
 										}
-									}
-
-									// TODO; WAIT FOR TSPAN SUPPORT FROM FABRICJS SIDE
-									if ( g.paths[ i1 ].TSPANWORKAROUND ) {
-										var parsedAttributes = fabric.parseAttributes( g.paths[ i1 ].svg, fabric.Text.ATTRIBUTE_NAMES );
-										var options = fabric.util.object.extend( {}, parsedAttributes );
-
-										// CREATE NEW SET
-										var tmpBuffer = [];
-										for ( var i = 0; i < g.paths[ i1 ].svg.childNodes.length; i++ ) {
-											var textNode = g.paths[ i1 ].svg.childNodes[ i ];
-											var textElement = fabric.Text.fromElement( textNode, options );
-
-											textElement.set( {
-												left: 0
-											} );
-
-											tmpBuffer.push( textElement );
-										}
-
-										// HIDE ORIGINAL ELEMENT
-										g.paths[ i1 ].set( {
-											opacity: 0
-										} );
-
-										// REPLACE BY GROUP AND CANCEL FIRST OFFSET
-										var tmpGroup = new fabric.Group( tmpBuffer, {
-											top: g.paths[ i1 ].top * -1
-										} );
-										g.paths[ i1 ] = tmpGroup;
 									}
 								}
 								paths.push( g.paths[ i1 ] );
@@ -1767,8 +1879,12 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 							// TRIGGER CALLBACK WITH SAFETY DELAY
 							if ( !groups.length ) {
+								var ts1 = Number( new Date() );
 								var timer = setInterval( function() {
-									if ( images.loaded == images.included ) {
+									var ts2 = Number( new Date() );
+
+									// WAIT FOR LOADED IMAGES OR UNTIL THE TIMEOUT KICKS IN
+									if ( images.loaded == images.included || ts2 - ts1 > _this.config.fabric.loadTimeout ) {
 										clearTimeout( timer );
 										_this.handleBorder( cfg );
 										_this.handleCallback( cfg.afterCapture, cfg );
@@ -1791,11 +1907,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						obj.clipPath = clipPath;
 						obj.svg = svg;
 
-						// TODO; WAIT FOR TSPAN SUPPORT FROM FABRICJS SIDE
-						if ( svg.tagName == "text" && svg.childNodes.length > 1 ) {
-							obj.TSPANWORKAROUND = true;
-						}
-
 						// HIDE HIDDEN ELEMENTS; TODO: FIND A BETTER WAY TO HANDLE THAT
 						if ( visibility == "hidden" ) {
 							obj.opacity = 0;
@@ -1807,15 +1918,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							var attrs = [ "fill", "stroke" ];
 							for ( i1 = 0; i1 < attrs.length; i1++ ) {
 								var attr = attrs[ i1 ]
-								var attrVal = String( svg.getAttribute( attr ) || "" );
+								var attrVal = String( svg.getAttribute( attr ) || "none" );
 								var attrOpacity = Number( svg.getAttribute( attr + "-opacity" ) || "1" );
 								var attrRGBA = fabric.Color.fromHex( attrVal ).getSource();
-
-								// EXCEPTION
-								if ( obj.classList.indexOf( _this.setup.chart.classNamePrefix + "-guide-fill" ) != -1 && !attrVal ) {
-									attrOpacity = 0;
-									attrRGBA = fabric.Color.fromHex( "#000000" ).getSource();
-								}
 
 								if ( attrRGBA ) {
 									attrRGBA.pop();
@@ -1841,7 +1946,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}, options || {} );
 				var data = _this.setup.canvas;
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -1870,7 +1975,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				img.setAttribute( "src", data );
 
-				_this.handleCallback( callback, img );
+				_this.handleCallback( callback, img, cfg );
 
 				return img;
 			},
@@ -1903,7 +2008,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} );
 				}
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -1920,7 +2025,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				cfg.format = cfg.format.toLowerCase();
 				var data = _this.setup.fabric.toDataURL( cfg );
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -1936,7 +2041,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}, options || {} );
 				var data = _this.setup.fabric.toDataURL( cfg );
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2013,7 +2118,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					data = "data:image/svg+xml;base64," + btoa( data );
 				}
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2150,7 +2255,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					}
 					document.body.removeChild( data );
-					_this.handleCallback( callback, data );
+					_this.handleCallback( callback, data, cfg );
 				}, cfg.delay );
 
 				return data;
@@ -2166,7 +2271,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				cfg.data = cfg.data ? cfg.data : _this.getChartData( cfg );
 				var data = JSON.stringify( cfg.data, undefined, "\t" );
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2227,7 +2332,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 				}
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2310,7 +2415,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				data = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + data;
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2358,7 +2463,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 				}
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2440,7 +2545,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					return arr
 				}
 
-				_this.handleCallback( callback, data );
+				_this.handleCallback( callback, data, cfg );
 
 				return data;
 			},
@@ -2509,6 +2614,34 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 						}
 					}
+				}
+			},
+
+			/**
+			 * Calls ready callback when dependencies are available within window scope
+			 */
+			handleReady: function( callback ) {
+				var t1, t2;
+				var _this = this;
+				var tsStart = Number( new Date() );
+
+				// READY FOR DATA EXPORT
+				_this.handleCallback( callback, "data", false );
+
+				// READY CALLBACK FOR EACH DEPENDENCY
+				for ( filename in _this.libs.namespaces ) {
+					var namespace = _this.libs.namespaces[ filename ];
+
+					( function( namespace ) {
+						var t1 = setInterval( function() {
+							var tsEnd = Number( new Date() );
+
+							if ( tsEnd - tsStart > _this.libs.loadTimeout || namespace in window ) {
+								clearTimeout( t1 );
+								_this.handleCallback( callback, namespace, tsEnd - tsStart > _this.libs.loadTimeout );
+							}
+						}, AmCharts.updateRate )
+					} )( namespace );
 				}
 			},
 
@@ -2676,14 +2809,14 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				for ( i1 = 0; i1 < _this.setup.fabric._objects.length; i1++ ) {
 
 					// Internal flag to distinguish between annotations and "core" elements
-					if ( !_this.setup.fabric._objects[i1].isCoreElement ) {
-						var obj = _this.setup.fabric._objects[i1].toJSON();
+					if ( !_this.setup.fabric._objects[ i1 ].isCoreElement ) {
+						var obj = _this.setup.fabric._objects[ i1 ].toJSON();
 
 						// Revive before adding to allow modifying the object
 						_this.handleCallback( cfg.reviver, obj, i1 );
 
 						// Push into output
-						data.push(obj);
+						data.push( obj );
 					}
 				}
 
@@ -3151,7 +3284,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} else if ( label ) {
 						label.innerHTML = _this.i18l( "capturing.delayed.menu.label" ).replace( "{{duration}}", AmCharts.toFixed( diff, 2 ) );
 					}
-				}, 10 );
+				}, AmCharts.updateRate );
 
 				// CALLBACK
 				t2 = setTimeout( function() {
@@ -3306,6 +3439,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 							// CREATE MENU
 							_this.createMenu( _this.config.menu );
+
+							_this.handleReady( _this.config.onReady );
 						}
 					}
 				}, AmCharts.updateRate );
