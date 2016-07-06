@@ -354,7 +354,7 @@ AmCharts.addInitHandler( function( chart ) {
           if ( options.timeout )
             clearTimeout( options.timeout );
 
-          options.timeout = setTimeout( loadFile, 1000 * options.reload, url, holder, options );
+          options.timeout = setTimeout( loadFile, 1000 * options.reload, url, holder, options, providerKey );
           options.reloading = true;
 
         }
