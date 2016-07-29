@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.30
+Version: 1.4.33
 
 
 ## Description
@@ -600,7 +600,7 @@ your exported images.
         top: 50,
         left: 100,
         family: this.setup.chart.fontFamily,
-        size: this.setup.chart.fontSize * 2
+        fontSize: this.setup.chart.fontSize * 2
       });
       this.setup.fabric.add(text);
   },
@@ -615,7 +615,7 @@ your exported images.
           top: 50,
           left: 100,
           family: this.setup.chart.fontFamily,
-          size: this.setup.chart.fontSize * 2
+          fontSize: this.setup.chart.fontSize * 2
         });
         this.setup.fabric.add(text);
     }
@@ -970,6 +970,15 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.33
+* Fixed: fill/stroke polyfilling issue on svg elements with color validation/preparation for fabric 
+
+### 1.4.32
+* Fixed: Issue polyfilling the color attributes with "rgba" color codes
+
+### 1.4.31
+* Changed: Included independent IE detection to handle specific IE10, IE11 svg image in canvas issue
 
 ### 1.4.30
 * Fixed: Pattern loading, positioning issue, supports x,y offset now

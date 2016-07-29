@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.30
+Version: 1.4.33
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -70,7 +70,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 	AmCharts[ "export" ] = function( chart, config ) {
 		var _this = {
 			name: "export",
-			version: "1.4.30",
+			version: "1.4.33",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -91,7 +91,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			setup: {
 				chart: chart,
 				hasBlob: false,
-				wrapper: false
+				wrapper: false,
+				isIE: !!window.document.documentMode,
+				IEversion: window.document.documentMode
 			},
 			drawing: {
 				enabled: false,
@@ -241,7 +243,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 
 						// APPLY OPACITY ON CURRENT COLOR
-						rgba = new fabric.Color( _this.drawing.color ).getSource();
+						rgba = _this.getRGBA( _this.drawing.color );
 						rgba.pop();
 						rgba.push( _this.drawing.opacity );
 						_this.drawing.color = "rgba(" + rgba.join() + ")";
@@ -259,7 +261,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								cfg.opacity = cfg.opacity || state.opacity;
 								cfg.fontSize = cfg.fontSize || cfg.width * 3;
 
-								rgba = new fabric.Color( cfg.color ).getSource();
+								rgba = _this.getRGBA( cfg.color );
 								rgba.pop();
 								rgba.push( cfg.opacity );
 								cfg.color = "rgba(" + rgba.join() + ")";
@@ -865,7 +867,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						return true;
 
 						// IE 10 internal bug handling SVG images in canvas context
-					} else if ( AmCharts.isIE && AmCharts.IEversion == 10 && source.toLowerCase().indexOf( ".svg" ) != -1 ) {
+					} else if ( _this.setup.isIE && ( _this.setup.IEversion == 10 || _this.setup.IEversion == 11 ) && source.toLowerCase().indexOf( ".svg" ) != -1 ) {
 						return true;
 					}
 				}
@@ -906,7 +908,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				// CHECK IE; ATTEMPT TO ACCESS HEAD ELEMENT
-				if ( AmCharts.isIE && AmCharts.IEversion <= 9 ) {
+				if ( _this.setup.isIE && _this.setup.IEversion <= 9 ) {
 					if ( !Array.prototype.indexOf || !document.head || _this.config.fallback === false ) {
 						return false;
 					}
@@ -1059,23 +1061,35 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} else {
 						var attrs = [ "fill", "stroke" ];
 						for ( i2 = 0; i2 < attrs.length; i2++ ) {
-							var attr = attrs[ i2 ]
-							var attrVal = String( childNode.getAttribute( attr ) || "none" );
+							var attr = attrs[ i2 ];
+							var attrVal = childNode.getAttribute( attr );
+							var attrRGBA = _this.getRGBA( attrVal );
 
-							// CHECk VALUE AGAINST BLACKLIST
-							if ( [ "none", "transparent" ].indexOf( attrVal ) == -1 && !_this.isHashbanged( attrVal ) ) {
-								var attrRGBA = fabric.Color.fromHex( attrVal ).getSource();
-
-								// ENOUGH IS ENOUGH, SOMETHING IS WRONG, LETS RESET IT
-								if ( attrRGBA === undefined ) {
-									childNode.setAttribute( attr, "none" );
-									childNode.setAttribute( attr + "-opacity", "0" );
-								}
+							// VALIDATE AND RESET UNKNOWN COLORS (avoids fabric to crash)
+							if ( attrVal && !attrRGBA ) {
+								childNode.setAttribute( attr, "none" );
+								childNode.setAttribute( attr + "-opacity", "0" );
 							}
 						}
 					}
 				}
 				return group;
+			},
+
+			/*
+			 ** GET RGBA COLOR ARRAY FROM INPUT
+			 */
+			getRGBA: function( source, returnInstance ) {
+
+				if ( source != "none" && source != "transparent" && !_this.isHashbanged( source ) ) {
+					source = new fabric.Color( source );
+
+					if ( source._source ) {
+						return returnInstance ? source : source.getSource();
+					}
+				}
+
+				return false;
 			},
 
 			/*
@@ -1920,7 +1934,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								var attr = attrs[ i1 ]
 								var attrVal = String( svg.getAttribute( attr ) || "none" );
 								var attrOpacity = Number( svg.getAttribute( attr + "-opacity" ) || "1" );
-								var attrRGBA = fabric.Color.fromHex( attrVal ).getSource();
+								var attrRGBA = _this.getRGBA( attrVal );
 
 								if ( attrRGBA ) {
 									attrRGBA.pop();
@@ -2066,8 +2080,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								var value = pair[ 1 ];
 
 								if ( [ "fill", "stroke" ].indexOf( key ) != -1 ) {
-									value = fabric.Color.fromRgba( value );
-									if ( value && value._source ) {
+									value = _this.getRGBA( value, true );
+									if ( value ) {
 										var color = "#" + value.toHex();
 										var opacity = value._source[ 3 ];
 
@@ -3594,5 +3608,4 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
  */
 AmCharts.addInitHandler( function( chart ) {
 	new AmCharts[ "export" ]( chart );
-
 }, [ "pie", "serial", "xy", "funnel", "radar", "gauge", "stock", "map", "gantt" ] );
