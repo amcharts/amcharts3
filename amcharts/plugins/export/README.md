@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.33
+Version: 1.4.34
 
 
 ## Description
@@ -970,6 +970,10 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.34
+* Fixed: Data shifting issue in data exports with compared graphs (stock only)
+* Fixed: Shallow copy of compared graphs in data exports (stock only)
 
 ### 1.4.33
 * Fixed: fill/stroke polyfilling issue on svg elements with color validation/preparation for fabric 
