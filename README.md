@@ -2,6 +2,14 @@
 
 An official repository for amCharts JavaScript Charts V3 (free version).
 
+## Getting support
+
+**Important!** For questions regarding usage of this product, please email at 
+contact@amcharts.com
+
+The issue tracker on GitHub is not being continuously monitored by amCharts 
+support staff, so your questions might take longer to respond to here.
+
 ## Installing
 
 ### Using bower
