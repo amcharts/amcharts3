@@ -2,7 +2,7 @@
 Plugin Name: amCharts Animate
 Description: Smoothly animates the `dataProvider`
 Author: Paul Chapman, amCharts
-Version: 1.1.1
+Version: 1.1.2
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -367,18 +367,31 @@ not apply to any other amCharts products that are covered by different licenses.
 			each( chart.valueAxes, function( axis ) {
 				// TODO is it guaranteed that every value axis has an id ?
 				if ( axes[ axis.id ] == null ) {
+					// This saves the old minimum / maximum so that we can restore it after the animation is complete
 					axes[ axis.id ] = {
 						minimum: axis.minimum,
 						maximum: axis.maximum
 					};
 
-					// TODO is this correct ?
+					var min = axis.minRR;
+					var max = axis.maxRR;
+
+					var dif = max - min;
+					var difE;
+
+					if ( dif === 0 ) {
+						difE = Math.pow( 10, Math.floor( Math.log( Math.abs( max ) ) * Math.LOG10E ) ) / 10;
+
+					} else {
+						difE = Math.pow( 10, Math.floor( Math.log( Math.abs( dif ) ) * Math.LOG10E ) ) / 10;
+					}
+
 					if ( axis.minimum == null ) {
-						axis.minimum = axis.min;
+						axis.minimum = Math.floor( min / difE ) * difE - difE;
 					}
 
 					if ( axis.maximum == null ) {
-						axis.maximum = axis.max;
+						axis.maximum = Math.ceil( max / difE ) * difE + difE;
 					}
 				}
 			} );

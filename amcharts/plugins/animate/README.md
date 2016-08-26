@@ -1,6 +1,6 @@
 # amCharts Animate
 
-Version: 1.1.1
+Version: 1.1.2
 
 
 ## Description
@@ -94,6 +94,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.1.2
+* Fixing a bug with the minimum/maximum
 
 ### 1.1.1
 * It now automatically sets the minimum/maximum on the value axes while animating
