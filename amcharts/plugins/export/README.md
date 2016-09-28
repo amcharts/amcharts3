@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.36
+Version: 1.4.41
 
 
 ## Description
@@ -687,6 +687,7 @@ dataDateFormat | Format to convert date strings to date objects, uses by default
 dateFormat | Formats the category field in given date format ( data export only )
 border | An object of key/value pairs to define the overlaying border
 pageOrigin | A flag to show / hide the origin of the generated PDF ( pdf export only )
+compress | A flag to compress the generated output ( svg only )
 
 Available `format` values:
 
@@ -970,6 +971,27 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.41
+* Added: quote, escape option to `toArray` method
+* Fixed: toArray method to respect `exportFields` order
+* Fixed: toCSV, toXLSX to respect `exportFields` order
+
+### 1.4.40
+* Fixed: Infinite loop in Angular2 Zones
+* Fixed: `compress` option being obtained from the global config
+
+### 1.4.39
+* Added: New menu option `compress` to compress the generated output (svg only).
+* Fixed: Strikethrough issue in SVG output.
+
+### 1.4.38
+* Fixed: Support for external stock chart legends, overlapping issue with free licensed version of amcharts
+
+### 1.4.37
+* Fixed: Gradient issue which left the chart elements hidden after the export process
+* Fixed: Typo in examples dropdown
+* Added: Support for external stock chart legends
 
 ### 1.4.36
 * Fixed: exportFields order being considered

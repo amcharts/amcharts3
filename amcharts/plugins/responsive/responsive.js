@@ -3,7 +3,7 @@ Plugin Name: amCharts Responsive
 Description: This plugin add responsive functionality to JavaScript Charts and Maps.
 Author: Martynas Majeris, amCharts
 Contributors: Ohad Schneider
-Version: 1.0.2
+Version: 1.0.3
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -31,8 +31,7 @@ AmCharts.addInitHandler( function( chart ) {
 
   if ( chart.responsive === undefined || chart.responsive.ready === true || chart.responsive.enabled !== true )
     return;
-
-  var version = chart.version.split( '.' );
+  var version = chart.version.split( "." );
   if ( ( version.length < 2 ) || Number( version[ 0 ] ) < 3 || ( Number( version[ 0 ] ) === 3 && Number( version[ 1 ] ) < 13 ) )
     return;
 
@@ -49,7 +48,7 @@ AmCharts.addInitHandler( function( chart ) {
     /**
      * AmPie
      */
-    'pie': [
+    "pie": [
 
       /**
        * Disable legend in certain cases
@@ -179,8 +178,7 @@ AmCharts.addInitHandler( function( chart ) {
     /**
      * AmFunnel
      */
-
-    'funnel': [ {
+    "funnel": [ {
       "maxWidth": 550,
       "legendPosition": "left",
       "overrides": {
@@ -256,7 +254,6 @@ AmCharts.addInitHandler( function( chart ) {
     /**
      * AmRadar
      */
-
     "radar": [ {
       "maxWidth": 550,
       "legendPosition": "left",
@@ -358,8 +355,7 @@ AmCharts.addInitHandler( function( chart ) {
     /**
      * AmGauge
      */
-
-    'gauge': [ {
+    "gauge": [ {
       "maxWidth": 550,
       "legendPosition": "left",
       "overrides": {
@@ -874,8 +870,7 @@ AmCharts.addInitHandler( function( chart ) {
     /**
      * AmStock
      */
-
-    'stock': [ {
+    "stock": [ {
       "maxWidth": 500,
       "overrides": {
         "dataSetSelector": {
@@ -902,8 +897,7 @@ AmCharts.addInitHandler( function( chart ) {
     /**
      * AmMap
      */
-
-    'map': [ {
+    "map": [ {
       "maxWidth": 200,
       "overrides": {
         "zoomControl": {
@@ -1013,11 +1007,11 @@ AmCharts.addInitHandler( function( chart ) {
   };
 
   var isArray = function( obj ) {
-    return ( !isNullOrUndefined( obj ) && Object.prototype.toString.call( obj ) === '[object Array]' );
+    return ( !isNullOrUndefined( obj ) && Object.prototype.toString.call( obj ) === "[object Array]" );
   };
 
   var isObject = function( obj ) {
-    return ( obj !== null && typeof obj === 'object' ); //the null check is necessary - recall that typeof null === 'object' !
+    return ( obj !== null && typeof obj === "object" ); //the null check is necessary - recall that typeof null === "object" !
   };
 
   var findArrayObjectById = function( arr, id ) {
@@ -1046,7 +1040,7 @@ AmCharts.addInitHandler( function( chart ) {
     return clone;
   };
 
-  var originalValueRetainerPrefix = '{F0578839-A214-4E2D-8D1B-44941ECE8332}_';
+  var originalValueRetainerPrefix = "{F0578839-A214-4E2D-8D1B-44941ECE8332}_";
   var noOriginalPropertyStub = {};
 
   var overrideProperty = function( object, property, overrideValue ) {
@@ -1082,15 +1076,16 @@ AmCharts.addInitHandler( function( chart ) {
 
   var redrawChart = function() {
     chart.dataChanged = true;
-    if ( chart.type !== 'xy' ) {
+    if ( chart.type !== "xy" ) {
       chart.marginsUpdated = false;
     }
     chart.zoomOutOnDataUpdate = false;
     chart.validateNow( true );
-    restoreOriginalProperty( chart, 'zoomOutOnDataUpdate' );
+    restoreOriginalProperty( chart, "zoomOutOnDataUpdate" );
   };
 
   var applyConfig = function( current, override ) {
+
     if ( isNullOrUndefined( override ) ) {
       return;
     }
@@ -1105,7 +1100,8 @@ AmCharts.addInitHandler( function( chart ) {
 
       //property doesn't exist on current object or it exists as null/undefined => completely override it
       if ( isNullOrUndefined( currentValue ) ) {
-        overrideProperty( current, property, overrideValue );
+        if ( property !== "periodSelector" && property !== "dataSetSelector" ) // do not attempt to override non-existing selectors
+          overrideProperty( current, property, overrideValue );
         continue;
       }
 
@@ -1150,7 +1146,7 @@ AmCharts.addInitHandler( function( chart ) {
             continue;
           }
 
-          throw 'too many index-based overrides specified for object array property: ' + property;
+          throw "too many index-based overrides specified for object array property: " + property;
         }
 
         // override value is a single object => override all current array objects with that object
@@ -1161,7 +1157,7 @@ AmCharts.addInitHandler( function( chart ) {
           continue;
         }
 
-        throw ( 'non-object override detected for array property: ' + property );
+        throw ( "non-object override detected for array property: " + property );
       }
 
       if ( isObject( currentValue ) ) {
@@ -1217,7 +1213,7 @@ AmCharts.addInitHandler( function( chart ) {
 
       if ( r.currentRules[ key ] !== undefined ) {
         if ( isNullOrUndefined( r.rules[ key ] ) ) {
-          throw 'null or undefined rule in index: ' + key;
+          throw "null or undefined rule in index: " + key;
         }
         applyConfig( chart, r.rules[ key ].overrides );
       }
@@ -1237,9 +1233,9 @@ AmCharts.addInitHandler( function( chart ) {
   }
 
   //retain original zoomOutOnDataUpdate value
-  overrideProperty( chart, 'zoomOutOnDataUpdate', chart.zoomOutOnDataUpdate );
+  overrideProperty( chart, "zoomOutOnDataUpdate", chart.zoomOutOnDataUpdate );
 
-  chart.addListener( 'resized', checkRules );
-  chart.addListener( 'init', checkRules );
+  chart.addListener( "resized", checkRules );
+  chart.addListener( "init", checkRules );
 
-}, [ 'pie', 'serial', 'xy', 'funnel', 'radar', 'gauge', 'gantt', 'stock', 'map' ] );
+}, [ "pie", "serial", "xy", "funnel", "radar", "gauge", "gantt", "stock", "map" ] );
