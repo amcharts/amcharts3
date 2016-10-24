@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.42
+Version: 1.4.43
 
 
 ## Description
@@ -971,6 +971,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.43
+* Fixed: Shown label in hidden valueAxis
 
 ### 1.4.42
 * Fixed: `exportFields` issue in combination with `columnNames` or `exportTitles`

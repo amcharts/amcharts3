@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.42
+Version: 1.4.43
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.42",
+			version: "1.4.43",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -2006,27 +2006,26 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						obj.clipPath = clipPath;
 						obj.svg = svg;
 
-						// HIDE HIDDEN ELEMENTS; TODO: FIND A BETTER WAY TO HANDLE THAT
-						if ( visibility == "hidden" ) {
-							obj.opacity = 0;
+						// TRANSPORT FILL/STROKE OPACITY
+						var attrs = [ "fill", "stroke" ];
+						for ( i1 = 0; i1 < attrs.length; i1++ ) {
+							var attr = attrs[ i1 ]
+							var attrVal = String( svg.getAttribute( attr ) || "none" );
+							var attrOpacity = Number( svg.getAttribute( attr + "-opacity" ) || "1" );
+							var attrRGBA = _this.getRGBA( attrVal );
 
-							// WALKTHROUGH ELEMENTS
-						} else {
+							// HIDE HIDDEN ELEMENTS; TODO: FIND A BETTER WAY TO HANDLE THAT
+							if ( visibility == "hidden" ) {
+								obj.opacity = 0;
+								attrOpacity = 0;
+							}
 
-							// TRANSPORT FILL/STROKE OPACITY
-							var attrs = [ "fill", "stroke" ];
-							for ( i1 = 0; i1 < attrs.length; i1++ ) {
-								var attr = attrs[ i1 ]
-								var attrVal = String( svg.getAttribute( attr ) || "none" );
-								var attrOpacity = Number( svg.getAttribute( attr + "-opacity" ) || "1" );
-								var attrRGBA = _this.getRGBA( attrVal );
-
-								if ( attrRGBA ) {
-									attrRGBA.pop();
-									attrRGBA.push( attrOpacity )
-									obj[ attr ] = "rgba(" + attrRGBA.join() + ")";
-									obj[ attr + _this.capitalize( "opacity" ) ] = attrOpacity;
-								}
+							// SET COLOR
+							if ( attrRGBA ) {
+								attrRGBA.pop();
+								attrRGBA.push( attrOpacity )
+								obj[ attr ] = "rgba(" + attrRGBA.join() + ")";
+								obj[ attr + _this.capitalize( "opacity" ) ] = attrOpacity;
 							}
 						}
 
