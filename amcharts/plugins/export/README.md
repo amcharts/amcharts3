@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.43
+Version: 1.4.48
 
 
 ## Description
@@ -971,6 +971,23 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.48
+* Fixed: toXLSX issue handling objects/array in data points.
+
+### 1.4.47
+* Fixed: `afterCapture` issue which removed injected elements.
+
+### 1.4.46
+* Fixed: toSVG clipPath issue which exported multiple times the same clipPath
+
+### 1.4.45
+* Fixed: Object selection issue on charts with heavy amount of datapoints
+* Fixed: Line/Arrow drawing issue on vertical movement
+* Changed: Pressing escape while an object has been selected will deselect first instead quiting the annotation mode
+
+### 1.4.44
+* Fixed: Vertical gradient issue
 
 ### 1.4.43
 * Fixed: Shown label in hidden valueAxis

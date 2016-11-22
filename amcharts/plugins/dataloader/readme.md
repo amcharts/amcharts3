@@ -83,6 +83,22 @@ data, such as "separator".
 
 If the "format" is omitted, the plugin will assume JSON.
 
+### Using in object-based chart setup
+
+If you’re still using object-based chart setup, assign dataLoader-related config object to chart object’s `dataLoader` property:
+
+```
+var chart = new AmCharts.AmSerialChart();
+...
+chart["dataLoader"] = {
+  "url": "data.csv",
+  "format": "csv",
+  "delimiter": ",",
+  "useColumnNames": true,
+  "skip": 1
+};
+```
+
 
 ## Complete list of available dataLoader settings
 
@@ -225,6 +241,41 @@ AmCharts.makeChart( "chartdiv", {
     }
   }]
 } );
+```
+
+## Using Data Loader's standalone functions
+
+Data Loader's load and parsing functions are available for external standalone use.
+
+The three available functions are as follows:
+
+Function | Parameters | Description
+-------- | ---------- | -----------
+AmCharts.loadFile() | url, options, callback | Loads the file and passes it into callback function (unparsed)
+AmCharts.parseCSV() | data, options | Parses data in string CSV format and returns JavaScript Array
+AmCharts.parseJSON() | data | Parses data in string JSON format and returns JavaScript Array
+
+The options passed into standalone functions are the same as discussed in [Complete list of available dataLoader settings](#complete-list-of-available-dataloader-settings) chapter.
+
+### JSON Example
+
+```
+AmCharts.loadFile(dataset_url, {}, function(data) {
+  var chartData = AmCharts.parseJSON(data);
+  console.log(chartData); // this will output an array
+});
+```
+
+### CSV Example
+
+```
+AmCharts.loadFile(dataset_url, {}, function(data) {
+  var chartData = AmCharts.parseCSV(data, {
+    "delimiter": ",",
+    "useColumnNames": true
+  });
+  console.log(chartData); // this will output an array
+});
 ```
 
 ## Translating into other languages

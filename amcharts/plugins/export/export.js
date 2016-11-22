@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.43
+Version: 1.4.48
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.43",
+			version: "1.4.48",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -207,6 +207,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							if ( cfg.left > _this.setup.fabric.width ) {
 								cfg.left = _this.setup.fabric.width / 2;
 							}
+
+							// SET DRAWING FLAG
+							_this.drawing.buffer.isDrawing = true;
 
 							group.set( {
 								originX: "center",
@@ -346,6 +349,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						var text = new fabric.IText( cfg.text, cfg );
 
+						// SET DRAWING FLAG
+						_this.drawing.buffer.isDrawing = true;
+
 						_this.setup.fabric.add( text );
 						_this.setup.fabric.setActiveObject( text );
 
@@ -403,6 +409,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							cfg.group.push( arrow );
 						}
 
+						// SET DRAWING FLAG
+						_this.drawing.buffer.isDrawing = true;
+
 						if ( cfg.action != "config" ) {
 							if ( cfg.arrow ) {
 								var group = new fabric.Group( cfg.group );
@@ -424,7 +433,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 						} else {
 							for ( i1 = 0; i1 < cfg.group.length; i1++ ) {
-								cfg.group[ i1 ].noUndo = true;
 								_this.setup.fabric.add( cfg.group[ i1 ] );
 							}
 						}
@@ -1157,7 +1165,13 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 					var gradientId = instanceFillValue.slice( instanceFillValue.indexOf( "#" ) + 1, instanceFillValue.length - 1 );
 					if ( fabric.gradientDefs[ this.svgUid ][ gradientId ] ) {
-						obj.set( property, fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj ) );
+						var tmp = fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj );
+						// WORKAROUND FOR VERTICAL GRADIENT ISSUE;
+						if ( tmp.coords.y1 ) {
+							tmp.coords.y2 = tmp.coords.y1 * -1;
+							tmp.coords.y1 = 0;
+						}
+						obj.set( property, tmp );
 					}
 				};
 
@@ -1449,17 +1463,35 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					var p = _this.gatherPosition( e.e, 1 );
 					_this.drawing.buffer.pressedTS = Number( new Date() );
 					_this.isPressed( e.e );
+
+					// FLAG ISDRAWING
+					_this.drawing.buffer.isDrawing = false;
+					_this.drawing.buffer.isDrawingTimer = setTimeout( function() {
+						if ( !_this.drawing.buffer.isSelected ) {
+							_this.drawing.buffer.isDrawing = true;
+						}
+					}, 200 );
 				} );
 				_this.setup.fabric.on( "mouse:move", function( e ) {
 					var p = _this.gatherPosition( e.e, 2 );
 					_this.isPressed( e.e );
 
-					// CREATE INITIAL LINE / ARROW; JUST ON LEFT CLICK
-					if ( _this.drawing.buffer.isPressed && !_this.drawing.buffer.line ) {
-						if ( !_this.drawing.buffer.isSelected && _this.drawing.mode != "pencil" && ( p.xD > 5 || p.xD > 5 ) ) {
-							_this.drawing.buffer.hasLine = true;
+					// IS PRESSED BUT UNSELECTED
+					if ( _this.drawing.buffer.isPressed && !_this.drawing.buffer.isSelected ) {
+
+						// FLAG ISDRAWING
+						_this.drawing.buffer.isDrawing = true;
+
+						// CREATE INITIAL LINE / ARROW; JUST ON LEFT CLICK
+						if ( !_this.drawing.buffer.line && _this.drawing.mode != "pencil" && ( p.xD > 5 || p.yD > 5 ) ) {
+
+							// FORCE FABRIC TO DISABLE DRAWING MODE WHILE PRESSED / MOVEING MOUSE INPUT
 							_this.setup.fabric.isDrawingMode = false;
-							_this.setup.fabric._onMouseUpInDrawingMode( e );
+							_this.setup.fabric._isCurrentlyDrawing = false;
+							_this.setup.fabric.freeDrawingBrush.onMouseUp();
+							_this.setup.fabric.remove( _this.setup.fabric._objects.pop() );
+
+							// INITIAL POINT
 							_this.drawing.buffer.line = _this.drawing.handler.line( {
 								x1: p.x1,
 								y1: p.y1,
@@ -1471,6 +1503,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					}
 
+					if ( _this.drawing.buffer.isSelected ) {
+						_this.setup.fabric.isDrawingMode = false;
+					}
+
 					// UPDATE LINE / ARROW
 					if ( _this.drawing.buffer.line ) {
 						var obj, top, left;
@@ -1478,6 +1514,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						l.x2 = p.x2;
 						l.y2 = p.y2;
+
+						// // RESET INTERNAL FLAGS	
+						// _this.drawing.buffer.isDrawing = true;
+						// _this.drawing.buffer.isPressed = true;
+						// _this.drawing.buffer.hasLine = true;
 
 						for ( i1 = 0; i1 < l.group.length; i1++ ) {
 							obj = l.group[ i1 ];
@@ -1513,7 +1554,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				} );
 				_this.setup.fabric.on( "mouse:up", function( e ) {
 					// SELECT TARGET
-					if ( Number( new Date() ) - _this.drawing.buffer.pressedTS < 200 ) {
+					if ( !_this.drawing.buffer.isDrawing ) {
 						var target = _this.setup.fabric.findTarget( e.e );
 						if ( target && target.selectable ) {
 							_this.setup.fabric.setActiveObject( target );
@@ -1532,6 +1573,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					_this.drawing.buffer.line = false;
 					_this.drawing.buffer.hasLine = false;
 					_this.drawing.buffer.isPressed = false;
+
+					// RESET ISDRAWING FLAG
+					clearTimeout( _this.drawing.buffer.isDrawingTimer );
+					_this.drawing.buffer.isDrawing = false;
 				} );
 
 				// OBSERVE OBJECT SELECTION
@@ -1541,25 +1586,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					_this.setup.fabric.isDrawingMode = false;
 				} );
 				_this.setup.fabric.on( "selection:cleared", function( e ) {
-					_this.drawing.buffer.onMouseDown = _this.setup.fabric.freeDrawingBrush.onMouseDown;
 					_this.drawing.buffer.target = false;
 
 					// FREEHAND WORKAROUND
 					if ( _this.drawing.buffer.isSelected ) {
 						_this.setup.fabric._isCurrentlyDrawing = false;
-						_this.setup.fabric.freeDrawingBrush.onMouseDown = function() {};
 					}
 
-					// DELAYED DESELECTION TO PREVENT DRAWING
-					setTimeout( function() {
-						_this.drawing.buffer.isSelected = false;
-						_this.setup.fabric.isDrawingMode = true;
-						_this.setup.fabric.freeDrawingBrush.onMouseDown = _this.drawing.buffer.onMouseDown;
-					}, 10 );
+					_this.drawing.buffer.isSelected = false;
+					_this.setup.fabric.isDrawingMode = true;
 				} );
 				_this.setup.fabric.on( "path:created", function( e ) {
 					var item = e.path;
-					if ( Number( new Date() ) - _this.drawing.buffer.pressedTS < 200 || _this.drawing.buffer.hasLine ) {
+					if ( !_this.drawing.buffer.isDrawing || _this.drawing.buffer.hasLine ) {
 						_this.setup.fabric.remove( item );
 						_this.setup.fabric.renderAll();
 						return;
@@ -1578,16 +1617,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					} );
 
-					if ( Number( new Date() ) - _this.drawing.buffer.pressedTS < 200 && !item.noUndo ) {
-						_this.setup.fabric.remove( item );
-						_this.setup.fabric.renderAll();
-						return;
-					}
-
 					state = JSON.stringify( state );
 					item.recentState = state;
 
-					if ( item.selectable && !item.known && !item.noUndo ) {
+					if ( item.selectable && !item.known ) {
 						item.isAnnotation = true;
 						_this.drawing.undos.push( {
 							action: "added",
@@ -2153,6 +2186,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			toSVG: function( options, callback ) {
 				var clipPaths = [];
+				var clipPathIds = [];
 				var cfg = _this.deepMerge( {
 					compress: _this.config.compress,
 					reviver: function( string, clipPath ) {
@@ -2187,22 +2221,27 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						string = string.replace( match, replacement.join( ";" ) );
 
 						// TODO: WAIT UNTIL FABRICJS HANDLES CLIPPATH FOR SVG OUTPUT
-						if ( clipPath ) {
-							var sliceOffset = 2;
-							var end = string.slice( -sliceOffset );
+						if ( clipPath && clipPath.svg ) {
+							var clipPathId = clipPath.svg.id;
+							if ( clipPathIds.indexOf( clipPathId ) == -1 ) {
+								var sliceOffset = 2;
+								var end = string.slice( -sliceOffset );
 
-							if ( end != "/>" ) {
-								sliceOffset = 3;
-								end = string.slice( -sliceOffset );
+								clipPathIds.push( clipPath.svg.id );
+
+								if ( end != "/>" ) {
+									sliceOffset = 3;
+									end = string.slice( -sliceOffset );
+								}
+
+								var start = string.slice( 0, string.length - sliceOffset );
+								var clipPathAttr = " clip-path=\"url(#" + clipPath.svg.id + ")\" ";
+								var clipPathString = new XMLSerializer().serializeToString( clipPath.svg );
+
+								string = start + clipPathAttr + end;
+
+								clipPaths.push( clipPathString );
 							}
-
-							var start = string.slice( 0, string.length - sliceOffset );
-							var clipPathAttr = " clip-path=\"url(#" + clipPath.svg.id + ")\" ";
-							var clipPathString = new XMLSerializer().serializeToString( clipPath.svg );
-
-							string = start + clipPathAttr + end;
-
-							clipPaths.push( clipPathString );
 						}
 
 						return string;
@@ -2479,13 +2518,20 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								r: R
 							} );
 
-							if ( typeof cell.v === "number" ) cell.t = "n";
-							else if ( typeof cell.v === "boolean" ) cell.t = "b";
-							else if ( cell.v instanceof Date ) {
+							if ( typeof cell.v === "number" ) {
+								cell.t = "n";
+							} else if ( typeof cell.v === "boolean" ) {
+								cell.t = "b";
+							} else if ( cell.v instanceof Date ) {
 								cell.t = "n";
 								cell.z = XLSX.SSF._table[ 14 ];
 								cell.v = datenum( cell.v );
-							} else cell.t = "s";
+							} else if ( cell.v instanceof Object ) {
+								cell.t = "s";
+								cell.v = JSON.stringify(cell.v);
+							} else {
+								cell.t = "s";
+							}
 
 							ws[ cell_ref ] = cell;
 						}
@@ -3615,7 +3661,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							// ESCAPE DRAWIN MODE; key: escape
 						} else if ( e.keyCode == 27 && _this.drawing.enabled ) {
 							e.preventDefault();
-							_this.drawing.handler.done();
+
+							// DESELECT ACTIVE OBJECTS
+							if ( _this.drawing.buffer.isSelected ) {
+								_this.setup.fabric.discardActiveObject();
+
+								// QUIT DRAWING MODE
+							} else {
+								_this.drawing.handler.done();
+							}
 
 							// COPY; key: C
 						} else if ( e.keyCode == 67 && ( e.metaKey || e.ctrlKey ) && current ) {
