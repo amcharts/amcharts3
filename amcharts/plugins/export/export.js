@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.48
+Version: 1.4.53
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.48",
+			version: "1.4.53",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -584,7 +584,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 * Returns translated message, takes english as default
 			 */
 			i18l: function( key, language ) {
-				var lang = language ? langugage : _this.setup.chart.language ? _this.setup.chart.language : "en";
+				var lang = language ? language : _this.setup.chart.language ? _this.setup.chart.language : "en";
 				var catalog = AmCharts.translations[ _this.name ][ lang ] || AmCharts.translations[ _this.name ][ "en" ];
 
 				return catalog[ key ] || key;
@@ -801,15 +801,23 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			deepMerge: function( a, b, overwrite ) {
 				var i1, v, type = b instanceof Array ? "array" : "object";
 
+				// SKIP; OBJECTS AND ARRAYS ONLY
+				if ( !( a instanceof Object || a instanceof Array ) ) {
+					return a;
+				}
+
+				// WALKTHOUGH SOURCE
 				for ( i1 in b ) {
+
 					// PREVENT METHODS
 					if ( type == "array" && isNaN( i1 ) ) {
 						continue;
 					}
 
+					// ASSIGN VALUE
 					v = b[ i1 ];
 
-					// NEW
+					// NEW INSTANCE
 					if ( a[ i1 ] == undefined || overwrite ) {
 						if ( v instanceof Array ) {
 							a[ i1 ] = new Array();
@@ -826,13 +834,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 					}
 
+					// WALKTHROUGH RECURSIVLY
 					if (
-						( a instanceof Object || a instanceof Array ) &&
 						( v instanceof Object || v instanceof Array ) &&
 						!( v instanceof Function || v instanceof Date || _this.isElement( v ) ) &&
 						i1 != "chart"
 					) {
 						_this.deepMerge( a[ i1 ], v, overwrite );
+
+					// ASSIGN
 					} else {
 						if ( a instanceof Array && !overwrite ) {
 							a.push( v );
@@ -1956,6 +1966,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							// REPLACE WITH WHITELIST
 							g.paths = paths;
 
+							// CANCEL HALFPIXEL OFFSET ON CANVAS, KEEPS THE DECIMALS ON INDIVIDUAL PATHS
+							tmp.top += 0.5;
+							tmp.left += 0.5;
+
 							// SET PROPS
 							g.set( tmp );
 
@@ -2377,7 +2391,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			toPRINT: function( options, callback ) {
 				var i1;
 				var cfg = _this.deepMerge( {
-					delay: 1,
+					delay: 0.01,
 					lossless: false
 				}, options || {} );
 				var data = _this.toImage( cfg );
@@ -2396,6 +2410,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				document.body.appendChild( data );
 				window.print();
+
+				// CONVERT TO SECONDS
+				cfg.delay *= 1000;
+
+				// IOS EXCEPTION DELAY MIN. 1 SECOND
+				var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+				if ( isIOS && cfg.delay < 1000 ) {
+					cfg.delay = 1000;
+				}
 
 				setTimeout( function() {
 					for ( i1 = 0; i1 < items.length; i1++ ) {
@@ -2528,7 +2551,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								cell.v = datenum( cell.v );
 							} else if ( cell.v instanceof Object ) {
 								cell.t = "s";
-								cell.v = JSON.stringify(cell.v);
+								cell.v = JSON.stringify( cell.v );
 							} else {
 								cell.t = "s";
 							}
@@ -2610,7 +2633,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				cfg.processData = processData;
 
 				// GET DATA
-				cfg.data = cfg.data !== undefined ? cfg.data : _this.getChartData( cfg );
+				cfg.data = cfg.data !== undefined ? _this.processData( cfg ) : _this.getChartData( cfg );
 
 				// HEADER
 				if ( cfg.withHeader ) {
@@ -3353,8 +3376,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 								// DELAYED
 								if ( ( item.action == "draw" || item.format == "PRINT" || ( item.format != "UNDEFINED" && item.capture ) ) && !_this.drawing.enabled ) {
-									item.delay = item.delay ? item.delay : _this.config.delay;
-									if ( item.delay ) {
+
+									// VALIDATE DELAY
+									if ( !isNaN(item.delay) || !isNaN(_this.config.delay) ) {
+										item.delay = !isNaN(item.delay) ? item.delay : _this.config.delay;
 										_this.delay( item, callback );
 										return;
 									}

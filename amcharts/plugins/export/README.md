@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.48
+Version: 1.4.53
 
 
 ## Description
@@ -971,6 +971,22 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.53
+* Fixed: IOS print issue, captured the whole page instead of the single page
+
+### 1.4.52
+* Fixed: Blank export issue especifically in chrome on IOS devices.
+* Updated: FileSaver.js due the chrome export issue on IOS
+
+### 1.4.51
+* Fixed: Render issue on maps due half pixel position correction; simplified the positioning.
+
+### 1.4.50
+* Fixed: Half pixel positioning issue which caused the blurriness within the canvas and exported image.
+
+### 1.4.49
+* Fixed: Custom data export issue through toXSLX and toJSON which results in an empty data sheet.
 
 ### 1.4.48
 * Fixed: toXLSX issue handling objects/array in data points.
