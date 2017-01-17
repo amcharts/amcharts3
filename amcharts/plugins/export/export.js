@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.53
+Version: 1.4.56
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,12 +71,13 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.53",
+			version: "1.4.56",
 			libs: {
 				async: true,
 				autoLoad: true,
 				reload: false,
-				resources: [ "fabric.js/fabric.min.js", "FileSaver.js/FileSaver.min.js", "jszip/jszip.min.js", "xlsx/xlsx.min.js", {
+				resources: [ "fabric.js/fabric.min.js", "FileSaver.js/FileSaver.min.js", {
+					"jszip/jszip.min.js": [ "xlsx/xlsx.min.js" ],
 					"pdfmake/pdfmake.min.js": [ "pdfmake/vfs_fonts.js" ]
 				} ],
 				namespaces: {
@@ -235,7 +236,13 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						}
 						if ( cfg.width ) {
 							_this.drawing.width = cfg.width;
-							_this.drawing.fontSize = cfg.width * 3;
+							_this.drawing.fontSize = cfg.fontSize = cfg.width * 3;
+
+							// BACK TO DEFAULT
+							if ( _this.drawing.width == 1 ) {
+								_this.drawing.fontSize = cfg.fontSize = _this.defaults.fabric.drawing.fontSize;
+							}
+
 						}
 						if ( cfg.fontSize ) {
 							_this.drawing.fontSize = cfg.fontSize;
@@ -264,7 +271,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								cfg.color = cfg.color || state.color;
 								cfg.width = cfg.width || state.width;
 								cfg.opacity = cfg.opacity || state.opacity;
-								cfg.fontSize = cfg.fontSize || cfg.width * 3;
+								cfg.fontSize = cfg.fontSize || state.fontSize;
 
 								rgba = _this.getRGBA( cfg.color );
 								rgba.pop();
@@ -577,7 +584,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				fallback: true,
 				keyListener: true,
 				fileListener: true,
-				compress: true
+				compress: true,
+				debug: false
 			},
 
 			/**
@@ -726,6 +734,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				if ( !exist || _this.libs.reload ) {
 					node.addEventListener( "load", loadCallback );
+					node.addEventListener( "error", function() {
+						_this.handleLog( [ "amCharts[export]: Loading error on ", this.src || this.href ].join( "" ) );
+					} );
 					document.head.appendChild( node );
 
 					if ( !_this.listenersToRemove ) {
@@ -838,11 +849,12 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					if (
 						( v instanceof Object || v instanceof Array ) &&
 						!( v instanceof Function || v instanceof Date || _this.isElement( v ) ) &&
-						i1 != "chart"
+						i1 != "chart" &&
+						i1 != "scope"
 					) {
 						_this.deepMerge( a[ i1 ], v, overwrite );
 
-					// ASSIGN
+						// ASSIGN
 					} else {
 						if ( a instanceof Array && !overwrite ) {
 							a.push( v );
@@ -1176,8 +1188,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					var gradientId = instanceFillValue.slice( instanceFillValue.indexOf( "#" ) + 1, instanceFillValue.length - 1 );
 					if ( fabric.gradientDefs[ this.svgUid ][ gradientId ] ) {
 						var tmp = fabric.Gradient.fromElement( fabric.gradientDefs[ this.svgUid ][ gradientId ], obj );
-						// WORKAROUND FOR VERTICAL GRADIENT ISSUE;
-						if ( tmp.coords.y1 ) {
+
+						// WORKAROUND FOR VERTICAL GRADIENT ISSUE; FOR NONE PIE CHARTS
+						if ( tmp.coords.y1 && _this.setup.chart.type != "pie" ) {
 							tmp.coords.y2 = tmp.coords.y1 * -1;
 							tmp.coords.y1 = 0;
 						}
@@ -1295,6 +1308,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					height: 0,
 					maxWidth: 0,
 					maxHeight: 0
+				}
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "fabric", {
+						scope: this,
+						cb: _this.capture,
+						args: arguments
+					} ) ) {
+					return false;
 				}
 
 				// MODIFY FABRIC UNTIL IT'S OFFICIALLY SUPPORTED
@@ -2109,6 +2131,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var data = cfg.data;
 				var img = document.createElement( "img" );
 
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "fabric", {
+						scope: this,
+						cb: _this.toImage,
+						args: arguments
+					} ) ) {
+					return false;
+				}
+
 				if ( !cfg.data ) {
 					if ( cfg.lossless || cfg.format == "svg" ) {
 						data = _this.toSVG( _this.deepMerge( cfg, {
@@ -2170,7 +2201,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					multiplier: _this.config.multiplier
 				}, options || {} );
 				cfg.format = cfg.format.toLowerCase();
-				var data = _this.setup.fabric.toDataURL( cfg );
+				var data;
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "fabric", {
+						scope: this,
+						cb: _this.toJPG,
+						args: arguments
+					} ) ) {
+					return false;
+				}
+
+				// Get data context from fabric
+				data = _this.setup.fabric.toDataURL( cfg );
 
 				// TRIGGER CALLBACK
 				_this.handleCallback( callback, data, cfg );
@@ -2187,7 +2230,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					quality: 1,
 					multiplier: _this.config.multiplier
 				}, options || {} );
-				var data = _this.setup.fabric.toDataURL( cfg );
+				var data;
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "fabric", {
+						scope: this,
+						cb: _this.toPNG,
+						args: arguments
+					} ) ) {
+					return false;
+				}
+
+				// Get data context from fabric
+				data = _this.setup.fabric.toDataURL( cfg );
 
 				// TRIGGER CALLBACK
 				_this.handleCallback( callback, data, cfg );
@@ -2261,7 +2316,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						return string;
 					}
 				}, options || {} );
-				var data = _this.setup.fabric.toSVG( cfg, cfg.reviver );
+				var data;
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "fabric", {
+						scope: this,
+						cb: _this.toSVG,
+						args: arguments
+					} ) ) {
+					return false;
+				}
+
+				// Get SVG context from fabric
+				data = _this.setup.fabric.toSVG( cfg, cfg.reviver );
 
 				// TODO: WAIT UNTIL FABRICJS HANDLES CLIPPATH FOR SVG OUTPUT
 				if ( clipPaths.length ) {
@@ -2293,7 +2360,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					multiplier: _this.config.multiplier || 2,
 					pageOrigin: _this.config.pageOrigin === undefined ? true : false
 				}, _this.config.pdfMake ), options || {}, true );
-				var data = new pdfMake.createPdf( cfg );
+				var data;
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "pdfMake", {
+						scope: this,
+						cb: _this.toPDF,
+						args: arguments
+					} ) ) {
+					return false;
+				}
+
+				// Create PDF instance
+				data = new pdfMake.createPdf( cfg );
 
 				// Get image data
 				cfg.images.reference = _this.toPNG( cfg );
@@ -2415,7 +2494,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				cfg.delay *= 1000;
 
 				// IOS EXCEPTION DELAY MIN. 1 SECOND
-				var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+				var isIOS = /iPad|iPhone|iPod/.test( navigator.userAgent ) && !window.MSStream;
 				if ( isIOS && cfg.delay < 1000 ) {
 					cfg.delay = 1000;
 				}
@@ -2441,9 +2520,18 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			toJSON: function( options, callback ) {
 				var cfg = _this.deepMerge( {
-					dateFormat: _this.config.dateFormat || "dateObject",
+					dateFormat: _this.config.dateFormat || "dateObject"
 				}, options || {}, true );
 				var data = {};
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "JSON", {
+						scope: this,
+						cb: _this.toJSON,
+						args: arguments
+					} ) ) {
+					return false;
+				}
 
 				// GATHER DATA
 				cfg.data = cfg.data !== undefined ? cfg.data : _this.getChartData( cfg );
@@ -2502,6 +2590,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var wb = {
 					SheetNames: [],
 					Sheets: {}
+				}
+
+				// NAMESPACE CHECK
+				if ( !_this.handleNamespace( "XLSX", {
+						scope: this,
+						cb: _this.toXLSX,
+						args: arguments
+					} ) ) {
+					return false;
 				}
 
 				// GATHER DATA
@@ -2770,6 +2867,64 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					}
 					return callback.apply( _this, data );
 				}
+			},
+
+			/**
+			 * Logger
+			 */
+			handleLog: function( msg ) {
+				if ( _this.config.debug === true ) {
+					console.log(msg);
+				}
+			},
+
+			/**
+			 * Namespace checker; delays given callback until the dependency is available
+			 */
+			handleNamespace: function( namespace, opts ) {
+				var scope = _this.config.scope || window;
+				var exists = false;
+				var startTS = Number( new Date() );
+				var timer;
+
+				// SIMPLE CHECK
+				exists = !!( namespace in scope );
+
+				// RESURSIVE DEPENDENCY CHECK
+				function waitForIt() {
+					var tmpTS = Number( new Date() );
+
+					// SIMPLE CHECK
+					exists = !!( namespace in scope );
+
+					// PDFMAKE EXCEPTION; WAIT ADDITIONALLY FOR FONTS
+					if ( namespace == "pdfMake" && exists ) {
+						exists = scope.pdfMake.vfs;
+					}
+
+					// FOUND TRIGGER GIVEN CALLBACK
+					if ( exists ) {
+						clearTimeout( timer );
+						opts.cb.apply( opts.scope, opts.args );
+						_this.handleLog( [ "AmCharts [export]: Namespace \"", namespace, "\" showed up in: ", String( scope ) ].join( "" ) );
+
+						// NOT FOUND SCHEDULE RECHECK
+					} else if ( tmpTS - startTS < _this.libs.loadTimeout ) {
+						timer = setTimeout( waitForIt, 250 );
+
+						// LIBS TIMEOUT REACHED
+					} else {
+						_this.handleLog( [ "AmCharts [export]: Gave up waiting for \"", namespace, "\" in: ", String( scope ) ].join( "" ) );
+					}
+				}
+
+				// THROW MESSAGE IF IT DOESNT EXIST
+				if ( !exists ) {
+					_this.handleLog( [ "AmCharts [export]: Could not find \"", namespace, "\" in: ", String( scope ) ].join( "" ) );
+					waitForIt();
+				}
+
+				return exists;
 			},
 
 			/**
@@ -3378,8 +3533,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								if ( ( item.action == "draw" || item.format == "PRINT" || ( item.format != "UNDEFINED" && item.capture ) ) && !_this.drawing.enabled ) {
 
 									// VALIDATE DELAY
-									if ( !isNaN(item.delay) || !isNaN(_this.config.delay) ) {
-										item.delay = !isNaN(item.delay) ? item.delay : _this.config.delay;
+									if ( !isNaN( item.delay ) || !isNaN( _this.config.delay ) ) {
+										item.delay = !isNaN( item.delay ) ? item.delay : _this.config.delay;
 										_this.delay( item, callback );
 										return;
 									}

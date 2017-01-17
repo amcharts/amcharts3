@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.53
+Version: 1.4.56
 
 
 ## Description
@@ -149,6 +149,7 @@ border | {} | An object of key/value pairs to define the overlaying border
 processData | | A function which can be used to change the dataProvider when exporting to CSV, XLSX, or JSON
 pageOrigin | true | A flag to show / hide the origin of the generated PDF ( pdf export only )
 forceRemoveImages | false | If true export removes all images
+debug | false | A flag which enables the plugin to write console logs (currently used by the dependency handler only).
 
 
 ## Configuring export menu
@@ -971,6 +972,15 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.55
+* Added: Dependency handler on export methods, holds the actual call until the namespace shows up in current scope (uses libs.loadTimeout).
+
+### 1.4.55
+* Added: Radial gradient issue on pie caused by the vertical gradient fix (v1.4.44)
+
+### 1.4.54
+* Fixed: Default text size on width changes
 
 ### 1.4.53
 * Fixed: IOS print issue, captured the whole page instead of the single page
