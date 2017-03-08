@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.56
+Version: 1.4.58
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.56",
+			version: "1.4.58",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -96,7 +96,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				wrapper: false,
 				isIE: !!window.document.documentMode,
 				IEversion: window.document.documentMode,
-				hasTouch: typeof window.Touch == "object"
+				hasTouch: typeof window.Touch == "object",
+				focusedMenuItem: undefined
 			},
 			drawing: {
 				enabled: false,
@@ -829,7 +830,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					v = b[ i1 ];
 
 					// NEW INSTANCE
-					if ( a[ i1 ] == undefined || overwrite ) {
+					if ( a && a[ i1 ] == undefined || overwrite ) {
 						if ( v instanceof Array ) {
 							a[ i1 ] = new Array();
 						} else if ( v instanceof Function ) {
@@ -858,7 +859,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} else {
 						if ( a instanceof Array && !overwrite ) {
 							a.push( v );
-						} else {
+						} else if ( a ) {
 							a[ i1 ] = v;
 						}
 					}
@@ -2292,24 +2293,25 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						// TODO: WAIT UNTIL FABRICJS HANDLES CLIPPATH FOR SVG OUTPUT
 						if ( clipPath && clipPath.svg ) {
 							var clipPathId = clipPath.svg.id;
+							var sliceOffset = 2;
+							var end = string.slice( -sliceOffset );
+
+							if ( end != "/>" ) {
+								sliceOffset = 3;
+								end = string.slice( -sliceOffset );
+							}
+
+							var start = string.slice( 0, string.length - sliceOffset );
+							var clipPathAttr = " clip-path=\"url(#" + clipPath.svg.id + ")\" ";
+
+							// WRAP ELEMENT TO BE ABLE TO APPLY THE CLIP-PATH
+							string = "<g " + clipPathAttr + ">" + string + "</g>";
+
+							// INJECT CLIP PATH ONCE INTO THE DOCUMENT
 							if ( clipPathIds.indexOf( clipPathId ) == -1 ) {
-								var sliceOffset = 2;
-								var end = string.slice( -sliceOffset );
-
-								clipPathIds.push( clipPath.svg.id );
-
-								if ( end != "/>" ) {
-									sliceOffset = 3;
-									end = string.slice( -sliceOffset );
-								}
-
-								var start = string.slice( 0, string.length - sliceOffset );
-								var clipPathAttr = " clip-path=\"url(#" + clipPath.svg.id + ")\" ";
 								var clipPathString = new XMLSerializer().serializeToString( clipPath.svg );
-
-								string = start + clipPathAttr + end;
-
 								clipPaths.push( clipPathString );
+								clipPathIds.push( clipPath.svg.id );
 							}
 						}
 
@@ -2874,7 +2876,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			 */
 			handleLog: function( msg ) {
 				if ( _this.config.debug === true ) {
-					console.log(msg);
+					console.log( msg );
 				}
 			},
 
@@ -3368,6 +3370,16 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						item.format = String( item.format ).toUpperCase();
 
+						// LISTEN ON FOCUS; NON-TOUCH DEVICES ONLY
+						a.addEventListener( "focus", function( e ) {
+							if ( !_this.setup.hasTouch ) {
+								_this.setup.focusedMenuItem = this;
+
+								this.parentNode.classList.add( "active" );
+								this.parentNode.parentNode.parentNode.classList.add( "active" );	
+							}
+						} );
+
 						// MERGE WITH GIVEN FORMAT
 						if ( _this.config.formats[ item.format ] ) {
 							item = _this.deepMerge( {
@@ -3832,6 +3844,136 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 					_this.docListener = function( e ) {
 						var current = _this.drawing.buffer.target;
+						var KEY_WHITELIST = [ 37, 38, 39, 40, 13, 9, 27 ];
+						var MENU_LEFT = [ "top-left", "bottom-left" ].indexOf( _this.config.position ) != -1;
+						var MENU_RIGHT = [ "top-right", "bottom-right" ].indexOf( _this.config.position ) != -1;
+
+						// FOCUS FIRST ITEM IN MENU
+						function focusFirst( list, throughTab ) {
+							for ( i1 = 0; i1 < list.length; i1++ ) {
+								var item = list[ i1 ];
+								item.parentNode.classList.remove( "active" );
+
+								// DO NOT THAT THROUGH TAB COMMANDS
+								if ( i1 == 0 && !throughTab ) {
+									item.focus();
+								}
+							}
+						}
+
+						// FOCUS NEXT MENU
+						function focusNext( throughTab ) {
+							if ( _this.setup.focusedMenuItem && _this.setup.focusedMenuItem.nextSibling ) {
+								_this.setup.focusedMenuItem.parentNode.classList.add( "active" );
+								focusFirst( _this.setup.focusedMenuItem.nextSibling.getElementsByTagName( "a" ), throughTab );
+							}
+						}
+
+						// FOCUS PREVIOUS MENU
+						function focusPrev( throughTab ) {
+							if ( _this.setup.focusedMenuItem && _this.setup.focusedMenuItem.parentNode.parentNode.parentNode ) {
+								_this.setup.focusedMenuItem.parentNode.classList.add( "active" );
+								focusFirst( _this.setup.focusedMenuItem.parentNode.parentNode.parentNode.getElementsByTagName( "a" ), throughTab );
+							}
+						}
+
+						// FOCUS NEXT ITEM
+						function focusDown( throughTab ) {
+							if ( _this.setup.focusedMenuItem && _this.setup.focusedMenuItem.parentNode.nextSibling ) {
+								_this.setup.focusedMenuItem.parentNode.classList.remove( "active" );
+								focusFirst( _this.setup.focusedMenuItem.parentNode.nextSibling.getElementsByTagName( "a" ), throughTab );
+							}
+						}
+						// FOCUS PREVIOUS ITEM
+						function focusUp( throughTab ) {
+							if ( _this.setup.focusedMenuItem && _this.setup.focusedMenuItem.parentNode.previousSibling ) {
+								_this.setup.focusedMenuItem.parentNode.classList.remove( "active" );
+								focusFirst( _this.setup.focusedMenuItem.parentNode.previousSibling.getElementsByTagName( "a" ), throughTab );
+							}
+						}
+
+						// BLUR EVERYTHING
+						function blurAll() {
+							function unselectParents( elm ) {
+								elm.blur();
+
+								// BLUR PARENT
+								if ( elm.parentNode ) {
+									elm.parentNode.classList.remove( "active" );
+								}
+
+								// ENOUGH; EXIT ON MENU WRAPPER
+								if ( !elm.classList.contains( "amExportButton" ) ) {
+									unselectParents( elm.parentNode );
+								}
+							}
+
+							// TRIGGER PRIV. FUNC. ONLY ON FOCUSED ELEMENT
+							if ( _this.setup.focusedMenuItem ) {
+								unselectParents( _this.setup.focusedMenuItem );
+								_this.setup.focusedMenuItem = undefined;
+							}
+						}
+
+						// IF WE'VE A FOCUSED ELEMENT
+						if ( _this.setup.focusedMenuItem && KEY_WHITELIST.indexOf( e.keyCode ) != -1 ) {
+
+							// TAB (focusedMenuItem holds the previous selected element)
+							if ( e.keyCode == 9 ) {
+
+								// NEXT ITEM AVAILABLE?
+								if ( !_this.setup.focusedMenuItem.nextSibling ) {
+									_this.setup.focusedMenuItem.parentNode.classList.remove( "active" );
+
+									// NEXT PARENT ITEM AVAILABLE?
+									if ( !_this.setup.focusedMenuItem.parentNode.nextSibling ) {
+										_this.setup.focusedMenuItem.parentNode.classList.remove( "active" );
+										_this.setup.focusedMenuItem.parentNode.parentNode.parentNode.classList.remove( "active" );
+									}
+
+									// SHIFT
+								} else if ( e.shiftKey ) {
+									_this.setup.focusedMenuItem.parentNode.classList.remove( "active" );
+								}
+								return;
+							}
+
+							// ENTER
+							if ( e.keyCode == 13 && _this.setup.focusedMenuItem.nextSibling ) {
+								focusNext();
+							}
+
+							// LEFT
+							if ( e.keyCode == 37 ) {
+								if ( MENU_RIGHT ) {
+									focusNext();
+								} else {
+									focusPrev();
+								}
+							}
+
+							// RIGHT
+							if ( e.keyCode == 39 ) {
+								if ( MENU_RIGHT ) {
+									focusPrev();
+								} else {
+									focusNext();
+								}
+							}
+
+							// DOWN
+							if ( e.keyCode == 40 ) {
+								focusDown();
+							}
+							// UP
+							if ( e.keyCode == 38 ) {
+								focusUp();
+							}
+							// ESC
+							if ( e.keyCode == 27 ) {
+								blurAll();
+							}
+						}
 
 						// REMOVE; key: BACKSPACE / DELETE
 						if ( ( e.keyCode == 8 || e.keyCode == 46 ) && current ) {
@@ -3897,7 +4039,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				clearTimeout( _timer );
 
 				_timer = setInterval( function() {
-					if ( _this.setup.chart.containerDiv ) {
+					if ( _this.setup && _this.setup.chart.containerDiv ) {
 						clearTimeout( _timer );
 
 						if ( _this.config.enabled ) {

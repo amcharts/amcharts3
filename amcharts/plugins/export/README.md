@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.56
+Version: 1.4.58
 
 
 ## Description
@@ -973,7 +973,15 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 ## Changelog
 
-### 1.4.55
+### 1.4.58
+* Fixed: SVG clip-path export issue; injection control; wrap elements to support fill reference
+* Fixed: Keyboard navigation disabled on touch devices
+
+### 1.4.57
+* Added: Support for keyboard navigation (tabs and arrow keys).
+* Fixed: Merged pull request [#84](https://github.com/amcharts/export/pull/54) fixing an issue when "a" is undefined within deepMerge (thanks to [RahavLussato](https://github.com/RahavLussato) )
+
+### 1.4.56
 * Added: Dependency handler on export methods, holds the actual call until the namespace shows up in current scope (uses libs.loadTimeout).
 
 ### 1.4.55

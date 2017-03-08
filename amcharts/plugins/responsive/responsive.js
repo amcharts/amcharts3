@@ -2,11 +2,11 @@
 Plugin Name: amCharts Responsive
 Description: This plugin add responsive functionality to JavaScript Charts and Maps.
 Author: Martynas Majeris, amCharts
-Contributors: Ohad Schneider
-Version: 1.0.3
+Contributors: Ohad Schneider, Hasan Akgün
+Version: 1.0.5
 Author URI: http://www.amcharts.com/
 
-Copyright 2015 amCharts
+Copyright 2015-2017 amCharts
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,6 +41,19 @@ AmCharts.addInitHandler( function( chart ) {
   r.ready = true;
   r.currentRules = {};
   r.overridden = [];
+
+  // preserve animation
+  if ( chart.type === "stock" ) {
+    if ( 0 > chart.panelsSettings.startDuration ) {
+      r.startDuration = chart.panelsSettings.startDuration;
+      chart.panelsSettings.startDuration = 0;
+    }
+  } else {
+    if ( undefined !== chart.startDuration && ( 0 < chart.startDuration ) ) {
+      r.startDuration = chart.startDuration;
+      chart.startDuration = 0;
+    }
+  }
 
   // defaults per chart type
   var defaults = {
@@ -1082,7 +1095,26 @@ AmCharts.addInitHandler( function( chart ) {
     chart.zoomOutOnDataUpdate = false;
     chart.validateNow( true );
     restoreOriginalProperty( chart, "zoomOutOnDataUpdate" );
+    animateAgain();
   };
+
+  var animateAgain = function() {
+    // make the chart animate again
+    if ( r.startDuration ) {
+      if ( chart.type === "stock" ) {
+        chart.panelsSettings.startDuration = r.startDuration;
+        for ( var x = 0; x < chart.panels.length; x++ ) {
+          chart.panels[ x ].startDuration = r.startDuration;
+          chart.panels[ x ].animateAgain();
+        }
+      } else {
+        chart.startDuration = r.startDuration;
+        if ( chart.animateAgain !== undefined )
+          chart.animateAgain();
+      }
+      delete r.startDuration;
+    }
+  }
 
   var applyConfig = function( current, override ) {
 
@@ -1185,24 +1217,26 @@ AmCharts.addInitHandler( function( chart ) {
       var rule = r.rules[ i ];
 
       var ruleMatches =
-        ( rule.minWidth === undefined || ( rule.minWidth <= width ) ) && ( rule.maxWidth === undefined || ( rule.maxWidth >= width ) ) &&
-        ( rule.minHeight === undefined || ( rule.minHeight <= height ) ) && ( rule.maxHeight === undefined || ( rule.maxHeight >= height ) ) &&
-        ( rule.rotate === undefined || ( rule.rotate === true && chart.rotate === true ) || ( rule.rotate === false && ( chart.rotate === undefined || chart.rotate === false ) ) ) &&
-        ( rule.legendPosition === undefined || ( chart.legend !== undefined && chart.legend.position !== undefined && chart.legend.position === rule.legendPosition ) );
+        ( isNullOrUndefined( rule.minWidth ) || ( rule.minWidth <= width ) ) && ( isNullOrUndefined( rule.maxWidth ) || ( rule.maxWidth >= width ) ) &&
+        ( isNullOrUndefined( rule.minHeight ) || ( rule.minHeight <= height ) ) && ( isNullOrUndefined( rule.maxHeight ) || ( rule.maxHeight >= height ) ) &&
+        ( isNullOrUndefined( rule.rotate ) || ( rule.rotate === true && chart.rotate === true ) || ( rule.rotate === false && ( isNullOrUndefined( chart.rotate ) || chart.rotate === false ) ) ) &&
+        ( isNullOrUndefined( rule.legendPosition ) || ( !isNullOrUndefined( chart.legend ) && !isNullOrUndefined( chart.legend.position ) && chart.legend.position === rule.legendPosition ) );
 
       if ( ruleMatches ) {
-        if ( r.currentRules[ i ] === undefined ) {
+        if ( isNullOrUndefined( r.currentRules[ i ] ) ) {
           r.currentRules[ i ] = true;
           rulesChanged = true;
         }
-      } else if ( r.currentRules[ i ] !== undefined ) {
+      } else if ( !isNullOrUndefined( r.currentRules[ i ] ) ) {
         r.currentRules[ i ] = undefined;
         rulesChanged = true;
       }
     }
 
-    if ( !rulesChanged )
+    if ( !rulesChanged ) {
+      animateAgain();
       return;
+    }
 
     restoreOriginals();
 
@@ -1211,7 +1245,7 @@ AmCharts.addInitHandler( function( chart ) {
         continue;
       }
 
-      if ( r.currentRules[ key ] !== undefined ) {
+      if ( !isNullOrUndefined( r.currentRules[ key ] ) ) {
         if ( isNullOrUndefined( r.rules[ key ] ) ) {
           throw "null or undefined rule in index: " + key;
         }
@@ -1220,7 +1254,6 @@ AmCharts.addInitHandler( function( chart ) {
     }
 
     // TODO - re-apply zooms/slices as necessary
-
     redrawChart();
   };
 

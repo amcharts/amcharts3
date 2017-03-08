@@ -1,8 +1,6 @@
 *********************************************************************************
 Third party software used:
 
-    David Knape & Patrick Mineault Bezier curves drawing logic.
-
     Code optimization made using Closure Compiling service:
     http://closure-compiler.appspot.com/home
 
