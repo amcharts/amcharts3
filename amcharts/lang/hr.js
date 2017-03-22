@@ -4,4 +4,4 @@ AmCharts.translations.hr = {
   "dayNames": ["Nedjelja", "Ponedjeljak", "Utorak", "Srijeda", "Četvrtak", "Petak", "Subota"],
   "shortDayNames": ["Ned", "Pon", "Uto", "Sri", "Čet", "Pet", "Sub"],
   "zoomOutText": "Prikaži sve"
-}
+};

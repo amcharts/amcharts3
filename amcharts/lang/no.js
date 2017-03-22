@@ -4,4 +4,4 @@ AmCharts.translations.no = {
   "dayNames": ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag"],
   "shortDayNames": ["Sø.", "Ma.", "Ti.", "On.", "To.", "Fr.", "Lø."],
   "zoomOutText": "Vis alle"
-}
+};

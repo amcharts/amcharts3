@@ -4,4 +4,4 @@ AmCharts.translations.tr = {
   "dayNames": ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"],
   "shortDayNames": ["Paz", "Pzt", "Sal", "Çrş", "Prş", "Cum", "Cts"],
   "zoomOutText": "Tümünü göster"
-}
+};

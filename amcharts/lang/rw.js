@@ -4,4 +4,4 @@ AmCharts.translations.rw = {
   "dayNames": ["Ku cyumweru", "Kuwa mbere", "Kuwa kabiri", "Kuwa gatatu", "Kuwa kane", "Kuwa gatanu", "Kuwa gatandatu"],
   "shortDayNames": ["Mwe", "Mbe", "Kab", "Gtu", "Kan", "Gnu", "Gnd"],
   "zoomOutText": "Show all"
-}
+};

@@ -4,4 +4,4 @@ AmCharts.translations.sl = {
   "dayNames": ["Nedelja", "Ponedeljek", "Torek", "Sreda", "Četrtek", "Petek", "Sobota"],
   "shortDayNames": ["Ned", "Pon", "Tor", "Sre", "Čet", "Pet", "Sob"],
   "zoomOutText": "Pokaži vse"
-}
+};

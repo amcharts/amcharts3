@@ -4,4 +4,4 @@ AmCharts.translations.is = {
   "dayNames": ["Sunnudagur", "Mánudagur", "Þriðjudagur", "Miðvikudagur", "Fimmtudagur", "Föstudagur", "Laugardagur"],
   "shortDayNames": ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau"],
   "zoomOutText": "Sýna allt"
-}
+};

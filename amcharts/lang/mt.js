@@ -4,4 +4,4 @@ AmCharts.translations.mt = {
   "dayNames": ["Il-ħadd", "It-tnejn", "It-tlieta", "L-erbgħa", "Il-ħamis", "Il-ġimgħa", "Is-sibt"],
   "shortDayNames": ["Ħad", "Tne", "Tli", "Erb", "Ħam", "Ġim", "Sib"],
   "zoomOutText": "Turi kollha"
-}
+};

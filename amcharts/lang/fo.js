@@ -4,4 +4,4 @@ AmCharts.translations.fo = {
   "dayNames": ["Sunnudagur", "Mánadagur", "Týsdagur", "Mikudagur", "Hósdagur", "Fríggjadagur", "Leygardagur"],
   "shortDayNames": ["Sun", "Mán", "Týs", "Mik", "Hós", "Frí", "Ley"],
   "zoomOutText": "Show all"
-}
+};

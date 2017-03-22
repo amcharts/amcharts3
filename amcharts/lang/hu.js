@@ -4,4 +4,4 @@ AmCharts.translations.hu = {
   "dayNames": ["Vasárnap", "Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat"],
   "shortDayNames": ["V", "H", "K", "Sze", "Cs", "P", "Szo"],
   "zoomOutText": "Összes"
-}
+};

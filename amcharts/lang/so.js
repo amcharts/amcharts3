@@ -4,4 +4,4 @@ AmCharts.translations.so = {
   "dayNames": ["Axad", "Isniin", "Salaaso", "Arbaco", "Khamiis", "Jimco", "Sabti"],
   "shortDayNames": ["Axa", "Isn", "Sal", "Arb", "Kha", "Jim", "Sab"],
   "zoomOutText": "Tus dhammaan"
-}
+};

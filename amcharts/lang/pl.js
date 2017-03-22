@@ -4,4 +4,4 @@ AmCharts.translations.pl = {
   "dayNames": ["Niedziela", "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota"],
   "shortDayNames": ["Nie", "Pon", "Wto", "Śro", "Czw", "Pią", "Sob"],
   "zoomOutText": "Pokaż wszystko"
-}
+};

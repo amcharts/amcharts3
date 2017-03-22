@@ -4,4 +4,4 @@ AmCharts.translations.sk = {
   "dayNames": ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"],
   "shortDayNames": ["Ne", "Po", "Ut", "St", "Št", "Pi", "So"],
   "zoomOutText": "Zobraziť všetky"
-}
+};

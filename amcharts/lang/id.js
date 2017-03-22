@@ -4,4 +4,4 @@ AmCharts.translations.id = {
   "dayNames": ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"],
   "shortDayNames": ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"],
   "zoomOutText": "Tampilkan semua"
-}
+};

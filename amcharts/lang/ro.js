@@ -4,4 +4,4 @@ AmCharts.translations.ro = {
   "dayNames": ["Duminică", "Luni", "Marţi", "Miercuri", "Joi", "Vineri", "Sâmbătă"],
   "shortDayNames": ["Du", "Lu", "Ma", "Mi", "Jo", "Vi", "Sb"],
   "zoomOutText": "Arată tot"
-}
+};

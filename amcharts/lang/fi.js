@@ -4,4 +4,4 @@ AmCharts.translations.fi = {
   "dayNames": ["Sunnuntai", "Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai", "Lauantai"],
   "shortDayNames": ["Su", "Ma", "Ti", "Ke", "To", "Pe", "La"],
   "zoomOutText": "Näytä kaikki"
-}
+};

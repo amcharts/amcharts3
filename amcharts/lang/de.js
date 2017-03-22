@@ -6,4 +6,4 @@ AmCharts.translations.de = {
   "zoomOutText": "Alle anzeigen",
   "am": "vorm.",
   "pm": "nachm."
-}
+};

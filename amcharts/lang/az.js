@@ -4,4 +4,4 @@ AmCharts.translations.az = {
   "dayNames": ["Bazar günü", "Bazar ertəsi", "Çərşənbə axşamı", "Çərşənbə", "Cümə axşamı", "Cümə", "Şənbə"],
   "shortDayNames": ["Baz", "Ber", "Çax", "Çər", "Cax", "Cüm", "Şnb"],
   "zoomOutText": "Bütün göstər"
-}
+};

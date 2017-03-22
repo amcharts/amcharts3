@@ -4,4 +4,4 @@ AmCharts.translations.nl = {
   "dayNames": ["Zondag", "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag"],
   "shortDayNames": ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za"],
   "zoomOutText": "Alles weergeven"
-}
+};

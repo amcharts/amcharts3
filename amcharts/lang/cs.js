@@ -4,4 +4,4 @@ AmCharts.translations.cs = {
   "dayNames": ["Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota"],
   "shortDayNames": ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"],
   "zoomOutText": "Zobrazit vše"
-}
+};

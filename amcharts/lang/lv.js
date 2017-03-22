@@ -4,4 +4,4 @@ AmCharts.translations.lv = {
   "dayNames": ["Svētdiena", "Pirmdiena", "Otrdiena", "Trešdiena", "Ceturtdiena", "Piektdiena", "Sestdiena"],
   "shortDayNames": ["Sv", "P ", "O ", "T ", "C ", "Pk", "S "],
   "zoomOutText": "Parādīt visu"
-}
+};

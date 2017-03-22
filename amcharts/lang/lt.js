@@ -4,4 +4,4 @@ AmCharts.translations.lt = {
   "dayNames": ["Sekmadienis", "Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis", "Šeštadienis"],
   "shortDayNames": ["Sk", "Pr", "An", "Tr", "Kt", "Pn", "Št"],
   "zoomOutText": "Rodyti viską"
-}
+};

@@ -4,4 +4,4 @@ AmCharts.translations.it = {
   "dayNames": ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"],
   "shortDayNames": ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"],
   "zoomOutText": "Mostra tutti"
-}
+};
