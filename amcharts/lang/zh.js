@@ -6,4 +6,4 @@ AmCharts.translations.zh = {
   "zoomOutText": "显示所有",
   "am": "上午",
   "pm": "下午"
-}
+};
