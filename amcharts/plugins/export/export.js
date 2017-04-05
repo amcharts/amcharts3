@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.58
+Version: 1.4.61
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.58",
+			version: "1.4.61",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -1976,7 +1976,27 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 															dim.left -= tm[ 4 ];
 														}
 
-														ctx.rect( dim.left, dim.top, dim.width, dim.height );
+														// SMOOTHCUSTOMBULLETS PLUGIN SUPPORT; ROUND BORDER
+														if (
+															_this.setup.chart.smoothCustomBullets !== undefined &&
+															this.className == _this.setup.chart.classNamePrefix + "-graph-bullet" &&
+															g.paths[ i1 ].svg.tagName == "image"
+														) {
+															radius = cp.svg.firstChild.rx.baseVal.value / 2 + 2;
+															ctx.beginPath();
+															ctx.moveTo(dim.left + radius, dim.top);
+															ctx.lineTo(dim.left + dim.width - radius, dim.top);
+															ctx.quadraticCurveTo(dim.left + dim.width, dim.top, dim.left + dim.width, dim.top + radius);
+															ctx.lineTo(dim.left + dim.width, dim.top + dim.height - radius);
+															ctx.quadraticCurveTo(dim.left + dim.width, dim.top + dim.height, dim.left + dim.width - radius, dim.top + dim.height);
+															ctx.lineTo(dim.left + radius, dim.top + dim.height);
+															ctx.quadraticCurveTo(dim.left, dim.top + dim.height, dim.left, dim.top + dim.height - radius);
+															ctx.lineTo(dim.left, dim.top + radius);
+															ctx.quadraticCurveTo(dim.left, dim.top, dim.left + radius, dim.top);
+															ctx.closePath();
+														} else {
+															ctx.rect( dim.left, dim.top, dim.width, dim.height );
+														}
 													}
 												} )( i1, PID )
 											} );
@@ -2490,29 +2510,34 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}
 
 				document.body.appendChild( data );
-				window.print();
 
-				// CONVERT TO SECONDS
-				cfg.delay *= 1000;
+				// DELAY WHOLE PROCESS
+				setTimeout(function() {
+					// PRINT
+					window.print();
 
-				// IOS EXCEPTION DELAY MIN. 1 SECOND
-				var isIOS = /iPad|iPhone|iPod/.test( navigator.userAgent ) && !window.MSStream;
-				if ( isIOS && cfg.delay < 1000 ) {
-					cfg.delay = 1000;
-				}
+					// CONVERT TO SECONDS
+					cfg.delay *= 1000;
 
-				setTimeout( function() {
-					for ( i1 = 0; i1 < items.length; i1++ ) {
-						if ( _this.isElement( items[ i1 ] ) ) {
-							items[ i1 ].style.display = states[ i1 ];
-						}
+					// IOS EXCEPTION DELAY MIN. 1 SECOND
+					var isIOS = /iPad|iPhone|iPod/.test( navigator.userAgent ) && !window.MSStream;
+					if ( isIOS && cfg.delay < 1000 ) {
+						cfg.delay = 1000;
 					}
-					document.body.removeChild( data );
-					document.documentElement.scrollTop = document.body.scrollTop = scroll;
 
-					// TRIGGER CALLBACK
-					_this.handleCallback( callback, data, cfg );
-				}, cfg.delay );
+					setTimeout( function() {
+						for ( i1 = 0; i1 < items.length; i1++ ) {
+							if ( _this.isElement( items[ i1 ] ) ) {
+								items[ i1 ].style.display = states[ i1 ];
+							}
+						}
+						document.body.removeChild( data );
+						document.documentElement.scrollTop = document.body.scrollTop = scroll;
+
+						// TRIGGER CALLBACK
+						_this.handleCallback( callback, data, cfg );
+					}, cfg.delay );
+				},1);
 
 				return data;
 			},
@@ -3895,16 +3920,18 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						// BLUR EVERYTHING
 						function blurAll() {
 							function unselectParents( elm ) {
-								elm.blur();
+								if ( _this.isElement(elm) ) {
+									elm.blur();
 
-								// BLUR PARENT
-								if ( elm.parentNode ) {
-									elm.parentNode.classList.remove( "active" );
-								}
+									// BLUR PARENT
+									if ( elm.parentNode ) {
+										elm.parentNode.classList.remove( "active" );
+									}
 
-								// ENOUGH; EXIT ON MENU WRAPPER
-								if ( !elm.classList.contains( "amExportButton" ) ) {
-									unselectParents( elm.parentNode );
+									// ENOUGH; EXIT ON MENU WRAPPER
+									if ( !elm.classList.contains( "amExportButton" ) ) {
+										unselectParents( elm.parentNode );
+									}
 								}
 							}
 
