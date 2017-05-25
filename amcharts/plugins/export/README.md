@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.61
+Version: 1.4.66
 
 
 ## Description
@@ -972,6 +972,21 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.66
+* Fixed: Menu active state on mouseleave.
+
+### 1.4.65
+* Fixed: Menu active state issue, menu kept its active when it hasn't been rerendered.
+
+### 1.4.64
+* Fixed: classList issue on IE11
+
+### 1.4.63
+* Fixed: Clip-path issue on graph lines
+
+### 1.4.62
+* Fixed: Gantt category issue
 
 ### 1.4.61
 * Fixed: SmoothCustomBullet plugin support, clip-path issue on curved corners

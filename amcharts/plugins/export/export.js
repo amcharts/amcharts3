@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.61
+Version: 1.4.66
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.61",
+			version: "1.4.66",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -2322,16 +2322,25 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 
 							var start = string.slice( 0, string.length - sliceOffset );
-							var clipPathAttr = " clip-path=\"url(#" + clipPath.svg.id + ")\" ";
+							var clipPathAttr = " clip-path=\"url(#" + clipPathId + ")\" ";
+							var parentClassList = _this.gatherAttribute(clipPath.svg,"class");
+
+							parentClassList = parentClassList ? parentClassList.split(" ") : [];
+
+							// APPLY CLIP PATH DIRECTLY ON GRAPHLINES
+							if ( parentClassList.indexOf(_this.setup.chart.classNamePrefix + "-graph-line") != -1 ) {
+								string = start + clipPathAttr + end;
 
 							// WRAP ELEMENT TO BE ABLE TO APPLY THE CLIP-PATH
-							string = "<g " + clipPathAttr + ">" + string + "</g>";
+							} else {
+								string = "<g " + clipPathAttr + ">" + string + "</g>";
+							}
 
 							// INJECT CLIP PATH ONCE INTO THE DOCUMENT
 							if ( clipPathIds.indexOf( clipPathId ) == -1 ) {
 								var clipPathString = new XMLSerializer().serializeToString( clipPath.svg );
 								clipPaths.push( clipPathString );
-								clipPathIds.push( clipPath.svg.id );
+								clipPathIds.push( clipPathId );
 							}
 						}
 
@@ -3137,7 +3146,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} else if ( _this.setup.chart.type == "gantt" ) {
 						// CATEGORY AXIS
 						addField( _this.setup.chart.categoryField );
-						cfg.dateFields.push( _this.setup.chart.categoryField );
 
 						var field = _this.setup.chart.segmentsField;
 						for ( i1 = 0; i1 < _this.setup.chart.dataProvider.length; i1++ ) {
@@ -3395,10 +3403,26 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						item.format = String( item.format ).toUpperCase();
 
+						// REMOVE ACTIVE CLASS ON MOUSELEAVE
+						li.addEventListener("mouseleave",function(e) {
+							this.classList.remove("active");
+						});
+
 						// LISTEN ON FOCUS; NON-TOUCH DEVICES ONLY
 						a.addEventListener( "focus", function( e ) {
 							if ( !_this.setup.hasTouch ) {
 								_this.setup.focusedMenuItem = this;
+								var list = this.parentNode;
+
+								if ( list.tagName != "UL" ) {
+									list = list.parentNode;
+								}
+
+								// REMOVE ACTIVE CLASSES
+								var items = list.getElementsByTagName("li");
+								for ( i1 = 0; i1 < items.length; i1++ ) {
+									items[i1].classList.remove("active");
+								}
 
 								this.parentNode.classList.add( "active" );
 								this.parentNode.parentNode.parentNode.classList.add( "active" );	
@@ -3510,6 +3534,10 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								item.click = ( function( item ) {
 									return function() {
 										this.drawing.handler[ item.action ]( item );
+
+										if ( item.action != "cancel" ) {
+											this.createMenu( this.config.fabric.drawing.menu );
+										}
 									}
 								} )( item );
 
@@ -3538,6 +3566,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 												this[ "to" + item.format ]( item, function( data ) {
 													if ( item.action == "download" ) {
 														this.download( data, item.mimeType, [ item.fileName, item.extension ].join( "." ) );
+														this.createMenu( this.config.menu );
 													}
 												} );
 											} )
@@ -3545,6 +3574,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 										} else if ( this[ "to" + item.format ] ) {
 											this[ "to" + item.format ]( item, function( data ) {
 												this.download( data, item.mimeType, [ item.fileName, item.extension ].join( "." ) );
+												this.createMenu( this.config.menu );
 											} );
 										} else {
 											throw new Error( 'Invalid format. Could not determine output type.' );
