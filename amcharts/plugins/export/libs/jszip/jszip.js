@@ -9,7 +9,17 @@ Dual licenced under the MIT license or GPLv3. See https://raw.github.com/Stuk/js
 JSZip uses the library pako released under the MIT license :
 https://github.com/nodeca/pako/blob/master/LICENSE
 */
-!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.JSZip=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
+(function(e){
+	if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();
+	else if("function"==typeof define&&define.amd){JSZip=e();define([],e);}
+	else{
+		var f;
+		"undefined"!=typeof window?f=window:
+		"undefined"!=typeof global?f=global:
+		"undefined"!=typeof $ && $.global?f=$.global:
+		"undefined"!=typeof self&&(f=self),f.JSZip=e()
+	}
+}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 'use strict';
 // private property
 var _keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -115,7 +125,7 @@ module.exports = CompressedObject;
 'use strict';
 exports.STORE = {
     magic: "\x00\x00",
-    compress: function(content, compressionOptions) {
+    compress: function(content) {
         return content; // no compression
     },
     uncompress: function(content) {
@@ -347,10 +357,7 @@ exports.dir = false;
 exports.createFolders = false;
 exports.date = null;
 exports.compression = null;
-exports.compressionOptions = null;
 exports.comment = null;
-exports.unixPermissions = null;
-exports.dosPermissions = null;
 
 },{}],7:[function(_dereq_,module,exports){
 'use strict';
@@ -468,10 +475,8 @@ exports.uncompressInputType = USE_TYPEDARRAY ? "uint8array" : "array";
 exports.compressInputType = USE_TYPEDARRAY ? "uint8array" : "array";
 
 exports.magic = "\x08\x00";
-exports.compress = function(input, compressionOptions) {
-    return pako.deflateRaw(input, {
-        level : compressionOptions.level || -1 // default compression
-    });
+exports.compress = function(input) {
+    return pako.deflateRaw(input);
 };
 exports.uncompress =  function(input) {
     return pako.inflateRaw(input);
@@ -579,8 +584,6 @@ module.exports = function(data, options) {
             date: input.date,
             dir: input.dir,
             comment : input.fileComment.length ? input.fileComment : null,
-            unixPermissions : input.unixPermissions,
-            dosPermissions : input.dosPermissions,
             createFolders: options.createFolders
         });
     }
@@ -600,7 +603,6 @@ module.exports = function(data, encoding){
 module.exports.test = function(b){
     return Buffer.isBuffer(b);
 };
-
 }).call(this,(typeof Buffer !== "undefined" ? Buffer : undefined))
 },{}],12:[function(_dereq_,module,exports){
 'use strict';
@@ -726,8 +728,6 @@ var ZipObject = function(name, data, options) {
     this.dir = options.dir;
     this.date = options.date;
     this.comment = options.comment;
-    this.unixPermissions = options.unixPermissions;
-    this.dosPermissions = options.dosPermissions;
 
     this._data = data;
     this.options = options;
@@ -852,23 +852,6 @@ var fileAdd = function(name, data, o) {
 
     o = prepareFileAttrs(o);
 
-    if (typeof o.unixPermissions === "string") {
-        o.unixPermissions = parseInt(o.unixPermissions, 8);
-    }
-
-    // UNX_IFDIR  0040000 see zipinfo.c
-    if (o.unixPermissions && (o.unixPermissions & 0x4000)) {
-        o.dir = true;
-    }
-    // Bit 4    Directory
-    if (o.dosPermissions && (o.dosPermissions & 0x0010)) {
-        o.dir = true;
-    }
-
-    if (o.dir) {
-        name = forceTrailingSlash(name);
-    }
-
     if (o.createFolders && (parent = parentFolder(name))) {
         folderAdd.call(this, parent, true);
     }
@@ -877,7 +860,6 @@ var fileAdd = function(name, data, o) {
         o.base64 = false;
         o.binary = false;
         data = null;
-        dataType = null;
     }
     else if (dataType === "string") {
         if (o.binary && !o.base64) {
@@ -922,20 +904,6 @@ var parentFolder = function (path) {
     return (lastSlash > 0) ? path.substring(0, lastSlash) : "";
 };
 
-
-/**
- * Returns the path with a slash at the end.
- * @private
- * @param {String} path the path to check.
- * @return {String} the path with a trailing slash.
- */
-var forceTrailingSlash = function(path) {
-    // Check the name ends with a /
-    if (path.slice(-1) != "/") {
-        path += "/"; // IE doesn't like substr(-1)
-    }
-    return path;
-};
 /**
  * Add a (sub) folder in the current folder.
  * @private
@@ -945,9 +913,12 @@ var forceTrailingSlash = function(path) {
  * @return {Object} the new folder.
  */
 var folderAdd = function(name, createFolders) {
-    createFolders = (typeof createFolders !== 'undefined') ? createFolders : false;
+    // Check the name ends with a /
+    if (name.slice(-1) != "/") {
+        name += "/"; // IE doesn't like substr(-1)
+    }
 
-    name = forceTrailingSlash(name);
+    createFolders = (typeof createFolders !== 'undefined') ? createFolders : false;
 
     // Does this folder already exist?
     if (!this.files[name]) {
@@ -963,10 +934,9 @@ var folderAdd = function(name, createFolders) {
  * Generate a JSZip.CompressedObject for a given zipOject.
  * @param {ZipObject} file the object to read.
  * @param {JSZip.compression} compression the compression to use.
- * @param {Object} compressionOptions the options to use when compressing.
  * @return {JSZip.CompressedObject} the compressed result.
  */
-var generateCompressedObjectFrom = function(file, compression, compressionOptions) {
+var generateCompressedObjectFrom = function(file, compression) {
     var result = new CompressedObject(),
         content;
 
@@ -986,7 +956,7 @@ var generateCompressedObjectFrom = function(file, compression, compressionOption
         else {
             content = file._data.getContent();
             // need to decompress / recompress
-            result.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content), compressionOptions);
+            result.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content));
         }
     }
     else {
@@ -998,7 +968,7 @@ var generateCompressedObjectFrom = function(file, compression, compressionOption
         }
         result.uncompressedSize = content.length;
         result.crc32 = crc32(content);
-        result.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content), compressionOptions);
+        result.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content));
     }
 
     result.compressedSize = result.compressedContent.length;
@@ -1007,67 +977,15 @@ var generateCompressedObjectFrom = function(file, compression, compressionOption
     return result;
 };
 
-
-
-
-/**
- * Generate the UNIX part of the external file attributes.
- * @param {Object} unixPermissions the unix permissions or null.
- * @param {Boolean} isDir true if the entry is a directory, false otherwise.
- * @return {Number} a 32 bit integer.
- *
- * adapted from http://unix.stackexchange.com/questions/14705/the-zip-formats-external-file-attribute :
- *
- * TTTTsstrwxrwxrwx0000000000ADVSHR
- * ^^^^____________________________ file type, see zipinfo.c (UNX_*)
- *     ^^^_________________________ setuid, setgid, sticky
- *        ^^^^^^^^^________________ permissions
- *                 ^^^^^^^^^^______ not used ?
- *                           ^^^^^^ DOS attribute bits : Archive, Directory, Volume label, System file, Hidden, Read only
- */
-var generateUnixExternalFileAttr = function (unixPermissions, isDir) {
-
-    var result = unixPermissions;
-    if (!unixPermissions) {
-        // I can't use octal values in strict mode, hence the hexa.
-        //  040775 => 0x41fd
-        // 0100664 => 0x81b4
-        result = isDir ? 0x41fd : 0x81b4;
-    }
-
-    return (result & 0xFFFF) << 16;
-};
-
-/**
- * Generate the DOS part of the external file attributes.
- * @param {Object} dosPermissions the dos permissions or null.
- * @param {Boolean} isDir true if the entry is a directory, false otherwise.
- * @return {Number} a 32 bit integer.
- *
- * Bit 0     Read-Only
- * Bit 1     Hidden
- * Bit 2     System
- * Bit 3     Volume Label
- * Bit 4     Directory
- * Bit 5     Archive
- */
-var generateDosExternalFileAttr = function (dosPermissions, isDir) {
-
-    // the dir flag is already set for compatibility
-
-    return (dosPermissions || 0)  & 0x3F;
-};
-
 /**
  * Generate the various parts used in the construction of the final zip file.
  * @param {string} name the file name.
  * @param {ZipObject} file the file content.
  * @param {JSZip.CompressedObject} compressedObject the compressed object.
  * @param {number} offset the current offset from the start of the zip file.
- * @param {String} platform let's pretend we are this platform (change platform dependents fields)
  * @return {object} the zip parts.
  */
-var generateZipParts = function(name, file, compressedObject, offset, platform) {
+var generateZipParts = function(name, file, compressedObject, offset) {
     var data = compressedObject.compressedContent,
         utfEncodedFileName = utils.transformTo("string", utf8.utf8encode(file.name)),
         comment = file.comment || "",
@@ -1097,24 +1015,6 @@ var generateZipParts = function(name, file, compressedObject, offset, platform) 
         date = o.date;
     }
 
-    var extFileAttr = 0;
-    var versionMadeBy = 0;
-    if (dir) {
-        // dos or unix, we set the dos dir flag
-        extFileAttr |= 0x00010;
-    }
-    if(platform === "UNIX") {
-        versionMadeBy = 0x031E; // UNIX, version 3.0
-        extFileAttr |= generateUnixExternalFileAttr(file.unixPermissions, dir);
-    } else { // DOS or other, fallback to DOS
-        versionMadeBy = 0x0014; // DOS, version 2.0
-        extFileAttr |= generateDosExternalFileAttr(file.dosPermissions, dir);
-    }
-
-    // date
-    // @see http://www.delorie.com/djgpp/doc/rbinter/it/52/13.html
-    // @see http://www.delorie.com/djgpp/doc/rbinter/it/65/16.html
-    // @see http://www.delorie.com/djgpp/doc/rbinter/it/66/16.html
 
     dosTime = date.getHours();
     dosTime = dosTime << 6;
@@ -1203,7 +1103,7 @@ var generateZipParts = function(name, file, compressedObject, offset, platform) 
 
     var dirRecord = signature.CENTRAL_FILE_HEADER +
     // version made by (00: DOS)
-    decToHex(versionMadeBy, 2) +
+    "\x14\x00" +
     // file header (common to file and central directory)
     header +
     // file comment length
@@ -1213,7 +1113,7 @@ var generateZipParts = function(name, file, compressedObject, offset, platform) 
     // internal file attributes TODO
     "\x00\x00" +
     // external file attributes
-    decToHex(extFileAttr, 4) +
+    (dir === true ? "\x10\x00\x00\x00" : "\x00\x00\x00\x00") +
     // relative offset of local header
     decToHex(offset, 4) +
     // file name
@@ -1371,27 +1271,11 @@ var out = {
         options = extend(options || {}, {
             base64: true,
             compression: "STORE",
-            compressionOptions : null,
             type: "base64",
-            platform: "DOS",
-            comment: null,
-            mimeType: 'application/zip'
+            comment: null
         });
 
         utils.checkSupport(options.type);
-
-        // accept nodejs `process.platform`
-        if(
-          options.platform === 'darwin' ||
-          options.platform === 'freebsd' ||
-          options.platform === 'linux' ||
-          options.platform === 'sunos'
-        ) {
-          options.platform = "UNIX";
-        }
-        if (options.platform === 'win32') {
-          options.platform = "DOS";
-        }
 
         var zipData = [],
             localDirLength = 0,
@@ -1411,11 +1295,10 @@ var out = {
             if (!compression) {
                 throw new Error(compressionName + " is not a valid compression method !");
             }
-            var compressionOptions = file.options.compressionOptions || options.compressionOptions || {};
 
-            var compressedObject = generateCompressedObjectFrom.call(this, file, compression, compressionOptions);
+            var compressedObject = generateCompressedObjectFrom.call(this, file, compression);
 
-            var zipPart = generateZipParts.call(this, name, file, compressedObject, localDirLength, options.platform);
+            var zipPart = generateZipParts.call(this, name, file, compressedObject, localDirLength);
             localDirLength += zipPart.fileRecord.length + compressedObject.compressedSize;
             centralDirLength += zipPart.dirRecord.length;
             zipData.push(zipPart);
@@ -1473,7 +1356,7 @@ var out = {
             case "nodebuffer" :
                return utils.transformTo(options.type.toLowerCase(), zip);
             case "blob" :
-               return utils.arrayBuffer2Blob(utils.transformTo("arraybuffer", zip), options.mimeType);
+               return utils.arrayBuffer2Blob(utils.transformTo("arraybuffer", zip));
             // case "zip is a string"
             case "base64" :
                return (options.base64) ? base64.encode(zip) : zip;
@@ -1939,14 +1822,13 @@ exports.string2binary = function(str) {
     }
     return result;
 };
-exports.arrayBuffer2Blob = function(buffer, mimeType) {
+exports.arrayBuffer2Blob = function(buffer) {
     exports.checkSupport("blob");
-    mimeType = mimeType || 'application/zip';
 
     try {
         // Blob constructor
         return new Blob([buffer], {
-            type: mimeType
+            type: "application/zip"
         });
     }
     catch (e) {
@@ -1956,7 +1838,7 @@ exports.arrayBuffer2Blob = function(buffer, mimeType) {
             var Builder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder || window.MSBlobBuilder;
             var builder = new Builder();
             builder.append(buffer);
-            return builder.getBlob(mimeType);
+            return builder.getBlob('application/zip');
         }
         catch (e) {
 
@@ -2362,7 +2244,6 @@ ZipEntries.prototype = {
             this.checkSignature(sig.LOCAL_FILE_HEADER);
             file.readLocalPart(this.reader);
             file.handleUTF8();
-            file.processAttributes();
         }
     },
     /**
@@ -2386,24 +2267,7 @@ ZipEntries.prototype = {
     readEndOfCentral: function() {
         var offset = this.reader.lastIndexOfSignature(sig.CENTRAL_DIRECTORY_END);
         if (offset === -1) {
-            // Check if the content is a truncated zip or complete garbage.
-            // A "LOCAL_FILE_HEADER" is not required at the beginning (auto
-            // extractible zip for example) but it can give a good hint.
-            // If an ajax request was used without responseType, we will also
-            // get unreadable data.
-            var isGarbage = true;
-            try {
-                this.reader.setIndex(0);
-                this.checkSignature(sig.LOCAL_FILE_HEADER);
-                isGarbage = false;
-            } catch (e) {}
-
-            if (isGarbage) {
-                throw new Error("Can't find end of central directory : is this a zip file ? " +
-                                "If it is, see http://stuk.github.io/jszip/documentation/howto/read_zip.html");
-            } else {
-                throw new Error("Corrupted zip : can't find end of central directory");
-            }
+            throw new Error("Corrupted zip : can't find end of central directory");
         }
         this.reader.setIndex(offset);
         this.checkSignature(sig.CENTRAL_DIRECTORY_END);
@@ -2479,10 +2343,6 @@ var StringReader = _dereq_('./stringReader');
 var utils = _dereq_('./utils');
 var CompressedObject = _dereq_('./compressedObject');
 var jszipProto = _dereq_('./object');
-
-var MADE_BY_DOS = 0x00;
-var MADE_BY_UNIX = 0x03;
-
 // class ZipEntry {{{
 /**
  * An entry in the zip file.
@@ -2609,7 +2469,7 @@ ZipEntry.prototype = {
      * @param {DataReader} reader the reader to use.
      */
     readCentralPart: function(reader) {
-        this.versionMadeBy = reader.readInt(2);
+        this.versionMadeBy = reader.readString(2);
         this.versionNeeded = reader.readInt(2);
         this.bitFlag = reader.readInt(2);
         this.compressionMethod = reader.readString(2);
@@ -2633,37 +2493,10 @@ ZipEntry.prototype = {
         this.readExtraFields(reader);
         this.parseZIP64ExtraField(reader);
         this.fileComment = reader.readString(this.fileCommentLength);
+
+        // warning, this is true only for zip with madeBy == DOS (plateform dependent feature)
+        this.dir = this.externalFileAttributes & 0x00000010 ? true : false;
     },
-
-    /**
-     * Parse the external file attributes and get the unix/dos permissions.
-     */
-    processAttributes: function () {
-        this.unixPermissions = null;
-        this.dosPermissions = null;
-        var madeBy = this.versionMadeBy >> 8;
-
-        // Check if we have the DOS directory flag set.
-        // We look for it in the DOS and UNIX permissions
-        // but some unknown platform could set it as a compatibility flag.
-        this.dir = this.externalFileAttributes & 0x0010 ? true : false;
-
-        if(madeBy === MADE_BY_DOS) {
-            // first 6 bits (0 to 5)
-            this.dosPermissions = this.externalFileAttributes & 0x3F;
-        }
-
-        if(madeBy === MADE_BY_UNIX) {
-            this.unixPermissions = (this.externalFileAttributes >> 16) & 0xFFFF;
-            // the octal permissions are in (this.unixPermissions & 0x01FF).toString(8);
-        }
-
-        // fail safe : if the name ends with a / it probably means a folder
-        if (!this.dir && this.fileName.slice(-1) === '/') {
-            this.dir = true;
-        }
-    },
-
     /**
      * Parse the ZIP64 extra field and merge the info in the current ZipEntry.
      * @param {DataReader} reader the reader to use.
@@ -5727,7 +5560,7 @@ function GZheader() {
                        // but leave for few code modifications
 
   //
-  // Setup limits is not necessary because in js we should not preallocate memory 
+  // Setup limits is not necessary because in js we should not preallocate memory
   // for inflate use constant limit in 65536 bytes
   //
 
@@ -9152,4 +8985,4 @@ function ZStream() {
 module.exports = ZStream;
 },{}]},{},[9])
 (9)
-});
+}));

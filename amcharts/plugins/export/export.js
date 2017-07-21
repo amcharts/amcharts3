@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.66
+Version: 1.4.72
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.66",
+			version: "1.4.72",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -136,11 +136,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 
 							_this.setup.fabric.renderAll();
-
-							// RECALL
-							if ( item.state == item.target.recentState && !skipped ) {
-								_this.drawing.handler.undo( item, true );
-							}
 						}
 					},
 					redo: function( options, skipped ) {
@@ -166,11 +161,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 
 							_this.setup.fabric.renderAll();
-
-							// RECALL
-							if ( item.action == "addified" ) {
-								_this.drawing.handler.redo();
-							}
 						}
 					},
 					done: function( options ) {
@@ -181,8 +171,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						_this.createMenu( _this.config.menu );
 						_this.setup.fabric.deactivateAll();
 
-						if ( _this.setup.wrapper ) {
-							_this.setup.chart.containerDiv.removeChild( _this.setup.wrapper );
+						if ( _this.isElement(_this.setup.wrapper) && _this.isElement(_this.setup.wrapper.parentNode) && _this.setup.wrapper.parentNode.removeChild ) {
+							_this.setup.wrapper.parentNode.removeChild( _this.setup.wrapper );
 							_this.setup.wrapper = false;
 						}
 					},
@@ -324,7 +314,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 							// ADD UNDO
 							if ( !skipped ) {
-								state = JSON.stringify( _this.deepMerge( current.saveState().originalState, {
+								state = JSON.stringify( _this.deepMerge( current.saveState()._stateProperties, {
 									cfg: {
 										color: cfg.color,
 										width: cfg.width,
@@ -441,6 +431,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 						} else {
 							for ( i1 = 0; i1 < cfg.group.length; i1++ ) {
+								cfg.group[ i1 ].ignoreUndo = true;
 								_this.setup.fabric.add( cfg.group[ i1 ] );
 							}
 						}
@@ -590,6 +581,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			},
 
 			/**
+			 * Buffer for latter listener clearance
+			 */
+			listenersToRemove: [],
+
+			/**
 			 * Returns translated message, takes english as default
 			 */
 			i18l: function( key, language ) {
@@ -638,7 +634,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						label: "Done",
 						click: function() {
 							_this.createMenu( _this.config.menu );
-							_this.setup.chart.containerDiv.removeChild( div );
+							if ( _this.isElement(_this.setup.chart.containerDiv) ) {
+								_this.setup.chart.containerDiv.removeChild( div );
+							}
 						}
 					} ] );
 
@@ -665,7 +663,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						label: "Done",
 						click: function() {
 							_this.createMenu( _this.config.menu );
-							_this.setup.chart.containerDiv.removeChild( div );
+							if ( _this.isElement(_this.setup.chart.containerDiv) ) {
+								_this.setup.chart.containerDiv.removeChild( div );
+							}
 						}
 					} ] );
 
@@ -684,7 +684,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				var i1, exist, node, item, check, type;
 				var url = src.indexOf( "//" ) != -1 ? src : [ _this.libs.path, src ].join( "" );
 
-				var loadCallback = function callback() {
+				function errorCallback() {
+						_this.handleLog( [ "amCharts[export]: Loading error on ", this.src || this.href ].join( "" ) );
+				}
+
+				function loadCallback() {
 					if ( addons ) {
 						for ( i1 = 0; i1 < addons.length; i1++ ) {
 							_this.loadResource( addons[ i1 ] );
@@ -735,21 +739,24 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				if ( !exist || _this.libs.reload ) {
 					node.addEventListener( "load", loadCallback );
-					node.addEventListener( "error", function() {
-						_this.handleLog( [ "amCharts[export]: Loading error on ", this.src || this.href ].join( "" ) );
-					} );
+					_this.addListenerToRemove( "load", node, loadCallback );
+					node.addEventListener( "error", errorCallback );
+					_this.addListenerToRemove( "error", node, errorCallback );
+
 					document.head.appendChild( node );
 
-					if ( !_this.listenersToRemove ) {
-						_this.listenersToRemove = [];
-					}
-
-					_this.listenersToRemove.push( {
-						node: node,
-						method: loadCallback,
-						event: "load"
-					} );
 				}
+			},
+
+			/**
+			 * Adds listeners to the buffer for latter listener clearance
+			 */
+			addListenerToRemove: function(event,node,method) {
+				_this.listenersToRemove.push( {
+					node: node,
+					method: method,
+					event: event
+				} );
 			},
 
 			/**
@@ -1476,12 +1483,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				_this.setup.canvas = document.createElement( "canvas" );
 				_this.setup.wrapper.appendChild( _this.setup.canvas );
 
-
-				_this.setup.fabric = new fabric.Canvas( _this.setup.canvas, _this.deepMerge( {
+				// PREPARE CONFIG FOR FABRIC INSTANCE
+				var fabricCFG = _this.removeFunctionsFromObject(_this.deepMerge( {
 					width: offset.width,
 					height: offset.height,
 					isDrawingMode: true
-				}, cfg ) );
+				}, cfg ));
+
+				// INITIATE FABRIC INSTANCE
+				_this.setup.fabric = new fabric.Canvas( _this.setup.canvas, fabricCFG );
 
 				// REAPPLY FOR SOME REASON
 				_this.deepMerge( _this.setup.fabric, cfg );
@@ -1521,6 +1531,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							// FORCE FABRIC TO DISABLE DRAWING MODE WHILE PRESSED / MOVEING MOUSE INPUT
 							_this.setup.fabric.isDrawingMode = false;
 							_this.setup.fabric._isCurrentlyDrawing = false;
+							_this.drawing.buffer.ignoreUndoOnMouseUp = true;
 							_this.setup.fabric.freeDrawingBrush.onMouseUp();
 							_this.setup.fabric.remove( _this.setup.fabric._objects.pop() );
 
@@ -1548,7 +1559,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						l.x2 = p.x2;
 						l.y2 = p.y2;
 
-						// // RESET INTERNAL FLAGS	
+						// // RESET INTERNAL FLAGS
 						// _this.drawing.buffer.isDrawing = true;
 						// _this.drawing.buffer.isPressed = true;
 						// _this.drawing.buffer.hasLine = true;
@@ -1641,7 +1652,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				// OBSERVE OBJECT MODIFICATIONS
 				_this.setup.fabric.on( "object:added", function( e ) {
 					var item = e.target;
-					var state = _this.deepMerge( item.saveState().originalState, {
+					var state = _this.deepMerge( item.saveState()._stateProperties, {
 						cfg: {
 							color: _this.drawing.color,
 							width: _this.drawing.width,
@@ -1653,15 +1664,15 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					state = JSON.stringify( state );
 					item.recentState = state;
 
-					if ( item.selectable && !item.known ) {
+					if ( _this.drawing.buffer.ignoreUndoOnMouseUp || !_this.drawing.buffer.isDrawing ) {
+						_this.drawing.buffer.ignoreUndoOnMouseUp = false;
+						return;
+					}
+
+					if ( item.selectable && !item.known && !item.ignoreUndo ) {
 						item.isAnnotation = true;
 						_this.drawing.undos.push( {
 							action: "added",
-							target: item,
-							state: state
-						} );
-						_this.drawing.undos.push( {
-							action: "addified",
 							target: item,
 							state: state
 						} );
@@ -1674,7 +1685,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				_this.setup.fabric.on( "object:modified", function( e ) {
 					var item = e.target;
 					var recentState = JSON.parse( item.recentState );
-					var state = _this.deepMerge( item.saveState().originalState, {
+					var state = _this.deepMerge( item.saveState()._stateProperties, {
 						cfg: recentState.cfg
 					} );
 
@@ -1693,7 +1704,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					var item = e.target;
 					clearTimeout( item.timer );
 					item.timer = setTimeout( function() {
-						var state = JSON.stringify( item.saveState().originalState );
+						var state = JSON.stringify( item.saveState()._stateProperties );
 
 						item.recentState = state;
 
@@ -2031,11 +2042,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 										var style_text = fabric.parseStyleAttribute( elm_parent.childNodes[ 0 ] );
 										var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.textContent || elm_parent.innerHTML, {
 											selectable: false,
-											top: style_parent.top + group.offset.y,
-											left: style_parent.left + group.offset.x,
+											top: _this.pxToNumber(style_parent.top) + group.offset.y,
+											left: _this.pxToNumber(style_parent.left) + group.offset.x,
 											fill: style_text[ "color" ],
-											fontSize: style_text[ "fontSize" ],
-											fontFamily: style_text[ "fontFamily" ],
+											fontSize: _this.pxToNumber(style_text[ "fontSize" ] || style_text[ "font-size" ]),
+											fontFamily: style_text[ "fontFamily" ] || style_text[ "font-family" ],
 											textAlign: style_text[ "text-align" ],
 											isCoreElement: true
 										} );
@@ -2050,11 +2061,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								var style_parent = fabric.parseStyleAttribute( elm_parent );
 								var fabric_label = new fabric.Text( elm_parent.innerText || elm_parent.textContent || elm_parent.innerHTML, {
 									selectable: false,
-									top: style_parent.top + group.offset.y,
-									left: style_parent.left + group.offset.x,
+									top: _this.pxToNumber(style_parent.top) + group.offset.y,
+									left: _this.pxToNumber(style_parent.left) + group.offset.x,
 									fill: style_parent[ "color" ],
-									fontSize: style_parent[ "fontSize" ],
-									fontFamily: style_parent[ "fontFamily" ],
+									fontSize: _this.pxToNumber(style_parent[ "fontSize" ] || style_parent[ "font-size" ]),
+									fontFamily: style_parent[ "fontFamily" ] || style_parent[ "font-family" ],
 									opacity: style_parent[ "opacity" ],
 									isCoreElement: true
 								} );
@@ -2224,6 +2235,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				cfg.format = cfg.format.toLowerCase();
 				var data;
 
+				// DISABLE SCALING ON IOS DEVICES
+				if ( /iP(hone|od|ad)/.test(navigator.platform) ) {
+					cfg.multiplier = 1;
+				}
+
 				// NAMESPACE CHECK
 				if ( !_this.handleNamespace( "fabric", {
 						scope: this,
@@ -2252,6 +2268,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					multiplier: _this.config.multiplier
 				}, options || {} );
 				var data;
+
+				// DISABLE SCALING ON IOS DEVICES
+				if ( /iP(hone|od|ad)/.test(navigator.platform) ) {
+					cfg.multiplier = 1;
+				}
 
 				// NAMESPACE CHECK
 				if ( !_this.handleNamespace( "fabric", {
@@ -2393,6 +2414,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				}, _this.config.pdfMake ), options || {}, true );
 				var data;
 
+				// DISABLE SCALING ON IOS DEVICES
+				if ( /iP(hone|od|ad)/.test(navigator.platform) ) {
+					cfg.multiplier = 1;
+				}
+
 				// NAMESPACE CHECK
 				if ( !_this.handleNamespace( "pdfMake", {
 						scope: this,
@@ -2401,9 +2427,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					} ) ) {
 					return false;
 				}
-
-				// Create PDF instance
-				data = new pdfMake.createPdf( cfg );
 
 				// Get image data
 				cfg.images.reference = _this.toPNG( cfg );
@@ -2484,6 +2507,9 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					cfg.content = pageContent;
 				}
 
+				// Create PDF instance
+				data = new pdfMake.createPdf( cfg );
+
 				if ( callback ) {
 					data.getDataUrl( ( function( callback ) {
 						return function( a ) {
@@ -2501,7 +2527,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 			toPRINT: function( options, callback ) {
 				var i1;
 				var cfg = _this.deepMerge( {
-					delay: 0.01,
+					delay: 1,
 					lossless: false
 				}, options || {} );
 				var data = _this.toImage( cfg );
@@ -2520,19 +2546,19 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 				document.body.appendChild( data );
 
+				// CONVERT TO SECONDS
+				cfg.delay *= 1000;
+
+				// IOS EXCEPTION DELAY MIN. 1 SECOND
+				var isIOS = /iPad|iPhone|iPod/.test( navigator.userAgent ) && !window.MSStream;
+				if ( isIOS && cfg.delay < 1000 ) {
+					cfg.delay = 1000;
+				}
+
 				// DELAY WHOLE PROCESS
 				setTimeout(function() {
 					// PRINT
 					window.print();
-
-					// CONVERT TO SECONDS
-					cfg.delay *= 1000;
-
-					// IOS EXCEPTION DELAY MIN. 1 SECOND
-					var isIOS = /iPad|iPhone|iPod/.test( navigator.userAgent ) && !window.MSStream;
-					if ( isIOS && cfg.delay < 1000 ) {
-						cfg.delay = 1000;
-					}
 
 					setTimeout( function() {
 						for ( i1 = 0; i1 < items.length; i1++ ) {
@@ -2546,7 +2572,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						// TRIGGER CALLBACK
 						_this.handleCallback( callback, data, cfg );
 					}, cfg.delay );
-				},1);
+				}, cfg.delay);
 
 				return data;
 			},
@@ -2888,6 +2914,18 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				_this.handleCallback( callback, data, cfg );
 
 				return data;
+			},
+
+			/**
+			 * Method to remove functions from given object
+			 */
+			removeFunctionsFromObject: function( obj ) {
+				for (var key in obj) {
+					if ( typeof obj[key] === "function" ) {
+						delete obj[key];
+					}
+				}
+				return obj;
 			},
 
 			/**
@@ -3425,7 +3463,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 								}
 
 								this.parentNode.classList.add( "active" );
-								this.parentNode.parentNode.parentNode.classList.add( "active" );	
+								this.parentNode.parentNode.parentNode.classList.add( "active" );
 							}
 						} );
 
@@ -3591,31 +3629,32 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 						// ADD LINK ATTR
 						a.setAttribute( "href", "#" );
-						a.addEventListener( "click", ( function( callback, item ) {
-							return function( e ) {
-								e.preventDefault();
-								var args = [ e, item ];
-
-								// DELAYED
-								if ( ( item.action == "draw" || item.format == "PRINT" || ( item.format != "UNDEFINED" && item.capture ) ) && !_this.drawing.enabled ) {
-
-									// VALIDATE DELAY
-									if ( !isNaN( item.delay ) || !isNaN( _this.config.delay ) ) {
-										item.delay = !isNaN( item.delay ) ? item.delay : _this.config.delay;
-										_this.delay( item, callback );
-										return;
-									}
-								}
-
-								callback.apply( _this, args );
-							}
-						} )( item.click || function( e ) {
-							e.preventDefault();
-						}, item ) );
 
 						// ENABLE MANUAL ACTIVE STATE ON TOUCH DEVICES
 						if ( _this.setup.hasTouch && li.classList ) {
-							a.addEventListener( "click", ( function( item ) {
+							a.addEventListener( "touchend", ( function( callback, item ) {
+								return function( e ) {
+									e.preventDefault();
+									var args = [ e, item ];
+
+									// DELAYED
+									if ( ( item.action == "draw" || item.format == "PRINT" || ( item.format != "UNDEFINED" && item.capture ) ) && !_this.drawing.enabled ) {
+
+										// VALIDATE DELAY
+										if ( !isNaN( item.delay ) || !isNaN( _this.config.delay ) ) {
+											item.delay = !isNaN( item.delay ) ? item.delay : _this.config.delay;
+											_this.delay( item, callback );
+											return;
+										}
+									}
+
+									callback.apply( _this, args );
+								}
+							} )( item.click || function( e ) {
+								e.preventDefault();
+							}, item ) );
+
+							a.addEventListener( "touchend", ( function( item ) {
 								return function( e ) {
 									e.preventDefault();
 									var li = item.elements.li;
@@ -3691,6 +3730,30 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 									}
 								}
 							} )( item ) );
+
+						// NON TOUCH DEVICES
+						} else {
+							a.addEventListener( "click", ( function( callback, item ) {
+								return function( e ) {
+									e.preventDefault();
+									var args = [ e, item ];
+
+									// DELAYED
+									if ( ( item.action == "draw" || item.format == "PRINT" || ( item.format != "UNDEFINED" && item.capture ) ) && !_this.drawing.enabled ) {
+
+										// VALIDATE DELAY
+										if ( !isNaN( item.delay ) || !isNaN( _this.config.delay ) ) {
+											item.delay = !isNaN( item.delay ) ? item.delay : _this.config.delay;
+											_this.delay( item, callback );
+											return;
+										}
+									}
+
+									callback.apply( _this, args );
+								}
+							} )( item.click || function( e ) {
+								e.preventDefault();
+							}, item ) );
 						}
 
 						li.appendChild( a );
@@ -3863,19 +3926,38 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				return cfg;
 			},
 
+			/*
+			 ** Method to clear all listeners
+			 */
 			clear: function() {
-				_this.setup = undefined;
-				if ( _this.docListener ) {
-					document.removeEventListener( "keydown", _this.docListener );
+				var i1, listener;
+
+				// Remove fabric listeners
+				if ( _this.setup.fabric !== undefined ) {
+					_this.setup.fabric.removeListeners();
 				}
-				var listenersToRemove = _this.listenersToRemove;
-				if ( listenersToRemove ) {
-					for ( var i = 0; i < listenersToRemove.length; i++ ) {
-						var listenerToRemove = listenersToRemove[ i ];
-						listenerToRemove.node.removeEventListener( listenerToRemove.event, listenerToRemove.method )
-					}
+
+				// Loop through the buffered listeners
+				for ( i1 = 0; i1 < _this.listenersToRemove.length; i1++ ) {
+					listener = _this.listenersToRemove[ i1 ];
+					listener.node.removeEventListener( listener.event, listener.method );
 				}
+
+				// Remove wrapper
+				if ( _this.isElement(_this.setup.wrapper) && _this.isElement(_this.setup.wrapper.parentNode) && _this.setup.wrapper.parentNode.removeChild ) {
+					_this.setup.wrapper.parentNode.removeChild(_this.setup.wrapper);
+				}
+
+				// Remove menu
+				if ( _this.isElement(_this.setup.menu) && _this.isElement(_this.setup.wrapper.parentNode) && _this.setup.wrapper.parentNode.removeChild ) {
+					_this.setup.menu.parentNode.removeChild(_this.setup.menu);
+				}
+
+				// Remove references
 				_this.listenersToRemove = [];
+				_this.setup.chart.AmExport = undefined;
+				_this.setup.chart.export = undefined;
+				_this.setup = undefined;
 			},
 
 			/*
@@ -3891,8 +3973,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						_this.setup.fabric.add( clone );
 					}
 				}
-
-
 
 				// OBSERVE; KEY LISTENER; DRAWING FEATURES
 				if ( _this.config.keyListener && _this.config.keyListener != "attached" ) {
@@ -4079,13 +4159,17 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					_this.config.keyListener = "attached";
 
 					document.addEventListener( "keydown", _this.docListener );
+					_this.addListenerToRemove( "keydown", document, _this.docListener );
 				}
 
 				// OBSERVE; DRAG AND DROP LISTENER; DRAWING FEATURE
 				if ( _this.config.fileListener ) {
 					_this.setup.chart.containerDiv.addEventListener( "dragover", _this.handleDropbox );
+					_this.addListenerToRemove( "dragover", _this.setup.chart.containerDiv, _this.handleDropbox );
 					_this.setup.chart.containerDiv.addEventListener( "dragleave", _this.handleDropbox );
+					_this.addListenerToRemove( "dragleave", _this.setup.chart.containerDiv, _this.handleDropbox );
 					_this.setup.chart.containerDiv.addEventListener( "drop", _this.handleDropbox );
+					_this.addListenerToRemove( "drop", _this.setup.chart.containerDiv, _this.handleDropbox );
 				}
 			},
 
