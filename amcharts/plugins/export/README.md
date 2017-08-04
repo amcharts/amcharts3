@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.72
+Version: 1.4.73
 
 
 ## Description
@@ -972,6 +972,12 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.4.73
+* Fixed: Exit option in image download fallback (e.g. IE9)
+* Fixed: classList method access issue (see polyfill)
+* Added: `libs/classList.js` [classList polyfill](https://github.com/eligrey/classList.js/blob/master/classList.min.js) for old browser
+* Added: `libs.unsupportedIE9libs` to avoid loading unused resources
 
 ### 1.4.72
 * Fixed: Memory leak within clear method, calls removeListeners on fabric instance.

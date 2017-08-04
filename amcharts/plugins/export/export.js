@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.72
+Version: 1.4.73
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.72",
+			version: "1.4.73",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -87,7 +87,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					"fabric.min.js": "fabric",
 					"FileSaver.min.js": "saveAs"
 				},
-				loadTimeout: 10000
+				loadTimeout: 10000,
+				unsupportedIE9libs: ["pdfmake.min.js", "jszip.min.js", "xlsx.min.js"]
 			},
 			config: {},
 			setup: {
@@ -97,7 +98,8 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				isIE: !!window.document.documentMode,
 				IEversion: window.document.documentMode,
 				hasTouch: typeof window.Touch == "object",
-				focusedMenuItem: undefined
+				focusedMenuItem: undefined,
+				hasClasslist: ("classList" in document.createElement("_"))
 			},
 			drawing: {
 				enabled: false,
@@ -731,12 +733,25 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					var namespace = _this.libs.namespaces[ i1 ];
 					var check = src.toLowerCase();
 					var item = i1.toLowerCase();
-					if ( check.indexOf( item ) != -1 && window[ namespace ] !== undefined ) {
-						exist = true;
-						break;
+
+					if ( check.indexOf( item ) != -1 ) {
+
+						// SKIP UNSUPPORTED IE9 LIBS
+						if ( _this.setup.isIE && _this.setup.IEversion <= 9 ) {
+							if ( _this.libs.unsupportedIE9libs && _this.libs.unsupportedIE9libs.indexOf(item) != -1 ) {
+								return;
+							}
+						}
+
+						// NAMESPACE EXISTS; BREAK LOOP; NEXT
+						if ( window[ namespace ] !== undefined ) {
+							exist = true;
+							break;
+						}
 					}
 				}
 
+				// EXISTS NOT NEEDED TO LOAD
 				if ( !exist || _this.libs.reload ) {
 					node.addEventListener( "load", loadCallback );
 					_this.addListenerToRemove( "load", node, loadCallback );
@@ -744,7 +759,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 					_this.addListenerToRemove( "error", node, errorCallback );
 
 					document.head.appendChild( node );
-
 				}
 			},
 
@@ -3604,7 +3618,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 												this[ "to" + item.format ]( item, function( data ) {
 													if ( item.action == "download" ) {
 														this.download( data, item.mimeType, [ item.fileName, item.extension ].join( "." ) );
-														this.createMenu( this.config.menu );
 													}
 												} );
 											} )
@@ -3612,7 +3625,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 										} else if ( this[ "to" + item.format ] ) {
 											this[ "to" + item.format ]( item, function( data ) {
 												this.download( data, item.mimeType, [ item.fileName, item.extension ].join( "." ) );
-												this.createMenu( this.config.menu );
 											} );
 										} else {
 											throw new Error( 'Invalid format. Could not determine output type.' );
@@ -4031,7 +4043,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 						function blurAll() {
 							function unselectParents( elm ) {
 								if ( _this.isElement(elm) ) {
-									elm.blur();
+									try {
+										elm.blur();
+									} catch(e) {
+										// Lovely IE
+									}
 
 									// BLUR PARENT
 									if ( elm.parentNode ) {
@@ -4306,6 +4322,11 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				// ADD MISSING PATH
 				if ( !_this.libs.path ) {
 					_this.libs.path = _this.config.path + "libs/";
+				}
+
+				// ADD CLASSLIST POLYFILL IF NEEDED
+				if (!_this.setup.hasClasslist) {
+					_this.libs.resources.push("classList.js/classList.min.js");
 				}
 
 				// CHECK ACCEPTANCE
