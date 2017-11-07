@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.16
+Version: 1.0.17
 
 
 ## Description
@@ -352,6 +352,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.17
+* Fixed Gauge loading
 
 ### 1.0.16
 * Added "numberFields" config array

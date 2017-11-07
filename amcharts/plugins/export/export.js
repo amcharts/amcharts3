@@ -2,7 +2,7 @@
 Plugin Name: amCharts Export
 Description: Adds export capabilities to amCharts products
 Author: Benjamin Maertz, amCharts
-Version: 1.4.73
+Version: 1.4.74
 Author URI: http://www.amcharts.com/
 
 Copyright 2016 amCharts
@@ -71,7 +71,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 		var _timer;
 		var _this = {
 			name: "export",
-			version: "1.4.73",
+			version: "1.4.74",
 			libs: {
 				async: true,
 				autoLoad: true,
@@ -2033,10 +2033,6 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 
 							// REPLACE WITH WHITELIST
 							g.paths = paths;
-
-							// CANCEL HALFPIXEL OFFSET ON CANVAS, KEEPS THE DECIMALS ON INDIVIDUAL PATHS
-							tmp.top += 0.5;
-							tmp.left += 0.5;
 
 							// SET PROPS
 							g.set( tmp );

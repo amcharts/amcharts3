@@ -1,6 +1,6 @@
 # amCharts Export
 
-Version: 1.4.73
+Version: 1.4.74
 
 
 ## Description
@@ -972,6 +972,10 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+
+### 1.4.74
+* Fixed: fabricJS half pixel offset
 
 ### 1.4.73
 * Fixed: Exit option in image download fallback (e.g. IE9)

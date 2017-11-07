@@ -2,7 +2,7 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.16
+Version: 1.0.17
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -316,8 +316,6 @@ AmCharts.addInitHandler( function( chart ) {
               }
 
 
-              // take in new data
-              chart.validateData();
 
               // invalidate size for the pie chart
               // disabled for now as it is not longer necessary
@@ -326,8 +324,14 @@ AmCharts.addInitHandler( function( chart ) {
 
               // gauge chart does not trigger dataUpdated event
               // let's explicitly remove the curtain for it
-              if ( 'gauge' === chart.type )
+              // and use `validateNow()
+              if ( 'gauge' === chart.type ) {
                 removeCurtain();
+                chart.validateNow();
+              } else {
+                // take in new data
+                chart.validateData();
+              }
 
               // make the chart animate again
               if ( l.startDuration ) {
