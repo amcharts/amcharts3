@@ -1,6 +1,6 @@
 # amCharts Data Loader
 
-Version: 1.0.17
+Version: 1.0.19
 
 
 ## Description
@@ -352,6 +352,12 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.0.19
+* Load error will now not cancel auto-reload
+
+### 1.0.18
+* Added 500 error handling
 
 ### 1.0.17
 * Fixed Gauge loading

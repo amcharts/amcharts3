@@ -3075,7 +3075,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				_this.handleCallback( callback, "data", false );
 
 				// READY CALLBACK FOR EACH DEPENDENCY
-				for ( filename in _this.libs.namespaces ) {
+				for ( var filename in _this.libs.namespaces ) {
 					var namespace = _this.libs.namespaces[ filename ];
 
 					( function( namespace ) {

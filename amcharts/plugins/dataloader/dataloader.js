@@ -2,10 +2,10 @@
 Plugin Name: amCharts Data Loader
 Description: This plugin adds external data loading capabilities to all amCharts libraries.
 Author: Martynas Majeris, amCharts
-Version: 1.0.17
+Version: 1.0.19
 Author URI: http://www.amcharts.com/
 
-Copyright 2015 amCharts
+Copyright 2015-2017 amCharts
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -352,16 +352,17 @@ AmCharts.addInitHandler( function( chart ) {
 
         }
 
-        // schedule another load if necessary
-        if ( options.reload ) {
 
-          if ( options.timeout )
-            clearTimeout( options.timeout );
+      }
 
-          options.timeout = setTimeout( loadFile, 1000 * options.reload, url, holder, options, providerKey );
-          options.reloading = true;
+      // schedule another load if necessary
+      if ( options.reload ) {
 
-        }
+        if ( options.timeout )
+          clearTimeout( options.timeout );
+
+        options.timeout = setTimeout( loadFile, 1000 * options.reload, url, holder, options, providerKey );
+        options.reloading = true;
 
       }
 
@@ -555,7 +556,7 @@ AmCharts.loadFile = function( url, options, handler ) {
   // set handler for data if async loading
   request.onreadystatechange = function() {
 
-    if ( 4 === request.readyState && 404 === request.status )
+    if ( 4 === request.readyState && ( 404 === request.status || 500 === request.status ) )
       handler.call( this, false );
 
     else if ( 4 === request.readyState && 200 === request.status )
