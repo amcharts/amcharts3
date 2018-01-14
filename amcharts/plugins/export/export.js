@@ -3075,9 +3075,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				_this.handleCallback( callback, "data", false );
 
 				// READY CALLBACK FOR EACH DEPENDENCY
-				Object.keys(_this.libs.namespaces).forEach((filename) => {
-					var namespace = _this.libs.namespaces[ filename ];
-
+				Object.values(_this.libs.namespaces).forEach((namespace) => {
 					( function( namespace ) {
 						var t1 = setInterval( function() {
 							var tsEnd = Number( new Date() );
