@@ -3075,7 +3075,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 				_this.handleCallback( callback, "data", false );
 
 				// READY CALLBACK FOR EACH DEPENDENCY
-				for ( var filename in _this.libs.namespaces ) {
+				Object.keys(_this.libs.namespaces).forEach((filename) => {
 					var namespace = _this.libs.namespaces[ filename ];
 
 					( function( namespace ) {
@@ -3088,7 +3088,7 @@ if ( !AmCharts.translations[ "export" ][ "en" ] ) {
 							}
 						}, AmCharts.updateRate )
 					} )( namespace );
-				}
+				})
 			},
 
 			/**
