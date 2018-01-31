@@ -15,7 +15,7 @@ support staff, so your questions might take longer to respond to here.
 ### Using npm
 
 ```
-npm install amcharts/amcharts3
+npm install amcharts3
 ```
 
 ### Using bower
