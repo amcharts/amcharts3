@@ -2,7 +2,7 @@
 Plugin Name: amCharts Animate
 Description: Smoothly animates the `dataProvider`
 Author: Paul Chapman, amCharts
-Version: 1.1.2
+Version: 1.2.0
 Author URI: http://www.amcharts.com/
 
 Copyright 2015 amCharts
@@ -550,12 +550,16 @@ not apply to any other amCharts products that are covered by different licenses.
 
 		var tweens = getTweens( chart, dataProvider );
 
-		var axes = setAxesMinMax( chart );
+		if ( options.fixedMinMax ) {
+			var axes = setAxesMinMax( chart );
+		}
 
 		chart.dataProvider = dataProvider;
 
 		function onComplete() {
-			resetAxesMinMax( chart, axes );
+			if ( options.fixedMinMax ) {
+				resetAxesMinMax( chart, axes );
+			}
 
 			if ( options.complete != null ) {
 				options.complete();

@@ -1,6 +1,6 @@
 # amCharts Animate
 
-Version: 1.1.2
+Version: 1.2.0
 
 
 ## Description
@@ -52,6 +52,8 @@ The second argument is an object that can contain the following options:
 
 * `complete` is optional: it is a function that is called when the animation completes.
 
+* `fixedMinMax` is optional: if set to `true` it will cause the minimum and maximum to not change while animating.
+
 ----
 
 The new `dataProvider` must be different from the old `dataProvider`
@@ -94,6 +96,9 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 
 ## Changelog
+
+### 1.2.0
+* Adding in new `fixedMinMax` option
 
 ### 1.1.2
 * Fixing a bug with the minimum/maximum
